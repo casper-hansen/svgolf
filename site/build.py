@@ -4626,24 +4626,41 @@ def drive_words(p):
             else "an ideal ramp")
 
 
-def mcard(key, label_html, big_html, sub_html, field_html, rows, facts=(), cls="", after_html=""):
+def mcard(key, label_html, big_html, sub_html, field_html, rows, cls=""):
     """One card of the overview: a label, the big number, one line under it, the field's line (when there is a
-    field), then the body: the standing rows (and `after_html` under them: the board's standing against the field)
-    and the secondary numbers under a rule. Every card has the same five parts, empty or not, so that side by side
-    (style.css, a subgrid) each part starts level with its neighbours' and the rules line up."""
+    field), then the body: the standing rows ("vs par" and "on this page"). Every card has the same five parts, empty
+    or not, so that side by side (style.css, a subgrid) each part starts level with its neighbours' and the rules line
+    up. Since 2026-11-16 (the owner's item 3) a card shows no more than that: its secondary numbers are the overview's
+    fold's (`facts_group`), its place on the board and on the plot's front the Charts tab's (`compare_html`)."""
     c = f"mcard {cls}".strip()
     return (f'<section class="{c}" aria-labelledby="h-{key}"><h3 class="label" id="h-{key}">{label_html}</h3>'
             f'<p class="big">{big_html}</p><p class="sub">{sub_html}</p><div class="mfield">{field_html}</div>'
-            f'<div class="mbody">{rows_html(rows)}{after_html}'
-            + (rows_html(facts, "mrows mfacts") if facts else "") + "</div></section>")
+            f'<div class="mbody">{rows_html(rows)}</div></section>')
+
+
+def facts_group(label, rows, lead_html=""):
+    """One card's secondary numbers in the overview's fold (decided 2026-11-16, the owner's item 3: out of the cards,
+    one click away): its label, a line (the time's measurement sentence) and the rows; "" when it has none."""
+    if not rows and not lead_html:
+        return ""
+    return (f'<div class="dfacts"><p class="label">{label}</p>{lead_html}'
+            + (rows_html(rows, "mrows mfacts") if rows else "") + "</div>")
+
+
+# the overview's fold (decided 2026-11-16, the owner's items 1 and 3): each card's secondary numbers and how the numbers
+# are measured and compared. On a phone (style.css, with JavaScript on, on screen) the three cards stand in one row,
+# each its label, its number and "vs par", and the cards' other lines open with this fold: one tap; without
+# JavaScript and printed, every line is shown as on a wide screen. A label's `lab-more` words go in that row.
+DASH_MORE = "more numbers, and how these are measured and compared"
 
 
 def dashboard_html(s, st, par, designs):
-    """The overview: three cards, Area, Performance (time), Score (area × time), each with its vs-par and
-    on-this-page rows and its secondary numbers, and with a field its beats/matches line; then one note, said once
-    for the three: that the field is empty (when it is), and folded under it the field's definition, what "on this
-    page" counts, how the numbers are measured and which are ranked (it stood as six lines of fine print under the
-    cards)."""
+    """The overview: three cards, Area, Performance (time), Score (area × time), each with its big number, its vs-par
+    and on-this-page rows, and with a field its beats/matches line; then one note, said once for the three: that the
+    field is empty (when it is), and folded under it the secondary numbers of each card (cells, flops, repair, GE,
+    the critical path's cells, unit depth, Fmax-equivalent, the routed course's cells-only columns, wire cost and run;
+    decided 2026-11-16, the owner's item 3: the cards carried eight to ten lines), the time's measurement sentence,
+    the field's definition, what "on this page" counts, how the numbers are measured and which are ranked."""
     t, d, p = s.t, s.d, s.ppa or {}
     m = d["m"]
     pdk = t.pdk
@@ -4664,6 +4681,7 @@ def dashboard_html(s, st, par, designs):
     if isinstance(mapped, dict) and mapped.get("available"):
         area_facts.append(("A1′", esc(um2_text(mapped["area_e4um2_sky130_mapped_v1"])) + " µm²" + tag("research")))
     clocked = "cycles" in m and "period_ps" in m
+    latency = clocked and metrics.has_latency(t.task)
     routed = "the clock period minus the worst setup slack after place and route, wires and clock tree included"
     sub_time = (f"the period, one decision per cycle: {routed}" if pdk == COURSE2 and clocked
                 and not metrics.has_latency(t.task) else
@@ -4675,6 +4693,10 @@ def dashboard_html(s, st, par, designs):
                 f"{counted(m['cycles'], 'cycle')} × {thin(m['period_ps'])} ps; the period is the latest arrival at an "
                 "output, or at a flip-flop's D plus setup, ideal clock" if clocked else
                 f"the delay: the latest output arrival, {critical_words(p) or 'at an output'}")
+    # the card says what the time is in a few words (a latency kind: its two factors, as the score's line says its
+    # two); the measurement sentence is the fold's
+    short_time = (f"{counted(m['cycles'], 'cycle')} × {thin(m['period_ps'])} ps" if latency else
+                  "the period, one decision per cycle" if clocked else "the delay")
     time_facts = [("Fmax-eq.", esc(f"{1e6 / time:.1f}") + " MHz" + tag("derived"))]
     if (p.get("critical") or {}).get("cells") is not None:
         time_facts.append(("critical path", page.link("#critical-path", counted(p["critical"]["cells"], "cell"))))
@@ -4688,11 +4710,11 @@ def dashboard_html(s, st, par, designs):
     area_card = mcard(
         "area", "Area", big_html(um2_text(area_e4, pdk=pdk), "µm²"), f"{esc(exact)} µm² exactly",
         beats_html(st["axes"]["area"]),
-        [vs_par_row(s, st, "area", lambda v: f"{um2_text(v, pdk=pdk)} µm²", par), among_row(st, "area")], area_facts)
+        [vs_par_row(s, st, "area", lambda v: f"{um2_text(v, pdk=pdk)} µm²", par), among_row(st, "area")])
     time_card = mcard(
-        "time", "Performance · time", big_html(thin(time), "ps"), sub_time,
+        "time", '<span class="lab-more">Performance · </span>time', big_html(thin(time), "ps"), esc(short_time),
         beats_html(st["axes"]["time"]),
-        [vs_par_row(s, st, "time", lambda v: f"{thin(v)} ps", par), among_row(st, "time")], time_facts)
+        [vs_par_row(s, st, "time", lambda v: f"{thin(v)} ps", par), among_row(st, "time")])
     score_facts = []
     run = p.get("run") if pdk == COURSE2 else None
     if a0 and a0["exact"]:
@@ -4702,11 +4724,15 @@ def dashboard_html(s, st, par, designs):
         score_facts.append(("routed run", esc(f"seed {run['seed']}, valid"
                                               + (f", with {counted(slow, 'slow-signal warning')}" if slow else ""))))
     score_card = mcard(
-        "score", "Score · area × time", big_html(combined.fmt(combined.um2ns(ex, pdk)), nocase(esc(combined.UNIT))),
+        "score", 'Score<span class="lab-more"> · area × time</span>',
+        big_html(combined.fmt(combined.um2ns(ex, pdk)), nocase(esc(combined.UNIT))),
         f"{esc(exact)} µm² × {esc(thin(time))} ps",
         beats_html(st["axes"]["score"]),
         [vs_par_row(s, st, "score", lambda v: f"{combined.fmt(combined.um2ns(v, pdk))} {combined.UNIT}", par),
-         among_row(st, "score")] + board_rows(s, st, designs), score_facts, cls="score-card")
+         among_row(st, "score")], cls="score-card")
+    facts = ('<div class="dash-facts">' + facts_group("Area", area_facts)
+             + facts_group("Time", time_facts, f'<p class="fine">{sub_time}</p>')
+             + facts_group("Score", score_facts) + "</div>")
     n_p, n_r = st["field_players"], st["field_records"]
     empty = (f'<p class="fine">No other player has a ranked record on {task_ref_html(t)} yet: the beats and matches '
              "lines come with the first one.</p>" if not field else "")
@@ -4718,7 +4744,7 @@ def dashboard_html(s, st, par, designs):
                                                                      (nrec, "submission"), (nbase, "baseline")) if n])
     among = (f"“On this page” and “Pareto” compare with the {len(designs)} designs of the area-time plot "
              f"({esc(kinds)}): not a ranking." if len(designs) > 1 else
-             f"This design is the only one with {PDK_AXIS[pdk]} numbers on this page, so the cards have no “on this page” or "
+             f"This design is the only one with {PDK_AXIS[pdk]} numbers on this page, so there is no “on this page” or "
              "“Pareto” row.")
     counts = ("each player counts once, at their best, and ties are exact at the recorded unit; " if field else "")
     field_note = (f"The field is the ranked records of {task_ref_html(t)}'s other players at this "
@@ -4740,10 +4766,8 @@ def dashboard_html(s, st, par, designs):
                "Area, time and score are ranked on this course (its leaderboard orders by the score)")
               + "; a number tagged extra, derived or research is shown, never ranked. Fmax-equivalent = 10⁶ / time "
               "in ps, for comparison with sites that quote Fmax.")
-    more = page.details("how these numbers are measured and compared",
-                        "".join(f'<p class="fine">{x}</p>' for x in (board_field_words(st), measured, ranked,
-                                                                       field_note, board_words, among) if x),
-                        cls="reveal")
+    more = page.details(DASH_MORE, facts + "".join(f'<p class="fine">{x}</p>' for x in (
+        board_field_words(st), measured, ranked, field_note, board_words, among) if x), cls="reveal dash-more")
     note = f'<div class="dash-note">{empty}{more}</div>'
     return f'<div class="dash">{area_card}{time_card}{score_card}</div>{note}'
 
@@ -4874,6 +4898,72 @@ def area_time_html(s, par):
             + page.details("the designs as numbers, by score" + at_words, table))
 
 
+def board_ranks(t):
+    """{record id: its rank on the board of the course in view}: the records by score (`score_key`, the leaderboard's
+    order), equal scores sharing a rank (1, 1, 3), as `leaderboard_html` numbers them."""
+    out, prev, rank = {}, None, 0
+    for k, d in enumerate(sorted((d for d in t.designs if d["kind"] == "record" and d["exact"] is not None),
+                                 key=score_key), 1):
+        if d["exact"] != prev:
+            rank, prev = k, d["exact"]
+        out[d["id"]] = rank
+    return out
+
+
+def compare_html(s, board_html=""):
+    """The Charts tab's comparison (decided 2026-11-16, the owner's item 4): this design against par and its
+    neighbours on the board of the course in view (`s.t.pdk`): the ranked records just better and just worse by score
+    (and any whose score equals this design's), in the board's order, each with its area, time and score and this
+    design's score against it, as the cards' "vs par" says it (below zero: this design is better). From the task's
+    designs of that course, the numbers the board and the plot use: nothing is measured for it. "" without ranked
+    numbers (the overview says why)."""
+    t, d = s.t, s.d
+    if d is None:
+        return ""
+    pdk = t.pdk
+    me = standing.score(st_point(d, pdk))
+    ranks = board_ranks(t)
+    recs = sorted((x for x in t.designs if x["kind"] == "record" and x["exact"] is not None and x["id"] != d["id"]),
+                  key=score_key)
+    better = [x for x in recs if standing.score(st_point(x, pdk)) < me]
+    worse = [x for x in recs if standing.score(st_point(x, pdk)) > me]
+    tied = [x for x in recs if standing.score(st_point(x, pdk)) == me]
+    pd = par_design(t)
+    shown = [d] + better[-1:] + tied + worse[:1]
+    if pd is not None and pd["exact"] is not None and pd["id"] != d["id"]:
+        shown.append(pd)
+    if len(shown) == 1:
+        return board_html + (f'<p class="empty">Nothing to compare with on this course: no par score and no other '
+                             f"ranked record of {task_ref_html(t)}.</p>")
+    shown.sort(key=lambda x: (standing.score(st_point(x, pdk)), x is not d, score_key(x)))
+    rows = []
+    for x in shown:
+        role = ("par" if x["par"] else "par's design, another proof") if x["kind"] == "reference" else \
+            f"rank {ranks[x['id']]}" if x["id"] in ranks else kind_text(x)
+        name = code(x["name"]) if x["kind"] != "record" else esc(x["name"])
+        # a record's title under its player, as on the board (one player may hold two of the rows)
+        title = f'<span class="board-title">{esc(x["title"])}</span>' if x["kind"] == "record" and x.get("title") else ""
+        if x is d:
+            cell = f'{name} <span class="muted">· this design, {esc(role)}</span>{title}'
+            vs = '<span class="muted">–</span>'
+        else:
+            cell = (page.link(rel_link(s.here, design_target(t, x)), name) + f' <span class="muted">· {esc(role)}</span>'
+                    + title)
+            other = standing.score(st_point(x, pdk))
+            rel = (me - other) / other
+            good, bad = AXIS_WORDS["score"]
+            vs = f'<strong>{esc(signed_pct(rel))}</strong> {"equal" if me == other else good if me < other else bad}'
+        rows.append(page.Row([cell, esc(um2_text(combined.area_int(x["m"]["area_um2"], pdk), pdk=pdk)),
+                              esc(thin(x["m"]["time_ps"])), esc(combined.fmt(x["m"].get("adp"))), vs],
+                             cls="is-subject" if x is d else None))
+    lead = (f'<p class="small">This design, par and its neighbours by score on the {PDK_AXIS[pdk]} board of '
+            f"{task_ref_html(t)}: the ranked records just better and just worse. The last column is this design's "
+            "score against each, as the cards' “vs par”.</p>")
+    return board_html + lead + page.table(heads("design", "area (µm²)", "time (ps)", f"score ({combined.UNIT})",
+                                                "this design vs it"), rows, numeric=(1, 2, 3, 4), stack=True,
+                                          cls="compare")
+
+
 # -- the schematic, the critical path, the cells --------------------------
 
 def point_words(params, t=None):
@@ -4903,9 +4993,14 @@ def schematic_html(s):
                 f"{code(t.name)} has one fixed size, so there is no smaller instance to draw.")
         how = ""
     else:
-        lead = (f"<strong>Drawn at {esc(at)}, a display instance; scored at {esc(scored_at)}.</strong> Only this "
-                "drawing and the notes under it are at the smaller size: the critical path, the cells and every other "
-                "number on this page are the scored netlist's.")
+        # one line (decided 2026-11-16, the owner's item 6: it was five on a phone): the two sizes, always shown; what a
+        # display instance is behind its button, a note shown on hover, focus or a tap (style.css; site.js), and shown
+        # in its place without JavaScript and printed
+        lead = (f'<span class="sch-line"><strong>Drawn at {esc(at)}</strong>; scored at {esc(scored_at)}.</span> '
+                '<button type="button" class="hnote-btn" aria-expanded="false" aria-controls="schematic-note">why?'
+                '</button> <span class="hnote-body" id="schematic-note">This is a display instance. Only this drawing '
+                "and the notes under it are at the smaller size: the critical path, the cells and every other number "
+                "on this page are the scored netlist's.</span>")
         how = (f"It is the same design through the same pinned flow at a smaller size ({code('ppa.py --param')}): "
                f"{counted(disp['cells_sky130'], 'cell')} here, {thin(sc['cells_sky130'])} at the scoring point. ")
     if disp["drawn"] == "critical":
@@ -4937,7 +5032,7 @@ def schematic_html(s):
     numbers = ("" if same else f" There (measured, not ranked): {esc(um2_text(disp['area_e4um2_sky130']))} µm², "
                f"{thin(disp['delay_ps_sky130'])} ps.")
     own = page.link(rel_link(s.here, schematic_file(s)), "the drawing on its own")
-    return (f"<p>{lead}</p>{tools}"
+    return (f'<p class="{"sch-lead" if same else "sch-lead sch-scale"}">{lead}</p>{tools}'
             f'<div class="sch-box" data-schematic tabindex="0" role="group" aria-label="schematic, scrollable">'
             f"{schematic_svg(s)}</div>"
             f'<p class="fine">{how}</p>'
@@ -5283,7 +5378,8 @@ def writeup_card(site, here, rec):
 
 def overview_parts(site, s):
     """(the overview's inner HTML: the dashboard, or why there are no ranked numbers; the area-time plot's inner HTML,
-    or None) of the subject `s` in the view of its task (`s.t.pdk`)."""
+    or None; the Charts tab's comparison, `compare_html`, or "") of the subject `s` in the view of its task
+    (`s.t.pdk`)."""
     t = s.t
     pdk = t.pdk
     p = par_design(t)
@@ -5294,11 +5390,12 @@ def overview_parts(site, s):
                                   statement=t.statement, pdk=pdk, asap7=t.a7_table, asap7_identity=site.a7_identity,
                                   asap7pnr=t.pnr_table, pnr_identity=site.pnr_identity)
                if s.rec else (s.ppa or {}).get("why")) or f"no {PDK_AXIS[pdk]} weighing at the scoring point"
-        return f'<p class="empty">No ranked numbers to show: {esc(why)}.</p>', None
+        return f'<p class="empty">No ranked numbers to show: {esc(why)}.</p>', None, ""
     recs = [{"id": r["record_hash"], "kind": "record", "player": r["player"], "area": lb.row_area(r),
              "time": r["time_ps"]} for r in t.ranked()]
     st = standing.standing(st_point(s.d, pdk), recs, par, [st_point(d, pdk) for d in designs])
-    return dashboard_html(s, st, par, designs), area_time_html(s, par)
+    return (dashboard_html(s, st, par, designs), area_time_html(s, par),
+            compare_html(s, page.dl(board_rows(s, st, designs))))
 
 
 def pnr_block(site, s):
@@ -5370,13 +5467,13 @@ def detail_sections(site, s, ge_tables):
     anywhere on the page on sky130)."""
     t = s.t
     load_schematic(site, s)
-    sky_over, sky_plot = overview_parts(site, s)
+    sky_over, sky_plot, sky_cmp = overview_parts(site, s)
     with t.view(COURSE2):
         s7 = Subject(t, s.here, rec=s.rec, ref=s.ref)
         s7.ppa = pnr_block(site, s7)
         if "entry" not in s7.ppa:
             s7.d = None
-        a7_over, a7_plot = overview_parts(site, s7)
+        a7_over, a7_plot, a7_cmp = overview_parts(site, s7)
     a7_over = suffix_ids(a7_over, f"-{COURSE2}")
     a7_plot = suffix_ids(a7_plot, f"-{COURSE2}") if a7_plot else None
     if s.d is not None:
@@ -5387,13 +5484,33 @@ def detail_sections(site, s, ge_tables):
     if sky_plot or a7_plot:
         def none(lib):
             return f'<p class="empty">No {lib} numbers for this design: nothing to plot.</p>'
-        plot = page.card(dual(sky_plot, a7_plot or none(PDK_AXIS[COURSE2])) if sky_plot else a7_plot, tag="section",
-                         id_="area-time", title_html="Area against time",
-                         actions_html=f'<span class="label">{size_tag(t, s.here, " · ") if sky_plot else ""}'
-                                      f'{nocase(esc("µm² × ps · lower left is better"))}'
-                                      f'{pdk_text("", " · ASAP7 routed")}</span>')
+        unit = nocase(esc("µm² × ps · lower left is better"))
+        if sky_plot and a7_plot:
+            # numbers on both courses (decided 2026-11-16, the owner's item 4): both plots, the course in view first
+            # (style.css orders them), each under its course's name, the other one's said to be so
+            plot = page.card(
+                '<div class="at-courses">'
+                f'<div class="at-course at-sky130"><h3 class="at-head">sky130{pdk_text("", " · the other course")}'
+                f"</h3>{sky_plot}</div>"
+                f'<div class="at-course at-{COURSE2}"><h3 class="at-head">ASAP7 · placed and routed'
+                f'{pdk_text(" · the other course", "")}</h3>{a7_plot}</div></div>',
+                tag="section", id_="area-time", title_html="Area against time",
+                actions_html=f'<span class="label">{size_tag(t, s.here, " · ")}{unit}</span>')
+        else:
+            plot = page.card(dual(sky_plot, a7_plot or none(PDK_AXIS[COURSE2])) if sky_plot else a7_plot,
+                             tag="section", id_="area-time", title_html="Area against time",
+                             actions_html=f'<span class="label">{size_tag(t, s.here, " · ") if sky_plot else ""}'
+                                          f'{unit}{pdk_text("", " · ASAP7 routed")}</span>')
         if not sky_plot:                 # numbers on the routed course only: the card is that course's alone (the
             plot = dual(f'<p class="empty">{esc(NO_CHART)}</p>', plot)      # Charts tab says so on sky130)
+    # the comparison with par and the board's neighbours, each course's own (the selector picks it), above the plots;
+    # a course without numbers shows none (its plot's place says so)
+    a7_cmp = suffix_ids(a7_cmp, f"-{COURSE2}") if a7_cmp else ""
+    if sky_cmp or a7_cmp:
+        def compare(body):
+            return page.card(body, tag="section", id_="compare", title_html="Against par and the neighbours on the board")
+        plot = (compare(dual(sky_cmp, a7_cmp)) if sky_cmp and a7_cmp else
+                dual(compare(sky_cmp), "") if sky_cmp else dual("", compare(a7_cmp))) + plot
     # each pane says the size it shows (the drawing is at a smaller one, the other two at the scoring point), as the
     # three cards' heads did
     disp = (s.sch or {}).get("display") or {}
@@ -5449,8 +5566,66 @@ def detail_layout(overview, panes):
 
 
 def chart_pane(plot):
-    """The Charts tab's content: the area-time plot's card, or one line when the design has no ranked numbers."""
+    """The Charts tab's content: the comparison with par and the board's neighbours (`compare_html`), then the
+    area-time plot's card (both courses' plots where the design has numbers on both, the course in view first), or one
+    line when the design has no ranked numbers."""
     return plot or f'<p class="empty">{esc(NO_CHART)}</p>'
+
+
+def param_range_html(t):
+    """For which parameters a task's statement is proved, from task.json's `parameters`: "for every `N` and `W` with
+    `1 <= N`, `N*W < 2^31`, `1 <= W`" (each range's conditions in the task's order, a condition two ranges share once:
+    the ranges are task.json's text, each a comma-separated list of conditions; each condition kept on one line, the
+    line wrapping between them), or "at its one fixed size"."""
+    params = t.task.get("parameters") or []
+    if not params:
+        return "at its one fixed size"
+    conds = []
+    for p in params:
+        for c in str(p["range"]).split(", "):
+            if c not in conds:
+                conds.append(c)
+    return f"for every {and_list([code(p['name']) for p in params])} with " + ", ".join(code(c) for c in conds)
+
+
+TIME_LIMITS = "svgolf/score/time_limits.json"       # the references' measured proof builds (score/time_limits.py)
+
+
+def reference_build_runs(t, stem):
+    """The wall-clock seconds of the cold runs score/time_limits.json records for the proof of a task's reference
+    `stem` (`wall_s`: the compile of its Solution.lean, the stage a record's `proof.build_seconds` times), or []."""
+    if not os.path.isfile(repo_file(TIME_LIMITS)):
+        return []
+    runs = ((((json.loads(read_text(TIME_LIMITS)).get("tasks") or {}).get(t.name) or {}).get("references") or {})
+            .get(stem) or {}).get("wall_s") or []
+    return [x for x in runs if isinstance(x, (int, float))]
+
+
+def proof_line_html(s):
+    """The Source and proof tab's first line (decided 2026-11-16, the owner's item 5): what is proved, for which
+    parameters and how long the check took, each from data the build has: the task's statement summary (its public
+    one-line summary, content/tasks/<task>.json `subtitle`; the words link the statement on the task page), the
+    parameters' ranges (task.json `parameters`, `param_range_html`) and the measured proof build: a record's own
+    (`proof.build_seconds`, the checker's compile of the proof, wall clock), else for a reference the cold runs
+    score/time_limits.json keeps (`reference_build_runs`); without either the line says nothing about time. A record
+    checked under another statement than the task's now proves that one: the line says so instead of claiming
+    today's."""
+    t, rec = s.t, s.rec
+    statement = page.link(rel_link(s.here, f"{t.page}#spec"), "the task's statement")
+    if rec is not None and t.statement is not None and lb.statement_mismatch(rec, t.statement):
+        return (f'<p class="proof-line">{page.badge("proved", "draft")} against another version of {statement} than '
+                f"today's: {esc(lb.statement_mismatch(rec, t.statement))}.</p>")
+    what = (t.subtitle or "").strip().rstrip(".")
+    parts = [statement + (f": {esc(what)}" if what else ""), param_range_html(t)]
+    secs = ((rec or {}).get("proof") or {}).get("build_seconds")
+    runs = reference_build_runs(t, s.ref["stem"]) if rec is None and s.ref is not None else []
+    if isinstance(secs, (int, float)):
+        parts.append(f"the proof built in {esc(f'{secs:g}')} s when checked")
+    elif runs:
+        lo, hi = min(runs), max(runs)
+        span = f"{lo:g}" if lo == hi else f"{lo:g} to {hi:g}"
+        parts.append(f"the proof built in {esc(span)} s in {len(runs)} cold run{'' if len(runs) == 1 else 's'}")
+    return f'<p class="proof-line">{page.badge("proved", "proved")} ' + " · ".join(parts) + "</p>"
 
 
 def sources_card(s, sv_text, lean_text, sv_name, lean_name, sv_src, lean_src, lines, downloads):
@@ -5607,7 +5782,7 @@ def record_page(site, t, rec, ge_tables):
     # wrapped and its table scrolled), so it comes last, across the pane
     clocked_ps = isinstance(ps.get("points"), list)
     body = head + detail_layout(overview, {
-        "source": sources + card_row([record, proof_card]),
+        "source": proof_line_html(s) + sources + card_row([record, proof_card]),
         "writeup": writeup_card(site, here, rec),
         "schematics": netlist,
         "charts": chart_pane(plot),
@@ -5756,7 +5931,7 @@ def reference_detail_page(site, t, ref, ge_tables):
     reproduce = page.card(dual(reproduce_html(s), reproduce_pnr_html(site, s7)), tag="section", title_html="Reproduce")
     # the same five tabs as a record page's (detail_layout); a reference has no record, so no writeup, no checker run
     body = head + detail_layout(overview, {
-        "source": sources + card_row([facts]),
+        "source": proof_line_html(s) + sources + card_row([facts]),
         "writeup": f'<p class="empty">{esc(NO_WRITEUP_REFERENCE)}</p>',
         "schematics": netlist,
         "charts": chart_pane(plot),

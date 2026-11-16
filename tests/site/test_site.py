@@ -3334,7 +3334,7 @@ class ReactiveTaskTest(unittest.TestCase):
 
     def test_the_detail_page_draws_the_display_instance_and_reads_a_clocked_path(self):
         text = norm(text_of(self.detail))
-        self.assertIn("Drawn at N = 4, a display instance; scored at N = 8.", text)
+        self.assertIn("Drawn at N = 4; scored at N = 8. why? This is a display instance.", text)   # (2026-11-16)
         self.assertIn("The register-to-register critical path at N = 4", text)
         self.assertIn("the register-to-register period, one decision per cycle", text)
         self.assertIn("The path the ranked register-to-register period ends on", text)
@@ -3605,7 +3605,7 @@ class LatencyTaskTest(unittest.TestCase):
                 t = self.t[name]
                 text = norm(text_of(self.detail(name)))
                 small, scored = build.point_text(display[name]["params"]), build.point_text(t.point)
-                self.assertIn(f"Drawn at {small}, a display instance; scored at {scored}.", text)
+                self.assertIn(f"Drawn at {small}; scored at {scored}. why? This is a display instance.", text)
                 self.assertIn(f"The register-to-register critical path at {small}", text)
                 m = build.par_design(t)["m"]
                 # score/ppa.py's clocked STA ends its paths at the outputs and at every D (arrival + setup)

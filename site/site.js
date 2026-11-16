@@ -5,7 +5,11 @@
 // pane; a link into a pane of a pane opens both). A page's tabs are history entries: choosing one by a click names it
 // in the URL as a new entry (`#writeup`), so Back shows the tab before, and a link or a URL that names a tab or
 // anything inside one opens it. A pane shown that was hidden gets a `tabshow` event (bubbling), for what can only be
-// measured once it is shown (charts.js: the schematic's first fit). No libraries, nothing fetched.
+// measured once it is shown (charts.js: the schematic's first fit). A page's tab bar sticks to the top of the view
+// (style.css): what is brought into view in a pane keeps clear of it (`--tabs-bar`), a tab chosen in it while it is
+// stuck shows its pane from the top, and on a phone, where it is one line that scrolls sideways, the chosen tab is kept
+// in its view. The display-
+// instance note's button (build.py `hnote`) opens and closes its note. No libraries, nothing fetched.
 (function () {
   "use strict";
 
@@ -111,11 +115,50 @@
       panes[k].setAttribute("aria-labelledby", tab.id);
     });
 
+    // A page's bar sticks to the top of the view (style.css; decided 2026-11-16, the owner's item 2): what a link,
+    // the URL's fragment or the keyboard's focus brings into view in a pane keeps clear of it, by a scroll margin of
+    // the bar's height (`--tabs-bar` on <html>, which style.css gives the panes and what is in them; not the page's
+    // scroll padding, which would count the bar's own tabs as hidden under it and scroll when one is focused). On a
+    // phone the bar is one line that scrolls sideways: the chosen tab is kept in its view, and the fade at either edge
+    // shows only where more tabs are that way.
+    function stuck() {
+      return page && window.getComputedStyle(list).position === "sticky";
+    }
+    function pad() {
+      if (stuck()) {
+        var st = document.documentElement.style, v = (list.offsetHeight + 8) + "px";
+        if (st.setProperty) { st.setProperty("--tabs-bar", v); } else { st["--tabs-bar"] = v; }
+      }
+    }
+    function atEnd() {
+      if (page) {
+        list.classList.toggle("at-start", list.scrollLeft <= 1);
+        list.classList.toggle("at-end", list.scrollLeft + list.clientWidth >= list.scrollWidth - 2);
+      }
+    }
+    function inView(k) {
+      if (!page || list.scrollWidth <= list.clientWidth) {
+        return;
+      }
+      var a = tabs[k].getBoundingClientRect(), r = list.getBoundingClientRect(), fade = 28;
+      if (a.left < r.left + 4) {
+        list.scrollLeft += a.left - r.left - 8;
+      } else if (a.right > r.right - fade) {
+        list.scrollLeft += a.right - r.right + fade;
+      }
+      atEnd();
+    }
+
     // a pane scrolled to (by a link, the URL's fragment or the browser's own scroll to it) leaves the tabs above
-    // it in view: its scroll margin is the height of the panel's head
+    // it in view: its scroll margin is the height of the panel's head, and of the page's stuck bar above it (a page's
+    // own pane: the stuck bar's alone, style.css's)
     function margin(k) {
-      var gap = panes[k].getBoundingClientRect().top - panel.getBoundingClientRect().top;
-      panes[k].style.scrollMarginTop = Math.max(0, Math.round(gap)) + "px";
+      if (stuck()) {
+        panes[k].style.scrollMarginTop = "";
+        return;
+      }
+      var gap = Math.max(0, Math.round(panes[k].getBoundingClientRect().top - panel.getBoundingClientRect().top));
+      panes[k].style.scrollMarginTop = page ? gap + "px" : "calc(var(--tabs-bar, 0px) + " + gap + "px)";
     }
 
     var current = 0;
@@ -129,6 +172,7 @@
         panes[j].hidden = j !== k;
       });
       margin(k);
+      inView(k);
       // what can only be measured once shown (the schematic's first fit) is told: charts.js listens
       if (showing && typeof window.CustomEvent === "function") {
         panes[k].dispatchEvent(new window.CustomEvent("tabshow", { bubbles: true }));
@@ -142,7 +186,12 @@
     // (Back shows the tab before); by the keys, and a card's tab, it replaces the entry (for a reload)
     function choose(k, how) {
       var before = current;
+      // chosen in the stuck bar, deep in a pane: the new pane is shown from its top, under the bar
+      var above = stuck() ? panel.getBoundingClientRect().top : 0;
       select(k, how === "key");
+      if (above < 0 && current !== before && typeof window.scrollTo === "function") {
+        window.scrollTo(0, panel.getBoundingClientRect().top + (window.pageYOffset || 0));
+      }
       if (!window.history || !history.replaceState) {
         return;
       }
@@ -171,6 +220,12 @@
       });
     });
     select(0, false);
+    if (page) {
+      pad();
+      window.addEventListener("resize", pad);
+      list.addEventListener("scroll", atEnd);
+      atEnd();
+    }
     if (window.MutationObserver) {
       new MutationObserver(function () {
         if (!shown(current)) { select(0, false); }
@@ -238,8 +293,57 @@
     bring(id, sets, scroll);
   }
 
+  // A note behind a button (build.py: the display-instance note of a detail page's schematic; decided 2026-11-16,
+  // the owner's item 6): style.css shows it on hover and on the keyboard's focus; a click or a tap opens it until a
+  // second one, a click elsewhere or Escape closes it. Escape (or a click that closes it) also hides it while the
+  // pointer or the focus is still on the button, until they leave.
+  function initNote(btn) {
+    var body = document.getElementById(btn.getAttribute("aria-controls"));
+    if (!body) {
+      return;
+    }
+    function set(open) {
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        btn.removeAttribute("data-dismissed");
+      } else {
+        btn.setAttribute("data-dismissed", "");
+      }
+    }
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      set(btn.getAttribute("aria-expanded") !== "true");
+    });
+    function clear() { btn.removeAttribute("data-dismissed"); }
+    btn.addEventListener("blur", clear);
+    btn.addEventListener("mouseleave", clear);
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" || e.key === "Esc") {
+        set(false);
+      }
+    });
+    document.addEventListener("click", function (e) {
+      if (btn.getAttribute("aria-expanded") === "true" && !btn.contains(e.target) && !body.contains(e.target)) {
+        btn.setAttribute("aria-expanded", "false");
+      }
+    });
+  }
+
+  // printed, the overview's fold is open (its numbers were the cards' own until 2026-11-16): style.css opens it where
+  // the browser knows ::details-content; here for the rest, and closed again after
+  var printing = [];
+  window.addEventListener("beforeprint", function () {
+    printing = Array.prototype.filter.call(document.querySelectorAll("details.dash-more"), function (d) { return !d.open; });
+    printing.forEach(function (d) { d.open = true; });
+  });
+  window.addEventListener("afterprint", function () {
+    printing.forEach(function (d) { d.open = false; });
+    printing = [];
+  });
+
   function init() {
     Array.prototype.forEach.call(document.querySelectorAll("pre.code"), addCopy);
+    Array.prototype.forEach.call(document.querySelectorAll("button.hnote-btn[aria-controls]"), initNote);
     var sets = Array.prototype.map.call(document.querySelectorAll(".props[data-tabs], .tabs[data-tabs]"), initTabs)
       .filter(Boolean);
     if (!sets.length) {

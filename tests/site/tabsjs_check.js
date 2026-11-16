@@ -10,7 +10,15 @@
 //   * Back to an entry of the script's shows its tab and leaves the scroll to the browser; a fragment reached another
 //     way is scrolled to; `hashchange` after `popstate` does nothing twice;
 //   * the schematic, drawn in a hidden tab, is fitted to its box when its tab is first shown (site.js's `tabshow`
-//     event: here there is no ResizeObserver), and a critical-path link from another tab opens the drawing's tabs.
+//     event: here there is no ResizeObserver), and a critical-path link from another tab opens the drawing's tabs;
+//   * the page's bar, where style.css makes it stick (decided 2026-11-16, the owner's item 2): `--tabs-bar` on <html>
+//     is its height (style.css's scroll margin in the panes: nothing a link or the focus brings lands under it), its
+//     panes keep no inline scroll margin, the netlist card's panes add the bar's; a tab chosen in the stuck bar (the
+//     panel's top above the view) shows its pane from the top, and one chosen while the bar is in its place scrolls
+//     nothing. Without the sticky bar, no `--tabs-bar` is set;
+//   * the display-instance note's button (decided 2026-11-16, the owner's item 6): a click opens its note
+//     (aria-expanded), a second one closes it, Escape closes it, a click elsewhere closes it, a click in the note
+//     does not.
 //     node tests/site/tabsjs_check.js site/site.js site/charts.js SKELETON.json
 const fs = require("fs");
 const [siteSrc, chartsSrc] = [fs.readFileSync(process.argv[2], "utf8"), fs.readFileSync(process.argv[3], "utf8")];
@@ -136,7 +144,8 @@ class Element {
   getBoundingClientRect() {
     const w = !this.shown() ? 0 : this.tagName === "svg" ? Number(this.getAttribute("width")) || 0 : this.clientWidth;
     const h = !this.shown() ? 0 : this.tagName === "svg" ? Number(this.getAttribute("height")) || 0 : 20;
-    return { top: 0, left: 0, right: w, bottom: h, width: w, height: h };
+    const top = this.rectTop || 0;                 // a test moves an element above the view (the stuck bar's panel)
+    return { top, left: 0, right: w, bottom: top + h, width: w, height: h };
   }
   scrollIntoView() { this.scrolledTo++; }
 }
@@ -186,10 +195,14 @@ function load(hash, opts) {
     pushState(s, t, u) { calls.push++; entries.splice(at + 1); entries.push({ state: s, hash: u }); at++; },
     replaceState(s, t, u) { calls.replace++; entries[at] = { state: s, hash: u === undefined ? entries[at].hash : u }; },
   };
+  const scrolls = [];
   win = {
-    listeners: {}, location, history, innerHeight: 900,
+    listeners: {}, location, history, innerHeight: 900, pageYOffset: 0, scrolls,
+    scrollTo(x, y) { scrolls.push([x, y]); },
     CustomEvent: function (type, init) { return event(type, { bubbles: !!(init && init.bubbles) }); },
-    getComputedStyle(el) { return { display: el.shown() ? "inline-flex" : "none" }; },
+    // style.css's sticky page bar, where the test asks for it (`opts.sticky`)
+    getComputedStyle(el) { return { display: el.shown() ? "inline-flex" : "none",
+                                     position: opts.sticky && el.matches(".tabs-page > .tabs-nav") ? "sticky" : "static" }; },
     addEventListener(t, f, o) { Element.prototype.addEventListener.call(this, t, f, o); },
     isSecureContext: false,
   };
@@ -322,6 +335,58 @@ d = P.doc;
 pageTabs(d)[2].click();
 const s2 = d.querySelector("[data-schematic] svg.sch");
 ok(observed === 1 && Number(s2.getAttribute("width")) <= 800, "with a ResizeObserver too: watched, and fitted on first show");
+
+// the stuck bar (style.css's sticky page bar): --tabs-bar is the bar's height, the panes keep no inline margin
+P = load(""); d = P.doc;
+ok(!d.documentElement.style["--tabs-bar"], "no sticky bar: no --tabs-bar set");
+P = load("", { sticky: true }); d = P.doc; tabs = pageTabs(d);
+const nav = d.querySelector(".tabs-page > .tabs-nav"), panel = d.querySelector(".tabs-page");
+ok(d.documentElement.style["--tabs-bar"] === (nav.offsetHeight + 8) + "px",
+   "the stuck bar: --tabs-bar is its height (" + d.documentElement.style["--tabs-bar"] + ")");
+ok(TABS.every((id) => !d.getElementById(id).style.scrollMarginTop || d.getElementById(id).hidden),
+   "the stuck bar: the pane shown keeps no inline scroll margin (style.css's --tabs-bar)");
+tabs[2].click();
+const cp = d.getElementById("schematic");
+ok(cp && /^calc\(var\(--tabs-bar, 0px\) \+ \d+px\)$/.test(cp.style.scrollMarginTop),
+   "the netlist card's pane shown: its margin adds the stuck bar's (" + (cp && cp.style.scrollMarginTop) + ")");
+tabs[0].click();
+tabs[1].click();
+ok(P.win.scrolls.length === 0, "a tab chosen while the bar is in its place scrolls nothing");
+panel.rectTop = -1500;                     // deep in the pane: the panel's top far above the view, the bar stuck
+tabs[3].click();
+ok(chosen(d).join() === "charts" && P.win.scrolls.length === 1 && P.win.scrolls[0][1] === -1500,
+   "a tab chosen in the stuck bar shows its pane from the top (scrolled to the panel's top)");
+tabs[3].click();
+ok(P.win.scrolls.length === 1, "a click on the tab already chosen scrolls nothing");
+d.activeElement = tabs[3];
+tabs[3].dispatchEvent(event("keydown", { key: "ArrowRight" }));
+ok(chosen(d).join() === "reproduce" && P.win.scrolls.length === 2, "a key in the stuck bar too");
+
+// the display-instance note's button
+P = load(""); d = P.doc;
+const nbtn = d.querySelector("button.hnote-btn");
+if (skeleton.ids.includes("schematic-note")) {
+  const nbody = d.getElementById("schematic-note");
+  const open = () => nbtn.getAttribute("aria-expanded") === "true";
+  ok(nbtn && !open(), "the note's button, closed at first");
+  nbtn.click();
+  ok(open() && !nbtn.hasAttribute("data-dismissed"), "a click opens the note");
+  nbody.click();
+  ok(open(), "a click in the note leaves it open");
+  nbtn.click();
+  ok(!open() && nbtn.hasAttribute("data-dismissed"), "a second click closes it (hidden while the pointer stays)");
+  nbtn.dispatchEvent(event("mouseleave", { bubbles: false }));
+  ok(!nbtn.hasAttribute("data-dismissed"), "the pointer gone: hover may show it again");
+  nbtn.click();
+  d.body.dispatchEvent(event("keydown", { key: "Escape" }));
+  ok(!open() && nbtn.hasAttribute("data-dismissed"), "Escape closes it, and hides it while the focus stays");
+  nbtn.dispatchEvent(event("blur", { bubbles: false }));
+  nbtn.click();
+  d.querySelector(".tabs-page > .tabs-nav > a").dispatchEvent(event("click"));
+  ok(!open(), "a click elsewhere closes it");
+} else {
+  ok(!nbtn, "no display-instance note on this page: no button");
+}
 
 console.log(fails ? `${fails} failed, ${oks} ok` : `all ok (${oks})`);
 process.exit(fails ? 1 : 0);

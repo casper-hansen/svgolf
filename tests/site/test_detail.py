@@ -136,10 +136,11 @@ def skeleton(page_html):
     and the schematic's box, tools and drawing; any other element is left out, its kept descendants moved up to the
     nearest kept ancestor. `ids`: every id kept."""
     keep_cls = {"tabs", "tabs-nav", "tabs-pane", "tabs-pane-title", "props", "props-head", "props-tabs", "sch-box",
-                "sch-tools", "pdk-sky130", "pdk-asap7pnr"}
+                "sch-tools", "pdk-sky130", "pdk-asap7pnr", "hnote-btn", "hnote-body"}
     keep_attr = ("data-tabs", "data-schematic", "data-schematic-tools", "data-zoom", "data-crit", "data-find",
                  "data-find-count")
-    attrs_kept = ("id", "class", "href", "hidden", "width", "height", "role", "tabindex", "data-inst") + keep_attr
+    attrs_kept = ("id", "class", "href", "hidden", "width", "height", "role", "tabindex", "data-inst", "aria-controls",
+                  "aria-expanded", "type") + keep_attr
     t = _Tree()
     t.feed(page_html)
     ids = []
@@ -463,16 +464,21 @@ class DetailTest(unittest.TestCase):
                     self.assertIn("No ranked numbers to show", dash)
                     continue
                 shown += 1
-                for label in ("Area", "Performance · time", "Score · area × time", "vs par", "board"):
+                for label in ("Area", "Performance · time", "Score · area × time", "vs par"):
                     self.assertIn(label, dash)
+                # the place on the board and on the plot's front: the Charts tab's comparison (on the Score card until
+                # 2026-11-16, the owner's item 3)
+                compare = text_of(section(self.page(path), "compare"))
+                self.assertIn("board", compare)
+                self.assertNotIn("<dt>board</dt>", section(self.page(path), "dashboard"))
                 # "on this page" and "Pareto" are rows only when the plot has other designs; alone, the note says so
                 # once (each card said "the only design with sky130 numbers")
                 alone = len(build.plotted(tasks[t])) == 1
                 self.assertNotIn("the only design with sky130 numbers", dash)
                 self.assertEqual(dash.count("This design is the only one with sky130 numbers on this page"), int(alone))
                 if not alone:
-                    for label in ("on this page", "Pareto"):
-                        self.assertIn(label, dash)
+                    self.assertIn("on this page", dash)
+                    self.assertIn("Pareto", compare)
                 self.assertNotIn("badge", section(self.page(path), "dashboard"))         # no "ranked" pill per card
                 self.assertIn(norm(f"{build.grouped(lb.fmt_um2(cols['area_e4um2']))} µm² exactly"), dash)
                 self.assertIn(norm(f"{cols['time_ps']:,}".replace(",", " ")) + "ps", dash)
@@ -592,7 +598,7 @@ class DetailTest(unittest.TestCase):
             if "No ranked numbers to show" in text_of(dash):
                 continue
             with self.subTest(page=path):
-                for part in ('class="label"', 'class="big"', 'class="sub"', 'class="mfield"', 'class="mbody"'):
+                for part in ('<h3 class="label"', 'class="big"', 'class="sub"', 'class="mfield"', 'class="mbody"'):
                     self.assertEqual(dash.count(part), 3, part)
                 for big in re.findall(r'<p class="big">(.*?)</p>', dash):
                     self.assertNotIn(" ", re.sub(r'<span class="g"> </span>', "", big))
@@ -601,8 +607,7 @@ class DetailTest(unittest.TestCase):
                     if "is par" not in v and "no par" not in v:
                         self.assertRegex(v, r'<span class="mpar"><a href="[^"#][^"]*">[^<]+</a> · ')
                 note = dash[dash.index('<div class="dash-note">'):]
-                self.assertIn('<details class="reveal"><summary>how these numbers are measured and compared</summary>',
-                              note)
+                self.assertIn(f'<details class="reveal dash-more"><summary>{build.DASH_MORE}</summary>', note)
                 visible = re.sub(r"<details.*?</details>", "", note, flags=re.S)
                 self.assertLessEqual(len(re.findall(r"<p\b", visible)), 1)
                 self.assertNotRegex(text_of(dash), r"\b1 other players")
@@ -614,6 +619,115 @@ class DetailTest(unittest.TestCase):
                     self.assertIn("On the board, another player is beaten when this design dominates every record of "
                                   "theirs", text_of(dash))
                 self.assertIn("never stored in a record and never used by the ranking", text_of(dash))     # L5
+
+    def test_the_cards_show_the_number_vs_par_and_on_this_page(self):
+        """Decided 2026-11-16 (the owner's item 3, "Trim the overview cards"): a card keeps its number with its unit, the
+        line under it, the field's line, "vs par" and "on this page"; nothing else. Its secondary numbers (cells,
+        flops, repair, GE, the cells-only columns, Fmax-equivalent, the critical path's cells, unit depth, wire cost,
+        the routed run) and the time's measurement sentence are the overview's fold's, one click away, a column per
+        card, the cells and critical-path links with them; the place on the board and on the plot's front are the
+        Charts tab's (test_charts_compare_with_par_and_the_neighbours)."""
+        checked = 0
+        for t, path, rec, stem in self.detail_pages():
+            for pdk in ("sky130", build.COURSE2):
+                dash = section(self.page(path, pdk), "dashboard")
+                if "No ranked numbers to show" in text_of(dash):
+                    continue
+                checked += 1
+                with self.subTest(page=path, pdk=pdk):
+                    cards = re.findall(r'<section class="mcard[^"]*".*?</section>', dash, re.S)
+                    self.assertEqual(len(cards), 3)
+                    for card in cards:
+                        self.assertNotIn("mfacts", card)
+                        rows = re.findall(r"<dt>([^<]+)</dt>", card)
+                        self.assertEqual(rows[0], "vs par")
+                        self.assertTrue(set(rows) <= {"vs par", "on this page"}, rows)
+                    fold = re.search(r'<details class="reveal dash-more"><summary>[^<]*</summary>(.*?)</details>',
+                                     dash, re.S)
+                    self.assertIsNotNone(fold)
+                    facts = fold.group(1).split('<div class="dash-facts">', 1)[1]
+                    for row in ("cells", "flops", "GE", "Fmax-eq.", "unit depth"):
+                        self.assertIn(f"<dt>{row}</dt>", facts)
+                    if pdk == build.COURSE2:
+                        for row in ("cells only (A0′)", "wire cost", "routed run"):
+                            self.assertIn(f"<dt>{html.escape(row)}</dt>", facts)
+                    else:
+                        self.assertIn('<a href="#cells">', facts)
+                        if rec is not None and (rec.get("ppa") or {}).get("repair"):
+                            self.assertIn("<dt>repair</dt>", facts)
+                    # the time's measurement sentence is the fold's; the card says what the time is in a few words
+                    time_card = cards[1]
+                    sub = text_of(re.search(r'<p class="sub">(.*?)</p>', time_card, re.S).group(1))
+                    self.assertLessEqual(len(sub), 40, sub)
+                    self.assertRegex(text_of(facts), r"(the delay: the latest output arrival|the period is|the "
+                                                     r"register-to-register period|the period, one decision per cycle:)")
+        self.assertGreaterEqual(checked, 40)
+
+    def test_the_overview_fold_stands_open_without_the_script_and_printed(self):
+        """The overview's fold holds numbers the cards showed until 2026-11-16 (the owner's item 3), which a reader
+        without JavaScript and a printed page showed: without the script (no <html data-pdk>) and printed it stands
+        open, its summary a plain line (style.css, ::details-content; for printing site.js also opens it and closes it
+        again after). Checked in the browser by the round's headless check (no JavaScript, and a printed PDF)."""
+        css = open(os.path.join(SITE, "style.css"), encoding="utf-8").read()
+        self.assertIn("html:not([data-pdk]) details.dash-more::details-content { content-visibility: visible; }", css)
+        self.assertIn("html:not([data-pdk]) details.dash-more > summary { pointer-events: none; }", css)
+        self.assertRegex(css, r"@media print \{\n  details\.dash-more::details-content \{ content-visibility: visible; \}"
+                              r"\n\}")
+        js = open(os.path.join(SITE, "site.js"), encoding="utf-8").read()
+        self.assertIn('window.addEventListener("beforeprint"', js)
+        self.assertIn('document.querySelectorAll("details.dash-more")', js)
+
+    def test_a_phone_shows_the_three_numbers_in_one_row(self):
+        """Decided 2026-11-16 (the owner's item 1, "Compact the overview on phones": the three cards took about two
+        screens before the tabs): on a phone the three cards stand in one row, each its label's short words, its
+        number with its unit and "vs par"; the cards' other lines and the note under them open with the overview's
+        fold, one tap (a <details>: the browser's own disclosure, keyboard and touch, no script). The HTML is the wide
+        screen's; style.css makes the row, only on screen, only with the script on (<html data-pdk>, which pdk.js
+        sets before the page is drawn) and only where :has() is known, so that without JavaScript and printed every
+        line is shown. Measured in the browser (the round's headless check): the tab bar starts 0.8 screens down at
+        390 px on the sorter's page, from 1.7."""
+        css = open(os.path.join(SITE, "style.css"), encoding="utf-8").read()
+        block = css[css.index("@supports selector(:has(a)) {"):]
+        block = block[:block.index("\n}\n") + 3]
+        self.assertIn("@media screen and (max-width: 42rem)", block)
+        rules = [r for r in re.findall(r"([^{}]+)\{([^{}]*)\}", block) if "#dashboard" in r[0]]
+        self.assertTrue(rules)
+        def parts(sel):             # a selector list's selectors (commas inside :is() and :has() kept)
+            out, depth, cur = [], 0, ""
+            for ch in sel:
+                depth += (ch == "(") - (ch == ")")
+                if ch == "," and depth == 0:
+                    out.append(cur)
+                    cur = ""
+                else:
+                    cur += ch
+            return out + [cur]
+        for sel, _ in rules:
+            for part in parts(sel):
+                self.assertTrue(part.strip().startswith(
+                    "html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open]))"), part)
+        hidden = " ".join(sel for sel, body in rules if "display: none" in body)
+        for part in (".lab-more", ".sub", ".mfield", ".mpar", "dl.mrows > :is(dt, dd)", "> .dash-note > .fine"):
+            self.assertIn(part, hidden)
+        self.assertIn("repeat(3, minmax(0, 1fr))", block)
+        self.assertNotIn("@media print", block)
+        for t, path, rec, stem in self.detail_pages():
+            raw = self.files[path].decode("utf-8")
+            dash = section(raw, "dashboard")
+            if 'class="dash"' not in dash:
+                continue
+            with self.subTest(page=path):
+                for course in re.findall(r'<div class="pdk pdk-[^"]+"><div class="dash">(.*?)</details></div></div>',
+                                         dash, re.S):
+                    labels = [text_of(x) for x in re.findall(r'<h3 class="label"[^>]*>(.*?)</h3>', course)]
+                    self.assertEqual(labels, ["Area", "Performance · time", "Score · area × time"])
+                    short = [text_of(re.sub(r'<span class="lab-more">.*?</span>', "", x))
+                             for x in re.findall(r'<h3 class="label"[^>]*>(.*?)</h3>', course)]
+                    self.assertEqual(short, ["Area", "time", "Score"])
+                    # the first row of each card is "vs par", the one the row keeps
+                    for card in re.findall(r'<section class="mcard.*?</section>', course, re.S):
+                        self.assertTrue(re.search(r'<dl class="mrows"><dt>vs par</dt>', card), card[:200])
+                    self.assertIn(f'<details class="reveal dash-more"><summary>{build.DASH_MORE}</summary>', course)
 
     def tasks(self):
         if not hasattr(self.__class__, "_tasks"):
@@ -650,6 +764,104 @@ class DetailTest(unittest.TestCase):
                 for href in re.findall(r'<a href="([^"]+)" aria-label', box):
                     self.assertFalse(href.startswith(("http:", "https:", "/")), href)
 
+    def subject_of(self, task, rec, stem):
+        """The design a detail page is about, as its task's designs of the course in view hold it (None: no ranked
+        numbers there): a player's record by its hash, the reference player's record and a reference page by the
+        reference's stem."""
+        if rec is not None and rec["player"] != self.config["reference_player"]:
+            return next((d for d in task.designs if d["id"] == rec["record_hash"]), None)
+        if stem is None:
+            ref = task.ref_of_record.get(rec["record_hash"])
+            stem = ref["stem"] if ref else None
+        d = next((d for d in task.designs if d["kind"] == "reference" and d["stem"] == stem), None)
+        return d if d is not None and "area_um2" in d["m"] and "time_ps" in d["m"] else None
+
+    def test_charts_compare_with_par_and_the_neighbours(self):
+        """Decided 2026-11-16 (the owner's item 4, "Put the comparison in Charts"): the Charts tab opens with a small
+        table of this design against par and its neighbours on the board of the course in view: the ranked records just
+        better and just worse by score (and any of equal score), in the board's order, each with its area, time and
+        score, and this design's score against each as the cards' "vs par" says it (par's row says exactly the Score
+        card's vs par). Each course's table is its own (the selector picks it); the board's and the plot's numbers, no
+        new measurement."""
+        tasks = {t.name: t for t in self.tasks()}
+        checked = 0
+        for t, path, rec, stem in self.detail_pages():
+            for pdk in ("sky130", build.COURSE2):
+                h = self.page(path, pdk)
+                charts = section(h, "charts")
+                with self.subTest(page=path, pdk=pdk), tasks[t].view(pdk):
+                    task = tasks[t]
+                    d = self.subject_of(task, rec, stem)
+                    if pdk == build.COURSE2 and rec is not None and self.pnr_entry(
+                            t, rec["files"]["sv"]["sha256"]) is None:
+                        d = None
+                    if d is None or "No ranked numbers to show" in text_of(section(h, "dashboard")):
+                        self.assertNotIn('id="compare', charts)
+                        continue
+                    cmp_ = section(h, "compare")
+                    self.assertTrue(cmp_, "no comparison")
+                    self.assertLess(charts.index('id="compare'), charts.index('id="area-time'))
+                    score = {x["id"]: build.standing.score(build.st_point(x, pdk)) for x in task.designs
+                             if "area_um2" in x["m"] and "time_ps" in x["m"]}
+                    me = score[d["id"]]
+                    recs = [x for x in task.designs if x["kind"] == "record" and x["id"] != d["id"] and x["id"] in score]
+                    better = sorted((x for x in recs if score[x["id"]] < me), key=lambda x: score[x["id"]])[-1:]
+                    worse = sorted((x for x in recs if score[x["id"]] > me), key=lambda x: score[x["id"]])[:1]
+                    tied = [x for x in recs if score[x["id"]] == me]
+                    par = next((x for x in task.designs if x["par"] and x["id"] in score), None)
+                    want = {x["id"] for x in [d] + better + worse + tied + ([par] if par else [])}
+                    rows = [r for r in re.findall(r"<tr( class=\"is-subject\")?>(.*?)</tr>", cmp_, re.S) if "<td" in r[1]]
+                    if len(want) == 1:                                          # no par score, no other record
+                        self.assertIn("Nothing to compare with on this course", text_of(cmp_))
+                        self.assertEqual(rows, [])
+                        checked += 1
+                        continue
+                    self.assertEqual(len(rows), len(want), [text_of(r[1])[:40] for r in rows])
+                    self.assertEqual(sum(1 for r in rows if r[0]), 1)              # this design's row, marked
+                    for x in better + worse + tied:
+                        self.assertIn(f'{x["id"]}.html"', cmp_)
+                    if par is not None and par["id"] != d["id"]:
+                        (prow,) = [r[1] for r in rows if "· par<" in r[1] or "· par</span>" in r[1]]
+                        vs = text_of(re.findall(r"<td[^>]*>(.*?)</td>", prow)[-1]).strip()
+                        card = re.search(r'<dt>vs par</dt><dd><strong>([^<]+)</strong> (\w+)<span',
+                                         section(h, "dashboard").split('id="h-score', 1)[1])
+                        self.assertEqual(vs, f"{card.group(1)} {card.group(2)}")
+                    checked += 1
+        self.assertGreaterEqual(checked, 30)
+
+    def test_charts_show_both_courses(self):
+        """Decided 2026-11-16 (the owner's item 4): where the design has numbers on both courses, the Charts tab draws
+        the area-time plot of each, the course in view first (style.css orders them; in the HTML, and so without the
+        script and printed, sky130 first), each under its course's name, the other one's said to be the other course;
+        every drawing's y-axis title says "lower is better". With numbers on one course only, that course's plot alone,
+        as before."""
+        both = 0
+        for t, path, rec, stem in self.detail_pages():
+            raw = self.files[path].decode("utf-8")
+            box = section(raw, "area-time")
+            if not box:
+                continue
+            with self.subTest(page=path):
+                charts = re.findall(r'<svg[^>]*class="chart[^"]*".*?</svg>', box, re.S)
+                self.assertTrue(charts)
+                for svg in charts:
+                    self.assertIn("lower is better", svg)
+                if 'class="at-courses"' not in box:
+                    continue
+                both += 1
+                sky = box.index('<div class="at-course at-sky130">')
+                a7 = box.index(f'<div class="at-course at-{build.COURSE2}">')
+                self.assertLess(sky, a7)
+                for pdk, other in (("sky130", build.COURSE2), (build.COURSE2, "sky130")):
+                    v = section(self.page(path, pdk), "area-time")
+                    heads = [text_of(x) for x in re.findall(r'<h3 class="at-head">(.*?)</h3>', v, re.S)]
+                    self.assertEqual(heads, ["sky130" + (" · the other course" if pdk != "sky130" else ""),
+                                             "ASAP7 · placed and routed" + (" · the other course" if pdk == "sky130"
+                                                                            else "")])
+                    self.assertEqual(len(re.findall(r'<div class="chart-variant" [^>]*data-view="fit" '
+                                                    r'data-size="wide"', v)) >= 2, True)
+        self.assertGreaterEqual(both, 20)
+
     def test_the_schematic_is_the_display_instance_and_says_so(self):
         display = read_json(os.path.join(SITE, "schematics", "display.json"))
         drawn = 0
@@ -667,7 +879,17 @@ class DetailTest(unittest.TestCase):
                 if params:
                     words = ", ".join(f"{k} = {params[k]}" for k in task["scoring"]["params"])
                     scored = ", ".join(f"{k} = {v}" for k, v in task["scoring"]["params"].items())
-                    self.assertIn(f"Drawn at {words}, a display instance; scored at {scored}.", text_of(sch))
+                    # one line (decided 2026-11-16, the owner's item 6: it was five on a phone): the two sizes, always
+                    # shown; what a display instance is, a note behind its button (shown in its place without the
+                    # script and printed: style.css)
+                    lead = re.search(r'<p class="sch-lead sch-scale"><span class="sch-line">(.*?)</span> '
+                                     r'<button type="button" class="hnote-btn" aria-expanded="false" '
+                                     r'aria-controls="schematic-note">why\?</button> '
+                                     r'<span class="hnote-body" id="schematic-note">(.*?)</span></p>', sch, re.S)
+                    self.assertIsNotNone(lead, sch[:400])
+                    self.assertEqual(text_of(lead.group(1)), f"Drawn at {words}; scored at {scored}.")
+                    self.assertTrue(text_of(lead.group(2)).startswith("This is a display instance. Only this drawing"))
+                    self.assertEqual(h.count('id="schematic-note"'), 1)
                     # the card holds the scored critical path and cells too: the drawing is the one pane that is not
                     # (said without "this tab": without the script there are no tabs)
                     self.assertIn("the critical path, the cells and every other number on this page are the scored "
@@ -679,6 +901,22 @@ class DetailTest(unittest.TestCase):
                     self.assertIn("one fixed size", text_of(sch))
                 self.assertEqual(h.count('class="sch"'), 1)
         self.assertGreaterEqual(drawn, 15)
+
+    def test_the_display_instance_note_hides_only_with_the_script(self):
+        """The display-instance note (decided 2026-11-16, the owner's item 6) is a hover note only on screen with the
+        script on (<html data-pdk>): there style.css hides it until its button is hovered, focused or clicked (site.js,
+        tabsjs_check.js), and shows the button; without the script and printed the button is not shown and the note
+        stands in its place, after the line, as a sentence (the headless check's no-JavaScript and print runs)."""
+        css = open(os.path.join(SITE, "style.css"), encoding="utf-8").read()
+        self.assertRegex(css, r"\n\.hnote-btn \{ display: none; \}")
+        for m in re.finditer(r"([^{}]+)\{([^{}]*visibility: hidden[^{}]*)\}", css):
+            if "hnote" not in m.group(1):
+                continue
+            self.assertTrue(all(p.strip().startswith("html[data-pdk] ") for p in m.group(1).split(",")), m.group(1))
+            before = css[:m.start()]
+            self.assertGreater(before.rfind("@media screen"), before.rfind("}\n}\n"))      # inside @media screen
+        printed = css[css.index("@media print {"):]
+        self.assertNotIn("hnote", printed[:printed.index("\n}\n")])
 
     def test_the_critical_path_table_is_ppa_pys(self):
         for t, path, rec, stem in self.detail_pages():
@@ -940,6 +1178,74 @@ class DetailTest(unittest.TestCase):
                                        os.path.join(SITE, "charts.js"), sk], capture_output=True, text=True, timeout=120)
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
                 self.assertIn("all ok", proc.stdout)
+
+    def test_source_and_proof_opens_with_what_is_proved(self):
+        """Decided 2026-11-16 (the owner's item 5, "Give the proof its own summary line"): the Source and proof tab opens
+        with one line, generated, never written per record: what is proved (the task's statement summary, its public
+        one-line summary content/tasks/<task>.json `subtitle`, linking the statement on the task page), for which
+        parameters (task.json's ranges, every condition) and how long the check took (the record's own
+        `proof.build_seconds`; a reference without a record: the cold runs of its proof score/time_limits.json keeps,
+        and without them nothing of time). A record checked under another statement says so instead."""
+        limits = read_json(os.path.join(SVGOLF, "score", "time_limits.json"))["tasks"]
+        for t, path, rec, stem in self.detail_pages():
+            raw = self.files[path].decode("utf-8")
+            pane = section(raw, "source")
+            task = lb.load_task(os.path.join(SVGOLF, "tasks"), t)
+            sub = read_json(os.path.join(SITE, "content", "tasks", f"{t}.json")).get("subtitle", "")
+            with self.subTest(page=path):
+                first = re.match(r'<section class="tabs-pane" id="source"><h2 class="tabs-pane-title">Source and proof'
+                                 r'</h2><p class="proof-line">(.*?)</p>', pane, re.S)
+                self.assertIsNotNone(first, pane[:300])
+                line = text_of(first.group(1))
+                self.assertIn('href="../index.html#spec"', first.group(1))
+                if rec is not None and lb.statement_mismatch(rec, lb.current_statement(task)):
+                    self.assertIn("against another version of the task's statement", line)
+                    continue
+                self.assertTrue(line.startswith("proved the task's statement: " + norm(sub.rstrip("."))), line)
+                for p in task.get("parameters") or []:
+                    for cond in p["range"].split(", "):
+                        self.assertIn(cond, line)
+                if not task.get("parameters"):
+                    self.assertIn("at its one fixed size", line)
+                secs = ((rec or {}).get("proof") or {}).get("build_seconds")
+                runs = ((limits.get(t) or {}).get("references") or {}).get(stem or "", {}).get("wall_s") or []
+                if rec is not None:
+                    self.assertIn(f"the proof built in {secs:g} s when checked", line)
+                elif runs:
+                    lo, hi = min(runs), max(runs)
+                    self.assertIn(f"the proof built in {lo:g} to {hi:g} s in {len(runs)} cold runs", line)
+                else:
+                    self.assertNotRegex(line, r"\d s\b")
+                self.assertNotIn("<p", first.group(1))
+
+    def test_the_tab_bar_stays_at_the_top(self):
+        """Decided 2026-11-16 (the owner's item 2, "Make the tab bar sticky"): with the script (site.js has made the
+        tabs: `.js-tabs`), on screen, the page's tab bar sticks to the top of the view while a pane scrolls under it;
+        without the script it neither sticks nor scrolls, and printed it is not there. On a phone it is one line that
+        scrolls sideways inside itself (stuck or not), a fade at an edge where more tabs are. What is brought into view
+        in a pane keeps clear of it (a scroll margin of the bar's height, `--tabs-bar`). site.js's part (`--tabs-bar`,
+        a tab chosen in the stuck bar) is tabsjs_check.js's; the real page's, the round's headless check's (fragments
+        and the keyboard's focus land below the bar)."""
+        css = open(os.path.join(SITE, "style.css"), encoding="utf-8").read()
+        sticky = [m for m in re.finditer(r"([^{}]+)\{[^{}]*position: sticky;[^{}]*\}", css) if "tabs-nav" in m.group(1)]
+        self.assertTrue(sticky)
+        for m in sticky:
+            self.assertIn(".tabs-page.js-tabs > .tabs-nav", m.group(1))
+            before = css[:m.start()]
+            self.assertEqual(before.rfind("@media screen"), max(before.rfind("@media"), before.rfind("@media screen")))
+        bar = css[css.index("THE BAR STAYS"):]
+        phone = bar[bar.index("@media screen and (max-width: 40rem) {"):]
+        phone = phone[:phone.index("\n}\n")]
+        self.assertRegex(phone, r"\.tabs-page\.js-tabs > \.tabs-nav \{ flex-wrap: nowrap; overflow-x: auto;")
+        self.assertIn(".tabs-page.js-tabs > .tabs-nav.at-end::after", phone)
+        self.assertIn(".tabs-page.js-tabs > .tabs-nav.at-start::before", phone)
+        printed = css[css.index("@media print {"):]
+        self.assertIn(".tabs-nav, .sch-tools { display: none; }", printed)
+        js = open(os.path.join(SITE, "site.js"), encoding="utf-8").read()
+        self.assertIn('st.setProperty("--tabs-bar", v)', js)
+        # the panes and what a link, a fragment or the focus brings into view in them keep clear of the stuck bar
+        self.assertRegex(css, r"\.tabs-page\.js-tabs > \.tabs-pane :where\(\[id\], a, button, summary, input, select, "
+                              r"textarea, \[tabindex\]\) \{\s*scroll-margin-top: var\(--tabs-bar, 0px\); \}")
 
     def test_reproduce_names_the_command_and_the_hashes(self):
         for t, path, rec, stem in self.detail_pages():

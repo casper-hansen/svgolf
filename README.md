@@ -1972,8 +1972,9 @@ literally in a scratch copy on the `add` and `aes_sbox` references, bit for bit 
 2026-11-09 the site's selector showed every golf score on sky130 or on these cells-only ASAP7 numbers; since 2026-11-12
 its second course is ASAP7 placed and routed ("How the routed course is scored", below), which places and routes the
 netlist this view weighs. The cells-only numbers stay: they are the netlist the routed course places, the period of its
-clock, and a column of each record page ("cells only (A0′)", with the wire cost against it); `leaderboard.py board --pdk
-asap7` prints their boards. The records keep their sky130 columns; GE and depth do not depend on the library.
+clock, and a column of each record page (in its overview's fold of more numbers: "cells only (A0′)", with the wire
+cost against it); `leaderboard.py board --pdk asap7` prints their boards. The records keep their sky130 columns; GE
+and depth do not depend on the library.
 
 **How ASAP7 is scored.** The same scored netlist as sky130's score (the pinned flow does not depend on the library),
 weighed by `score/ppa.py --pdk asap7` (flow A0', `asap7_a0_v1`): each gate its least-area ASAP7 build, repaired by
@@ -2022,7 +2023,8 @@ python3.12 leaderboard/leaderboard.py board --task <name> --pdk asap7           
 bar of every page, "Course", offers sky130 (the default) and ASAP7 · placed and routed (since 2026-11-13 the front page's
 too: one control in one place).
 On the routed course every golf score of the site is the routed one: the boards and their order, par, the record and
-under par, the score chart, the area-time plots and each record's overview. The browser remembers the choice (where it
+under par, the score chart, the area-time plots and each record's overview (a record page's Charts tab draws the other
+course's area-time plot too, after the chosen course's and under its name). The browser remembers the choice (where it
 allows it) and the address carries it: `?pdk=asap7pnr`, and `?pdk=sky130` once a reader has chosen a course. An old
 address with `?pdk=asap7`, the cells-only view this course replaced, shows the routed course and says so. Without
 JavaScript the site shows sky130. Both courses are ranked when the site is built, by `leaderboard.py`'s own functions

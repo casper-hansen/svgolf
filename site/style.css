@@ -1233,11 +1233,78 @@ dl.mfacts dd { color: var(--text-2); }
 .meter .m-behind { background: transparent; }
 .mcard .meter + .fine { margin: 0 0 0.6rem; }      /* the field's count line under its meter (2026-11-11) */
 .fine { margin: 0.3rem 0; font-size: 0.78rem; line-height: 1.5; color: var(--text-2); }
-.dash-note { margin: 0 0 var(--sp-5); max-width: 62rem; }     /* the next card's frame keeps clear */
+.dash-note { margin: 0 0 var(--sp-5); }     /* the next card's frame keeps clear */
+.dash-note .fine { max-width: 62rem; }
 .dash-note .fine { margin: 0.2rem 0; }
 .dash-note details.reveal { margin: 0; }
 .dash-note details.reveal > summary { font: 0.78rem/1.5 var(--font); }     /* the note's face, as the line above it */
 .dash-note details.reveal > .fine { margin: 0.35rem 0; }
+/* A PHONE'S OVERVIEW (decided 2026-11-16, the owner's item 1: the three cards took about two screens before the tabs):
+   with the script on (pdk.js has set <html data-pdk>) and on screen, the three cards in one row, each its label (its
+   short words), its number, its unit under it and "vs par"; every other line of the cards (the line under the number,
+   the field's line, par's name, "on this page") and the note under them open with the overview's fold, "more numbers,
+   ...", one tap (a <details>, so the browser's own disclosure: keyboard and touch, no script). Without the script,
+   printed, and where :has() is unknown, the cards stand as on a wide screen. */
+@media screen and (max-width: 42rem) {
+  .dash-note details.dash-more > summary { display: flex; width: calc(100% - 4px); margin: var(--sp-1) 2px 0;
+    padding: 0.6rem 0.7rem; font: 600 0.8rem/1.35 var(--font); color: var(--text); background: var(--surface);
+    box-shadow: 0 -2px 0 0 var(--border-strong), 0 2px 0 0 var(--border-strong), -2px 0 0 0 var(--border-strong),
+      2px 0 0 0 var(--border-strong); }
+  .dash-note details.dash-more[open] > summary { margin-bottom: var(--sp-3); }
+}
+@supports selector(:has(a)) {
+  @media screen and (max-width: 42rem) {
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) > .dash {
+      grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-2); }
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) > .dash > .mcard {
+      --px: 2px; padding: 0.55rem 0.5rem 0.6rem; grid-column: auto; }
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) .mcard :is(.lab-more, .sub, .mfield, .mpar) {
+      display: none; }
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) .mcard > .label { letter-spacing: 0.1em;
+      margin: 0 0 0.15rem; }
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) .mcard .big {
+      font-size: clamp(0.8rem, 3.9vw, 1rem); line-height: 1.2; letter-spacing: -0.03em; overflow-wrap: normal; }
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) .mcard .big .unit { display: block; margin: 0.1rem 0 0;
+      font-size: 0.72rem; }
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) .mcard dl.mrows { display: block; margin-top: 0.45rem;
+      padding-top: 0.4rem; font-size: 0.8rem; line-height: 1.35; }
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) .mcard dl.mrows > :is(dt, dd) { display: none; }
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) .mcard dl.mrows > dt:first-child,
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) .mcard dl.mrows > dt:first-child + dd {
+      display: block; }
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) .mcard dl.mrows > dt:first-child {
+      font-size: 0.72rem; }
+    html[data-pdk] #dashboard .pdk:not(:has(details.dash-more[open])) > .dash-note > .fine { display: none; }
+  }
+}
+/* Without the script (no <html data-pdk>: pdk.js sets it) and printed, the overview's fold stands open, a plain line
+   for its summary: its numbers were the cards' own until 2026-11-16, shown without the script and printed. (Where the
+   browser knows ::details-content; for printing, site.js also opens it with the script on.) One rule each: a browser
+   that does not know the pseudo-element drops its rule alone. */
+html:not([data-pdk]) details.dash-more::details-content { content-visibility: visible; }
+html:not([data-pdk]) details.dash-more > summary { pointer-events: none; }
+html:not([data-pdk]) details.dash-more > summary::before { content: none; }
+@media print {
+  details.dash-more::details-content { content-visibility: visible; }
+}
+@media print {
+  details.dash-more > summary::before { content: none; }
+}
+/* the fold's secondary numbers (decided 2026-11-16, the owner's item 3), a column per card, under the cards */
+.dash-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-3) var(--sp-4);
+  margin: var(--sp-2) 0 var(--sp-3); }
+@media (max-width: 66rem) { .dash-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 42rem) { .dash-facts { grid-template-columns: minmax(0, 1fr); } }
+.dfacts { min-width: 0; }
+.dfacts > .label { margin: 0 0 0.3rem; }
+.dfacts > .fine { margin: 0 0 0.4rem; }
+#compare dl.facts { margin-top: 0; }
+/* the Source and proof tab's first line (decided 2026-11-16, the owner's item 5; build.py proof_line_html): what is
+   proved, for which parameters, how long the check took */
+.proof-line { margin: 0 0 var(--sp-4); padding: var(--sp-3) var(--sp-4); background: var(--surface);
+  border-left: 4px solid var(--good); font-size: var(--fs-sm); line-height: 1.55; }
+.proof-line > .badge { margin-right: var(--sp-1); vertical-align: 0.1em; }
+.proof-line code { white-space: nowrap; }
 #sources .codebox-dl { font: 600 var(--fs-xs)/1 var(--mono); color: var(--link); }
 /* a detail page's tabs (page.py's tabs with page=True; decided 2026-11-16): one bar under the head and the overview,
    the tabs in the header nav's type, the chosen one a green pixel button as the nav marks the current page; on a
@@ -1253,6 +1320,35 @@ dl.mfacts dd { color: var(--text-2); }
     inset 0 -3px 0 0 var(--nav-on-lip); }
 .tabs-page > .tabs-nav > a:focus-visible { outline-offset: 2px; z-index: 1; }
 @media (max-width: 40rem) { .tabs-page > .tabs-nav > a { padding: 0.6rem 0.7rem; } }
+/* THE BAR STAYS (decided 2026-11-16, the owner's item 2): with the script (site.js has made the tabs), the bar sticks
+   to the top of the view while a pane scrolls under it, so another tab is one tap away from anywhere in the pane.
+   What a link, the URL's fragment or the keyboard's focus brings into view keeps clear of it (a scroll margin of its
+   height, --tabs-bar, which site.js sets), and a tab chosen in the stuck bar shows its pane from the top. It is in
+   the page's tab order once, as before: nothing traps the focus. On a phone the bar is ONE line that scrolls sideways inside
+   itself (stuck or not, so that it never changes height as it sticks), the chosen tab kept in view and a fade at
+   an edge where more tabs are; without the script it wraps, as before, and does not stick. */
+@media screen {
+  .tabs-page.js-tabs > .tabs-nav { position: sticky; top: 0; z-index: 5; }
+  /* what a link, a fragment or the keyboard's focus brings into view keeps clear of the stuck bar (site.js sets
+     --tabs-bar, the bar's height); :where() leaves a rule of its own (a schematic cell's 25vh) the stronger */
+  .tabs-page.js-tabs > .tabs-pane,
+  .tabs-page.js-tabs > .tabs-pane :where([id], a, button, summary, input, select, textarea, [tabindex]) {
+    scroll-margin-top: var(--tabs-bar, 0px); }
+}
+@media screen and (max-width: 40rem) {
+  .tabs-page.js-tabs > .tabs-nav { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: none; padding-right: 1.5rem; }
+  .tabs-page.js-tabs > .tabs-nav::-webkit-scrollbar { display: none; }
+  .tabs-page.js-tabs > .tabs-nav > a { padding: 0.6rem 0.6rem; }
+  .tabs-page.js-tabs > .tabs-nav > a:focus-visible { outline-offset: -3px; }   /* inside the strip, which clips */
+  .tabs-page.js-tabs > .tabs-nav::after { content: ""; position: sticky; z-index: 1; right: -1.5rem; flex: none;
+    width: 1.75rem; margin: -4px -1.5rem -4px -1.75rem; pointer-events: none;
+    background: linear-gradient(to right, color-mix(in srgb, var(--surface) 0%, transparent), var(--surface) 75%); }
+  .tabs-page.js-tabs > .tabs-nav::before { content: ""; position: sticky; z-index: 1; left: -4px; flex: none;
+    width: 1.75rem; margin: -4px -1.75rem -4px -4px; pointer-events: none;
+    background: linear-gradient(to left, color-mix(in srgb, var(--surface) 0%, transparent), var(--surface) 75%); }
+  .tabs-page.js-tabs > .tabs-nav.at-end::after, .tabs-page.js-tabs > .tabs-nav.at-start::before { visibility: hidden; }
+}
 .tabs-page > .tabs-pane > .tabs-pane-title { font-size: var(--fs-sm); margin-bottom: var(--sp-3); }
 /* before site.js has made the tabs (pdk.js, which runs before the page is drawn, has set <html data-pdk>: the
    script is on), the pane the URL names (or holds what it names) is the one shown, else the first, so the page is
@@ -1275,6 +1371,18 @@ dl.mfacts dd { color: var(--text-2); }
 .card-row > * { min-width: 0; }
 /* the writeup at a reading measure (the tab is the page's width) */
 .tabs-pane > .writeup { max-width: 52rem; }
+/* the Charts tab (decided 2026-11-16, the owner's item 4): the comparison with par and the board's neighbours, a
+   small table (on a phone each row a small card, page.table's stack), then the area-time plot of each course where
+   the design has numbers on both, the course in view first, each under its course's name */
+#compare .table-wrap { margin: var(--sp-3) 0 0; }
+table.compare td:last-child { white-space: nowrap; }
+.at-courses { display: flex; flex-direction: column; }
+.at-courses > .at-course { min-width: 0; }
+.at-course + .at-course { margin-top: var(--sp-5); padding-top: var(--sp-4); border-top: 1px solid var(--border); }
+html[data-pdk="asap7pnr"] .at-courses > .at-asap7pnr { margin-top: 0; padding-top: 0; border-top: 0; }
+html[data-pdk="asap7pnr"] .at-courses > .at-sky130 { order: 1; margin-top: var(--sp-5); padding-top: var(--sp-4);
+  border-top: 1px solid var(--border); }
+.at-head { margin: 0 0 var(--sp-3); font-size: var(--fs-base); }
 /* tabs in a card (page.py's tabs; site.js): without the script, links to panes that stand one under the other */
 .tabs-nav { display: flex; flex-wrap: wrap; gap: 0 var(--sp-5); margin: 0 0 var(--sp-4); border-bottom: 1px solid var(--border); }
 .tabs-nav > a { display: inline-flex; align-items: center; font: 700 var(--fs-xs)/1 var(--mono); letter-spacing: 0.12em;
@@ -1308,6 +1416,38 @@ svg.chart.pa .mark.subject { opacity: 1; }
 svg.chart.pa .mark.clamped { opacity: 0.55; }
 tr.is-subject td { background: var(--surface-2); }
 tr.is-subject td:first-child { box-shadow: inset 3px 0 0 var(--text); }
+/* the display-instance note (decided 2026-11-16, the owner's item 6; build.py schematic_html): one line says the two
+   sizes, always; what a display instance is is a note behind its "why?" button, shown on hover (a pointer that can
+   hover), on the keyboard's focus and on a click or tap (site.js: Escape and a click elsewhere close it), over the
+   lines under it, never wider than its paragraph. Without the script, and printed, the note stands in its place
+   after the line, as a sentence, and the button is not shown. */
+.sch-lead { margin-top: 0; }
+.sch-scale { position: relative; font-size: var(--fs-sm); }
+.sch-scale strong { font-weight: 650; }
+@media (max-width: 40rem) { .sch-scale { font-size: 0.78rem; } }    /* one line on a phone for most sizes, as .fine */
+.hnote-btn { display: none; }
+@media screen {
+  html[data-pdk] .sch-scale > .hnote-btn { display: inline-flex; align-items: center; margin: 0;
+    padding: 0.2rem 0.3rem; font: 600 var(--fs-xs)/1 var(--mono); color: var(--text); cursor: pointer;
+    background: var(--surface); border: 2px solid var(--border-strong); border-bottom-width: 3px; border-radius: 0;
+    vertical-align: 0.1em; }
+  html[data-pdk] .sch-scale > .hnote-btn:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  html[data-pdk] .sch-scale > .hnote-body { --px: 2px; --pl: var(--text); --ps: var(--border-strong);
+    position: absolute; left: 0; top: calc(100% + 4px); z-index: 4; width: min(34rem, 100%); padding: var(--sp-2) var(--sp-3);
+    background: var(--surface); color: var(--text-2); font-size: var(--fs-sm); line-height: 1.5;
+    box-shadow: 0 -2px 0 0 var(--pl), 0 2px 0 0 var(--pl), -2px 0 0 0 var(--pl), 2px 0 0 0 var(--pl),
+      -2px 2px 0 0 var(--ps), 2px 2px 0 0 var(--ps), 0 4px 0 0 var(--ps);
+    visibility: hidden; transition: visibility 0s linear 0.3s; }    /* a moment to move the pointer onto it */
+  html[data-pdk] .sch-scale > .hnote-btn:focus-visible + .hnote-body,
+  html[data-pdk] .sch-scale > .hnote-btn[aria-expanded="true"] + .hnote-body {
+    visibility: visible; transition-delay: 0s; }
+  html[data-pdk] .sch-scale > .hnote-btn[data-dismissed] + .hnote-body { visibility: hidden; transition-delay: 0s; }
+}
+@media screen and (hover: hover) {
+  html[data-pdk] .sch-scale > .hnote-btn:hover + .hnote-body, html[data-pdk] .sch-scale > .hnote-body:hover {
+    visibility: visible; transition-delay: 0s; }
+  html[data-pdk] .sch-scale > .hnote-btn[data-dismissed]:hover + .hnote-body { visibility: hidden; }
+}
 .sch-tools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-3); margin: 0 0 var(--sp-2); }
 .sch-tools[hidden] { display: none; }
 .sch-tools button { font: 600 var(--fs-xs)/1 var(--mono); padding: 0.45rem 0.65rem; border-radius: 0;
@@ -1433,6 +1573,8 @@ ol.chain .muted { font-family: var(--mono); font-size: 0.78rem; }
   table.stack.closure td:last-child code { white-space: normal; overflow-wrap: anywhere; }   /* a hash in a third of a row */
   table.stack tr.par-row { background: var(--surface-2); box-shadow: inset 4px 0 0 var(--accent); }
   table.stack tr.par-row td, table.stack tr.par-row td:first-child { background: none; box-shadow: none; }
+  table.stack tr.is-subject { background: var(--surface-2); box-shadow: inset 4px 0 0 var(--text); }
+  table.stack tr.is-subject td, table.stack tr.is-subject td:first-child { background: none; box-shadow: none; }
   dl.facts { grid-template-columns: minmax(0, 1fr); }
   dl.facts dt { padding-bottom: 0; border-bottom: 0; }
   ol.board > li { grid-template-columns: 1.6rem minmax(0, 1fr) auto; gap: var(--sp-2); }
