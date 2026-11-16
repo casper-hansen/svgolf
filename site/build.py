@@ -1028,15 +1028,18 @@ def collect(site, offline):
 
 WRITEUPS = "svgolf/leaderboard/writeups"          # the records' writeups (leaderboard.py WRITEUPS_DIR)
 WRITEUPS_ANCHOR = "writeups"                      # README.md's "### Writeups" on the rules page: how to write one
+FIGURES_ANCHOR = "figures-in-a-writeup"           # README.md's "#### Figures in a writeup": how the site draws them
 
 
 def load_writeups(site, records):
     """The records' writeups (decided 2026-11-13, the owner's UI feedback items 3 and 6): {record_hash: (title, the
     body as HTML)} in `site.writeups`, each file checked as `leaderboard.py verify` checks it (`lb.writeup_problems`:
     a bad one fails the build, which a pull request's check would have refused) and rendered safely
-    (site/writeup.py). A writeup that names no record is not shown: a warning (fatal under --strict)."""
+    (site/writeup.py). A writeup that names no record is not shown: a warning (fatal under --strict). Its figures
+    (decided 2026-11-16) must be drawn from its record's design file, and their captions link how figures are made."""
     site.writeups = {}
     hashes = {r["record_hash"] for r in records}
+    by_hash = {r["record_hash"]: r for r in records}
     d = repo_file(WRITEUPS)
     if not os.path.isdir(d):
         return
@@ -1051,7 +1054,11 @@ def load_writeups(site, records):
         problems = lb.writeup_problems(name, data, hashes)
         if problems:
             raise BuildError(f"{WRITEUPS}/{name}: " + "; ".join(problems))
-        title, body = writeup.render(data.decode("utf-8"), source=f"{WRITEUPS}/{name}", highlight=_md_highlight)
+        rec = by_hash[m.group(1)]
+        here = f"tasks/{rec['task']}/records/{rec['record_hash']}.html"
+        title, body = writeup.render(data.decode("utf-8"), source=f"{WRITEUPS}/{name}", highlight=_md_highlight,
+                                     design_sha256=rec["files"]["sv"]["sha256"],
+                                     rules_href=rel_link(here, f"rules.html#{FIGURES_ANCHOR}"))
         site.writeups[m.group(1)] = (title, body)
 
 

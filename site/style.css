@@ -1065,6 +1065,44 @@ pre.code.source .decl:target .ln:first-child::before, pre.code.source .ln:target
 .loop > li > p { margin: 0; font-size: var(--fs-sm); color: var(--text-2); }
 .loop > li > p strong:first-child { display: block; color: var(--text); font: 800 var(--fs-md)/1.3 var(--font-display); margin-bottom: var(--sp-2); }
 
+/* ------------------------------------- a writeup's figures (site/figs, writeup.py) */
+
+/* drawn by the site from the design (decided 2026-11-16): inline SVG whose marks read the tokens, so one drawing serves
+   both themes; at most its own size, never narrower than its min-width (its box scrolls on a phone instead) */
+.wfig { margin: var(--sp-5) 0; }
+.wfig-box { overflow-x: auto; overflow-y: hidden; padding: var(--sp-2) 0; }
+.wfig-box > svg { display: block; width: 100%; height: auto; }
+.wfig figcaption { color: var(--text-2); font-size: var(--fs-sm); margin-top: var(--sp-2); }
+.wfig-n { color: var(--text); font-weight: 700; }
+.wfig-credit { color: var(--text-3); }
+svg.wfig-svg text { font-family: var(--mono); font-size: 11px; fill: var(--text-2); }
+svg.wfig-svg .t-lab { font-family: var(--font); font-size: 12px; fill: var(--text); }
+svg.wfig-svg .t-head { font-family: var(--font); font-size: 12px; font-weight: 700; fill: var(--text); }
+svg.wfig-svg .t-note { font-family: var(--font); font-size: 11px; fill: var(--text-3); }
+svg.wfig-svg .t-mono { fill: var(--text); }
+svg.wfig-svg .t-hot { fill: var(--accent-ink); font-weight: 700; }
+svg.wfig-svg .t-on { fill: var(--text); }
+svg.wfig-svg .w { stroke: var(--axis); stroke-width: 1.5; fill: none; }
+svg.wfig-svg .w-faint { stroke: var(--grid); stroke-width: 1; fill: none; }
+svg.wfig-svg .e { stroke: var(--text-2); stroke-width: 1.5; fill: none; stroke-linecap: round; }
+svg.wfig-svg .e-hot { stroke: var(--accent); stroke-width: 2.5; fill: none; stroke-linecap: round; }
+svg.wfig-svg .e-blue { stroke: var(--kind-reference); stroke-width: 2; fill: none; stroke-linecap: round; }
+svg.wfig-svg .e-dash { stroke: var(--text-3); stroke-width: 1.5; stroke-dasharray: 4 3; fill: none; }
+svg.wfig-svg .n { fill: var(--text); }
+svg.wfig-svg .n-hot { fill: var(--accent); }
+svg.wfig-svg .n-open { fill: var(--surface); stroke: var(--text-2); stroke-width: 1.5; }
+svg.wfig-svg .b { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1.5; }
+svg.wfig-svg .b-hot { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+svg.wfig-svg .b-blue { fill: var(--surface); stroke: var(--kind-reference); stroke-width: 2; }
+svg.wfig-svg .b-soft { fill: var(--surface-2); stroke: none; }
+svg.wfig-svg .b-on { fill: var(--accent-soft); stroke: none; }
+svg.wfig-svg .arrow { fill: var(--text-2); }
+svg.wfig-svg .arrow-hot { fill: var(--accent); }
+@media (forced-colors: active) {
+  svg.wfig-svg text, svg.wfig-svg .n, svg.wfig-svg .n-hot, svg.wfig-svg .arrow, svg.wfig-svg .arrow-hot { fill: CanvasText; }
+  svg.wfig-svg :is(.w, .e, .e-hot, .e-blue, .e-dash, .b, .b-hot, .b-blue, .n-open) { stroke: CanvasText; }
+}
+
 /* -------------------------------------------------- charts (svgplot.py) */
 
 .chart-figure { margin: var(--sp-3) 0; }

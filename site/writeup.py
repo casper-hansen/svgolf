@@ -19,13 +19,34 @@ paragraphs, lists, code spans and fenced code, emphasis, tables, links) under th
 * the headings are the card's: `#` and `##` start at the card's sub-level (h3), and their anchors carry the prefix
   `writeup-`, so that no heading a writer picks can take an id of the page's own.
 
+FIGURES (decided 2026-11-16): a fenced block with the info string `figure` shows a figure the site draws from the
+design (site/figs), never a picture the writer supplies. Its lines are `key: value`, exactly these three:
+
+    ```figure
+    name: add-kogge-stone
+    alt: The Kogge-Stone prefix graph at N = 8: four levels of combining nodes.
+    caption: Every carry after four levels; each dot combines two (generate, propagate) pairs.
+    ```
+
+`name` must be a registered figure (figs.REGISTRY), and, when the caller says which design the writeup's record has
+(`design_sha256`; the site build always does), one drawn from that design; `alt` is plain text (the drawing's
+<title>, read by a screen reader), `caption` one line of the writeup's inline Markdown, at most CAPTION_MAX
+characters (a caption is short). The page shows "Figure n." and the caption, then a line the site makes from the
+figure's registration, never typed: the size it is drawn at, the record's scoring point, who made it, and (with
+`rules_href`) a link to how figures are made. Anything else in such a block is a MarkdownError, with its line.
+
 Standard library only, as md.py.
 """
 
 import html
 import re
 
+import figs
 import md
+
+FIGURE_KEYS = ("name", "alt", "caption")
+CAPTION_MAX = 300                     # characters of a figure's caption (definitions go behind a link)
+ALT_MAX = 300                         # characters of a figure's alt text
 
 TITLE_MAX = 60                        # the title's length cap, in characters (leaderboard.py WRITEUP_TITLE_MAX)
 ID_PREFIX = "writeup-"
@@ -56,13 +77,61 @@ def split(text):
     return m.group(1), body, 2
 
 
-def render(text, *, source, highlight=None):
+def figure_fields(block, *, source, line):
+    """{name, alt, caption} of a figure block's body (its first line is `line` + 1 of `source`); md.MarkdownError
+    for anything but exactly those three `key: value` lines."""
+    out = {}
+    for k, raw in enumerate(block.split("\n")):
+        no = line + 1 + k
+        if not raw.strip():
+            continue
+        m = re.fullmatch(r"([a-z]+): (\S(?:.*\S)?)", raw.strip())
+        if not m:
+            raise md.MarkdownError(source, no, "a figure block's lines are `key: value` (name, alt, caption)")
+        key, value = m.groups()
+        if key not in FIGURE_KEYS:
+            raise md.MarkdownError(source, no, f"a figure block has no key {key!r} (name, alt, caption)")
+        if key in out:
+            raise md.MarkdownError(source, no, f"a figure block's {key!r} is given twice")
+        out[key] = value
+    missing = [k for k in FIGURE_KEYS if k not in out]
+    if missing:
+        raise md.MarkdownError(source, line, "a figure block needs " + ", ".join(missing))
+    for key, cap in (("caption", CAPTION_MAX), ("alt", ALT_MAX)):
+        if len(out[key]) > cap:
+            raise md.MarkdownError(source, line, f"a figure's {key} has {len(out[key])} characters, over {cap}")
+    return out
+
+
+def render(text, *, source, highlight=None, design_sha256=None, rules_href=None):
     """(title, the body as HTML) of a writeup's text (`source`: its path, for md.py's errors). The title is plain
-    text (the caller escapes it); the body is md.py's rendering under the rules above. Raises md.MarkdownError for a
-    construct outside the subset, ValueError for a text with no title line."""
+    text (the caller escapes it); the body is md.py's rendering under the rules above. `design_sha256`: the sha256
+    of the record's design file, which every figure block must be drawn from; `rules_href`: where "how" in a figure's
+    caption links (both from the site build). Raises md.MarkdownError for a construct outside the subset, ValueError
+    for a text with no title line."""
     title, body, first = split(text)
+    slugger = _Slugger()
+    count = [0]
+
+    def figure(block, no):
+        f = figure_fields(block, source=source, line=no)
+        fig = figs.get(f["name"])
+        if fig is None:
+            raise md.MarkdownError(source, no, f"no figure is named {f['name']!r} (site/figs registers them)")
+        if design_sha256 is not None and design_sha256 not in fig.designs:
+            raise md.MarkdownError(source, no, f"figure {f['name']!r} is drawn from another design than this "
+                                               "record's")
+        count[0] += 1
+        fid = slugger.slug(f"figure {count[0]}")
+        caption = md.render_inline(f["caption"], source=source, line=no, resolve_link=safe_target)
+        how = f' (<a href="{esc(rules_href)}">how</a>)' if rules_href else ""
+        return (f'<figure class="wfig" id="{esc(fid)}"><div class="wfig-box">'
+                f'{figs.svg_of(fig, alt=f["alt"], uid=fid)}</div>'
+                f'<figcaption><span class="wfig-n">Figure {count[0]}.</span> {caption} '
+                f'<span class="wfig-credit">{esc(figs.credit(fig))}{how}.</span></figcaption></figure>')
+
     r = md.render(body, source=source, first_line=first, resolve_link=safe_target, highlight=highlight,
-                  slugger=_Slugger(), heading_shift=1)
+                  slugger=slugger, heading_shift=1, figure=figure)
     out = r.html
     # md.py writes `<a href="...">` for a link it resolved, nothing else (a writer's `<` is escaped): mark each one
     out = out.replace('<a href="http', '<a rel="nofollow ugc noopener" href="http')

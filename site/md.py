@@ -25,7 +25,10 @@ Three rules differ from CommonMark / GFM on purpose:
 `render(text, ...)` returns a Rendered (the HTML and the headings with their
 anchor ids). Links go through the caller's `resolve_link(target)`, which
 returns the href to write or None for "show the text, link nothing"; code
-blocks go through `highlight(code, lang)`.
+blocks go through `highlight(code, lang)`. A caller that passes `figure`
+(site/writeup.py, for a writeup's figures) gets every fenced block whose info
+string is `figure` as `figure(body, line)`, which returns the block's HTML;
+without it such a block is a code block like any other.
 """
 
 import html
@@ -165,12 +168,13 @@ def split_blocks(text):
 
 
 class _Renderer:
-    def __init__(self, source, resolve_link, highlight, slugger, heading_shift):
+    def __init__(self, source, resolve_link, highlight, slugger, heading_shift, figure=None):
         self.source = source
         self.resolve_link = resolve_link or (lambda target: target)
         self.highlight = highlight or (lambda code, lang: _esc(code))
         self.slugger = slugger or Slugger()
         self.heading_shift = heading_shift
+        self.figure = figure
         self.headings = []
 
     def fail(self, line, message):
@@ -246,6 +250,9 @@ class _Renderer:
         else:
             self.fail(no, f"unterminated code fence {fence}")
         code = "\n".join(body)
+        if lang == "figure" and self.figure is not None:
+            out.append(self.figure(code, no))
+            return j + 1
         lang_attr = f' data-lang="{_attr(lang)}"' if lang else ""
         out.append(f'<pre class="code"{lang_attr}><code>{self.highlight(code, lang)}</code></pre>')
         return j + 1
@@ -489,10 +496,11 @@ class _Renderer:
 
 
 def render(text, *, source="<markdown>", first_line=1, resolve_link=None, highlight=None,
-           slugger=None, heading_shift=0):
+           slugger=None, heading_shift=0, figure=None):
     """Render a Markdown document (or a fragment of one starting at line
-    `first_line` of `source`) to a Rendered."""
-    r = _Renderer(source, resolve_link, highlight, slugger, heading_shift)
+    `first_line` of `source`) to a Rendered. `figure`: see the module's
+    docstring."""
+    r = _Renderer(source, resolve_link, highlight, slugger, heading_shift, figure)
     lines = list(enumerate(text.split("\n"), first_line))
     return Rendered(r.blocks(lines), r.headings)
 

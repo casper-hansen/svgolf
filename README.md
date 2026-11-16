@@ -63,7 +63,8 @@ toolchain that `lean-toolchain` pins, `leanprover/lean4:v4.35.0`, on first use),
 Verilator 5, a C++ compiler and `make` (the post-synthesis stage compiles
 Verilator's model of the netlist, and without them `check.py` stops with the infrastructure error
 "postsynth: `c++` is not on PATH ...", or names the compiler `$CXX` sets; "Checking" says which compiler) and
-Python 3.12. Then:
+Python 3.12. The leaderboard tests and `leaderboard.py verify --offline` expect the pinned rating build of Yosys,
+and with a different Yosys on PATH they show records as stale: run them with no Yosys on PATH, as CI does. Then:
 
 ```bash
 python3.12 -m pip install -r requirements.txt   # pyslang 11.0.0, the extractor's SystemVerilog frontend
@@ -2382,6 +2383,26 @@ code spans and fenced code, emphasis, tables and links to `http` or `https` addr
 text), no images, no block quotes. The site renders it with everything escaped. A record without a writeup shows
 its design file's name as its title and, in its Writeup tab, one line: "No writeup yet". The writeups of the
 first records were written by the maintainers from each record's design and proof files, and say so at their end.
+
+#### Figures in a writeup
+
+A writeup can show figures that the site draws from the design (decided 2026-11-16), never a picture file. A figure
+is a small generator in `site/figs/`, registered under a name for the design files it is drawn from: it restates
+the design's parameters and index formulas (its generate conditions, loop bounds and cells' update rules) and draws
+the result at a small display size. A writeup shows one with a fenced block whose info string is `figure` and whose
+three lines are `name:` (a registered figure of this record's design), `alt:` (a text alternative) and `caption:`
+(one short line). The site adds the figure's number and a last line made from the registration: the size it is
+drawn at, the record's scoring point and who made the figure.
+
+Every figure is checked against its design by the site's tests (`tests/site/test_figures.py`): a combinational
+drawing against the netlist Yosys elaborates from the design at the drawn size (which signal each drawn node
+reads), a clocked one against an Icarus Verilog simulation of the design on the figure's own inputs (every value it
+shows, cycle by cycle). Those checks skip where Yosys or Icarus Verilog is not installed. A new figure comes as a
+pull request to `site/figs/` with its check.
+
+When the maintainers add to a player's writeup, they mark it: a figure's caption ends "Figure by the maintainers,
+generated from the design", and an added sentence sits in a paragraph that starts "Maintainers' note:". The player's
+own text is not rewritten.
 
 ## Tests
 
