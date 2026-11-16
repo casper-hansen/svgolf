@@ -1,0 +1,148 @@
+<h1>Radix-4 Booth rows on a carry-save tape</h1>
+
+<p>An unsigned radix-4 (modified) Booth multiplier for every <code>N</code>. Recoding <code>b</code> into digits in <code>{-2, ..., 2}</code> cuts the partial-product rows to <code>K = (N + 3) / 2</code>, and a carry-save tape of full-adder rows reduces them before a ripple-carry adder.</p>
+
+<h2>The idea</h2>
+
+<p><code>b</code> is padded to <code>{0, b, 0}</code> and digit <code>k</code> is <code>-2·bb[2k+2] + bb[2k+1] + bb[2k]</code>; a small encoder per digit gives <code>one</code>, <code>two</code> and the sign. Row <code>k</code> selects <code>a</code>, <code>2a</code> or 0 on <code>N+1</code> bits and XORs it with the sign. A negative row's <code>+1</code> goes into a free column of the next row, and sign extension uses constant bits (<code>s, s, ~s</code> above row 0, <code>~s</code> and a one above the others) whose total vanishes modulo <code>2^(2N)</code>. Shifted reads go through padded gather vectors (<code>ae</code>, a window mask <code>wm</code>, a one-hot <code>pt</code>), so every index stays affine.</p>
+
+<p>Figure 1 draws the rows at <code>N = 8</code>, where there are five.</p>
+
+<figure>
+<svg viewBox="0 0 640 232">
+<title>The five partial-product rows of the radix-4 Booth multiplier at N = 8, column by column.</title>
+<desc>Row k holds the N + 1 = 9 bits of |d_k| times a, each XORed with the digit's sign s_k, in columns 2k to 2k + 8. Row 0 has the sign-extension constants s0, s0, ~s0 in columns 9 to 11; every later row k has ~s_k in column 2k + 9 and a constant 1 in column 2k + 10, and the previous row's +1, its sign s_(k-1), in its free column 2k - 2. Columns 16 and above are dropped: the product is taken modulo 2^16.</desc>
+<text class="t-note" x="615" y="18" text-anchor="middle">0</text>
+<text class="t-note" x="585" y="18" text-anchor="middle">1</text>
+<text class="t-note" x="555" y="18" text-anchor="middle">2</text>
+<text class="t-note" x="525" y="18" text-anchor="middle">3</text>
+<text class="t-note" x="495" y="18" text-anchor="middle">4</text>
+<text class="t-note" x="465" y="18" text-anchor="middle">5</text>
+<text class="t-note" x="435" y="18" text-anchor="middle">6</text>
+<text class="t-note" x="405" y="18" text-anchor="middle">7</text>
+<text class="t-note" x="375" y="18" text-anchor="middle">8</text>
+<text class="t-note" x="345" y="18" text-anchor="middle">9</text>
+<text class="t-note" x="315" y="18" text-anchor="middle">10</text>
+<text class="t-note" x="285" y="18" text-anchor="middle">11</text>
+<text class="t-note" x="255" y="18" text-anchor="middle">12</text>
+<text class="t-note" x="225" y="18" text-anchor="middle">13</text>
+<text class="t-note" x="195" y="18" text-anchor="middle">14</text>
+<text class="t-note" x="165" y="18" text-anchor="middle">15</text>
+<text class="t-note" x="105" y="18" text-anchor="middle">dropped</text>
+<line class="e-dash" x1="150" y1="28" x2="150" y2="174"/>
+<text class="t-lab" x="6" y="52">row 0</text>
+<text class="t-lab" x="6" y="80">row 1</text>
+<text class="t-lab" x="6" y="108">row 2</text>
+<text class="t-lab" x="6" y="136">row 3</text>
+<text class="t-lab" x="6" y="164">row 4</text>
+<circle class="n" cx="615" cy="48" r="4.5"/>
+<circle class="n" cx="585" cy="48" r="4.5"/>
+<circle class="n" cx="555" cy="48" r="4.5"/>
+<circle class="n" cx="525" cy="48" r="4.5"/>
+<circle class="n" cx="495" cy="48" r="4.5"/>
+<circle class="n" cx="465" cy="48" r="4.5"/>
+<circle class="n" cx="435" cy="48" r="4.5"/>
+<circle class="n" cx="405" cy="48" r="4.5"/>
+<circle class="n" cx="375" cy="48" r="4.5"/>
+<rect class="b" x="332" y="39" width="26" height="18"/>
+<text class="t-mono" x="345" y="52" text-anchor="middle">s0</text>
+<rect class="b" x="302" y="39" width="26" height="18"/>
+<text class="t-mono" x="315" y="52" text-anchor="middle">s0</text>
+<rect class="b" x="272" y="39" width="26" height="18"/>
+<text class="t-mono" x="285" y="52" text-anchor="middle">~s0</text>
+<rect class="b-hot" x="602" y="67" width="26" height="18"/>
+<text class="t-hot" x="615" y="80" text-anchor="middle">s0</text>
+<circle class="n" cx="555" cy="76" r="4.5"/>
+<circle class="n" cx="525" cy="76" r="4.5"/>
+<circle class="n" cx="495" cy="76" r="4.5"/>
+<circle class="n" cx="465" cy="76" r="4.5"/>
+<circle class="n" cx="435" cy="76" r="4.5"/>
+<circle class="n" cx="405" cy="76" r="4.5"/>
+<circle class="n" cx="375" cy="76" r="4.5"/>
+<circle class="n" cx="345" cy="76" r="4.5"/>
+<circle class="n" cx="315" cy="76" r="4.5"/>
+<rect class="b" x="272" y="67" width="26" height="18"/>
+<text class="t-mono" x="285" y="80" text-anchor="middle">~s1</text>
+<rect class="b" x="242" y="67" width="26" height="18"/>
+<text class="t-mono" x="255" y="80" text-anchor="middle">1</text>
+<rect class="b-hot" x="542" y="95" width="26" height="18"/>
+<text class="t-hot" x="555" y="108" text-anchor="middle">s1</text>
+<circle class="n" cx="495" cy="104" r="4.5"/>
+<circle class="n" cx="465" cy="104" r="4.5"/>
+<circle class="n" cx="435" cy="104" r="4.5"/>
+<circle class="n" cx="405" cy="104" r="4.5"/>
+<circle class="n" cx="375" cy="104" r="4.5"/>
+<circle class="n" cx="345" cy="104" r="4.5"/>
+<circle class="n" cx="315" cy="104" r="4.5"/>
+<circle class="n" cx="285" cy="104" r="4.5"/>
+<circle class="n" cx="255" cy="104" r="4.5"/>
+<rect class="b" x="212" y="95" width="26" height="18"/>
+<text class="t-mono" x="225" y="108" text-anchor="middle">~s2</text>
+<rect class="b" x="182" y="95" width="26" height="18"/>
+<text class="t-mono" x="195" y="108" text-anchor="middle">1</text>
+<rect class="b-hot" x="482" y="123" width="26" height="18"/>
+<text class="t-hot" x="495" y="136" text-anchor="middle">s2</text>
+<circle class="n" cx="435" cy="132" r="4.5"/>
+<circle class="n" cx="405" cy="132" r="4.5"/>
+<circle class="n" cx="375" cy="132" r="4.5"/>
+<circle class="n" cx="345" cy="132" r="4.5"/>
+<circle class="n" cx="315" cy="132" r="4.5"/>
+<circle class="n" cx="285" cy="132" r="4.5"/>
+<circle class="n" cx="255" cy="132" r="4.5"/>
+<circle class="n" cx="225" cy="132" r="4.5"/>
+<circle class="n" cx="195" cy="132" r="4.5"/>
+<rect class="b" x="152" y="123" width="26" height="18"/>
+<text class="t-mono" x="165" y="136" text-anchor="middle">~s3</text>
+<rect class="b-soft" x="122" y="123" width="26" height="18"/>
+<text class="t-note" x="135" y="136" text-anchor="middle">1</text>
+<rect class="b-hot" x="422" y="151" width="26" height="18"/>
+<text class="t-hot" x="435" y="164" text-anchor="middle">s3</text>
+<circle class="n" cx="375" cy="160" r="4.5"/>
+<circle class="n" cx="345" cy="160" r="4.5"/>
+<circle class="n" cx="315" cy="160" r="4.5"/>
+<circle class="n" cx="285" cy="160" r="4.5"/>
+<circle class="n" cx="255" cy="160" r="4.5"/>
+<circle class="n" cx="225" cy="160" r="4.5"/>
+<circle class="n" cx="195" cy="160" r="4.5"/>
+<circle class="n" cx="165" cy="160" r="4.5"/>
+<circle class="n-open" cx="135" cy="160" r="4.5"/>
+<rect class="b-soft" x="92" y="151" width="26" height="18"/>
+<text class="t-note" x="105" y="164" text-anchor="middle">~s4</text>
+<rect class="b-soft" x="62" y="151" width="26" height="18"/>
+<text class="t-note" x="75" y="164" text-anchor="middle">1</text>
+<circle class="n" cx="12" cy="194" r="4.5"/>
+<text class="t-note" x="22" y="198">a bit of |d|·a, XOR the sign</text>
+<rect class="b" x="206" y="185" width="26" height="18"/>
+<text class="t-mono" x="219" y="198" text-anchor="middle">s0</text>
+<text class="t-note" x="238" y="198">sign-extension constants</text>
+<rect class="b-hot" x="420" y="185" width="26" height="18"/>
+<text class="t-hot" x="433" y="198" text-anchor="middle">s0</text>
+<text class="t-note" x="452" y="198">the row above's +1</text>
+</svg>
+<figcaption>The partial-product rows at <code>N = 8</code>, by column: row k's nine bits start at column 2k, the boxes are the sign-extension constants, and the accent is the row above's <code>+1</code> in row k's free column 2k − 2. Columns 16 and up fall off modulo 2^16. Drawn by the maintainers from the design.</figcaption>
+</figure>
+
+<p>At <code>N = 16</code> that is 9 rows instead of 16. Seven carry-save adders, each reading the three oldest rows on the tape and appending a sum and a carry row, leave two rows for the final adder.</p>
+
+<h2>Why it scores as it does</h2>
+
+<p>Fewer rows mean fewer adders: 1,345 cells, the fewest of the entries as of 2026-11-13, about 7,979 µm² on sky130. The encoder and row select add logic in front of the reduction, and the delay is 6,329 ps (63 cells to <code>p[31]</code>, unit depth 64), for about 50,498 µm²·ns, 0.56 × par. On ASAP7 it was the smallest design on 2026-11-13, about 120.3 µm², at 1,369 ps (164.7 µm²·ns), which puts it on that course's area-time frontier.</p>
+
+<h2>The proof</h2>
+
+<p>768 lines of plain Lean over <code>CombLib</code>, connected to the netlist by <code>sv_structure</code> (with its own rank, <code>boothKey</code>), <code>sv_interface</code>, <code>sv_equations</code>, <code>sv_bridge</code> and <code>sv_cover</code>. The arithmetic:</p>
+
+<ol>
+<li>A <code>bfVal</code> toolkit for rows built from windows and single bits: an OR of disjoint supports is a sum (<code>bfVal_or</code>), a complement is <code>2^n - 1 - x</code> (<code>bfVal_not</code>), a single bit is a power of two (<code>bfVal_pt</code>).</li>
+<li>Each row's integer value by a case split on its three recoded bits (<code>rowK_int</code>, <code>row0_int</code>).</li>
+<li>The Booth identity by induction on the rows (<code>booth_sum</code>): after <code>n</code> rows the sum is <code>a</code> times the recoded prefix of <code>b</code>, less the pending <code>+1</code>, plus the telescoped sign-extension constants.</li>
+<li>A generic tape theorem (<code>tape_sum</code>), generalized from the Wallace reference: for any number of leaf rows, the last two rows sum to the leaves modulo <code>2^W</code>.</li>
+</ol>
+
+<p><code>booth_mul</code> puts them together.</p>
+
+<h2>What did not work</h2>
+
+<p>Two sign-extension schemes were built, scored and simulated: the constants above, and a sign fill of the upper columns. The constants were kept.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

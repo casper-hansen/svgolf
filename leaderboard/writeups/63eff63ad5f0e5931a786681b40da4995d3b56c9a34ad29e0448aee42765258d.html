@@ -1,0 +1,26 @@
+<h1>One AND gate per bit</h1>
+
+<p>The par design of the toy task: <code>band.sv</code> is a single continuous assign, <code>assign y = a &amp; b;</code>, one two-input AND gate per bit for every width <code>N</code>. The maintainers recorded it as par, with <code>band.lean</code>, a proof that walks the design's instantiation by hand instead of using the <code>sv_comb</code> tactics.</p>
+
+<h2>The idea</h2>
+
+<p>There is no trick to find. The function is bitwise, so each output bit is one gate of its own two input bits and no bit depends on another. The task exists to exercise the whole pipeline (statement, proof, checker, banlist, scoring) on a design whose optimum is obvious, and the task README states that this design is optimal.</p>
+
+<h2>Why it scores as it does</h2>
+
+<p>At the scoring point <code>N = 16</code> the netlist is 16 <code>and2_1</code> cells: 100.1 µm² of sky130 area, and a critical path one cell deep, 280 ps to <code>y[0]</code>. Area times time is 28.03 µm²·ns, which is par. In the extra columns it is 21.3 NAND2 gate equivalents at depth 1. On the routed ASAP7 course it measures 1.40 µm² and 25 ps.</p>
+
+<h2>The proof</h2>
+
+<p>The proof is 159 code lines in four steps, and its tactic census is just <code>simp</code>, <code>omega</code> and <code>decide</code>:</p>
+
+<ol>
+<li><strong>The design at symbolic <code>N</code>.</strong> <code>band_instantiate2</code> splits instantiation into its stages with <code>PDesign.instantiate2_of_ok</code>: the parameter environment by <code>rfl</code>, the declarations and element widths by <code>simp</code>, the one static process by <code>sv2_inst_simp</code>. The one-driver guard is closed data, so <code>band_driversOk</code> is a <code>decide</code>, and <code>band_sem_eq</code> identifies <code>design.sem N</code> with the instantiated design.</li>
+<li><strong>Comb profile and acyclicity.</strong> <code>band_comb</code> fills the <code>CombDesign</code> structure field by field: no duplicate declarations, the one write window of <code>y</code> in range and not an input, every read declared. <code>band_acyclic</code> uses the constant rank 0, since the assign reads only <code>a</code> and <code>b</code>, which nothing writes.</li>
+<li><strong>The settled state.</strong> <code>band_settled</code> applies <code>CombEqs.lookup_ident</code> with the evaluation lemmas for identifiers and <code>&amp;</code> on known bit vectors: in any solution of the equations, known <code>a</code> and <code>b</code> give <code>y = a &amp;&amp;&amp; b</code>.</li>
+<li><strong>The statement.</strong> <code>solution</code> reduces the task's statement to the interface and step 3 with <code>CombTask.satisfiedAt_of_comb</code>.</li>
+</ol>
+
+<p>The same design also has a 38-line proof with the <code>sv_comb</code> tactics (<code>sv_structure</code>, <code>sv_interface</code>, <code>sv_equations</code>), which the site's walk-through follows. This longer file shows what those tactics automate.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

@@ -44,6 +44,7 @@ import argparse
 import copy
 import datetime
 import hashlib
+import html
 import importlib.util
 import json
 import os
@@ -3023,28 +3024,35 @@ def load_records(data_dir, task=None):
     return out
 
 
-# WRITEUPS (decided 2026-11-13, the owner's UI feedback items 3 and 6): a record may have a writeup, the Markdown file
-# leaderboard/writeups/<record_hash>.md, its first line `# <title>` (the submission's short title, plain text, at most
-# WRITEUP_TITLE_MAX characters), the rest a blog-post-style account of the design and its proof. It lies OUTSIDE the
-# record: no field of the record and none of its hashes name it, so adding or improving a writeup never changes a
-# record, its hash or its rank. Optional: a record without one is accepted. `verify` checks every writeup's shape
-# (`writeup_problems`); the site renders it safely (site/writeup.py) on the record's page and shows the title in the
-# submissions list and the charts' tooltips. leaderboard/writeups/TEMPLATE.md is the template, not a writeup.
+# WRITEUPS (decided 2026-11-13, the owner's UI feedback items 3 and 6; HTML since 2026-11-16, the owner's request "Can
+# you make the write-ups html, so they can contain inline svg figures?"): a record may have a writeup, the HTML file
+# leaderboard/writeups/<record_hash>.html, its first line `<h1>title</h1>` (the submission's short title, plain text,
+# at most WRITEUP_TITLE_MAX characters), the rest an HTML fragment, a blog-post-style account of the design and its
+# proof. It lies OUTSIDE the record: no field of the record and none of its hashes name it, so adding or improving a
+# writeup never changes a record, its hash or its rank. Optional: a record without one is accepted. `verify` checks
+# every writeup's shape (`writeup_problems`) and that the site's allowlist sanitizer accepts its HTML
+# (`writeup_renderer`: site/writeup.py and site/safehtml.py, which refuse rather than strip, naming the line); the
+# site renders it from the checked tree on the record's page and shows the title in the submissions list and the
+# charts' tooltips. leaderboard/writeups/TEMPLATE.html is the template, not a writeup. Markdown writeups (`.md`, the
+# format until 2026-11-16) are no longer read: one is refused with the advice to convert it.
 WRITEUPS_DIR = os.path.join(HERE, "writeups")
-WRITEUP_TEMPLATE = "TEMPLATE.md"
+WRITEUP_TEMPLATE = "TEMPLATE.html"
 WRITEUP_TITLE_MAX = 60                     # characters (site/writeup.py TITLE_MAX)
 WRITEUP_SIZE_MAX = 200_000                 # bytes
-WRITEUP_NAME_RE = re.compile(r"([0-9a-f]{64})\.md")
-WRITEUP_TITLE_RE = re.compile(r"# (\S(?:.*\S)?)")
+WRITEUP_NAME_RE = re.compile(r"([0-9a-f]{64})\.html")
+WRITEUP_MD_RE = re.compile(r"([0-9a-f]{64})\.md")      # the old format's name: refused, with the advice
+WRITEUP_TITLE_RE = re.compile(r"<h1>([^<>]*)</h1>")
 # a control character (a tab or a carriage return included: Unix newlines, spaces), DEL, a byte-order mark, or a
 # bidirectional override or isolate, which can make the text shown differ from the text checked
 _WRITEUP_BAD_CHAR = re.compile("[\x00-\x09\x0b-\x1f\x7f\u202a-\u202e\u2066-\u2069\ufeff]")
 
 
 def writeup_title(text):
-    """The title of a writeup's text (its line 1 without `# `), or None."""
+    """The title of a writeup's text (the text of its line 1 `<h1>title</h1>`, character references decoded: plain
+    text, not empty, no space at either end, no control character), or None."""
     m = WRITEUP_TITLE_RE.fullmatch(text.split("\n", 1)[0])
-    return m.group(1) if m else None
+    title = html.unescape(m.group(1)) if m else ""
+    return title if re.fullmatch(r"\S(?:.*\S)?", title) and not _WRITEUP_BAD_CHAR.search(title) else None
 
 
 def writeup_problems(name, data, known, deny=(), render=None):
@@ -3053,8 +3061,11 @@ def writeup_problems(name, data, known, deny=(), render=None):
     a writeup is shown as the site's own text, never exempted as a player's record fields are), `render` (optional) a
     function of the text that raises ValueError for a body the site cannot render. [] when it is a good writeup."""
     m = WRITEUP_NAME_RE.fullmatch(name)
+    if not m and WRITEUP_MD_RE.fullmatch(name):
+        return ["a Markdown writeup: writeups are HTML since 2026-11-16, so name it <record_hash>.html and write it in "
+                "HTML (README.md, \"Writeups\"; leaderboard/writeups/TEMPLATE.html)"]
     if not m:
-        return [f"not named <record_hash>.md (the record's 64 lowercase hex digits)"]
+        return ["not named <record_hash>.html (the record's 64 lowercase hex digits)"]
     out = []
     if m.group(1) not in known:
         out.append("names no record (a writeup is named by the hash of a record in leaderboard/data/)")
@@ -3071,7 +3082,7 @@ def writeup_problems(name, data, known, deny=(), render=None):
                    "bidirectional override; tabs and carriage returns included: use spaces and Unix newlines)")
     title = writeup_title(text)
     if title is None:
-        out.append("line 1 is not the title line `# <title>` (one space after `#`, the title not empty)")
+        out.append("line 1 is not the title line `<h1>title</h1>` (plain text, not empty; write & as &amp;)")
     elif len(title) > WRITEUP_TITLE_MAX:
         out.append(f"the title has {len(title)} characters, over the cap of {WRITEUP_TITLE_MAX}")
     low = text.lower()
@@ -3099,8 +3110,9 @@ def site_denylist(svgolf=None):
 
 
 def writeup_renderer(svgolf=None):
-    """The site's renderer of a writeup (site/writeup.py `render`, loaded by path), as a function of the text that
-    raises ValueError for a body outside the site's Markdown subset; None without the site's files."""
+    """The site's renderer of a writeup (site/writeup.py `render`, loaded by path: its HTML through site/safehtml.py's
+    allowlists), as a function of the text that raises ValueError ("line N: what was refused") for a body the site
+    refuses; None without the site's files."""
     site_dir = os.path.join(svgolf or SVGOLF, "site")
     path = os.path.join(site_dir, "writeup.py")
     if not os.path.isfile(path):
@@ -3116,13 +3128,13 @@ def writeup_renderer(svgolf=None):
     def render(text):
         try:
             mod.render(text, source="writeup")
-        except mod.md.MarkdownError as e:
-            raise ValueError(str(e).split(": ", 1)[-1]) from None
+        except mod.safehtml.HtmlError as e:
+            raise ValueError(f"line {e.line}: {e.message}") from None
     return render
 
 
 def check_writeups(wdir, records, *, task=None, deny=(), render=None):
-    """[(file name, title or None, task or None, problems)] of every writeup in `wdir` (TEMPLATE.md and hidden files
+    """[(file name, title or None, task or None, problems)] of every writeup in `wdir` (TEMPLATE.html and hidden files
     left out): `records` are all the records of the data directory, {record_hash: record}; with `task`, only the
     writeups of that task's records."""
     out = []
@@ -3131,7 +3143,7 @@ def check_writeups(wdir, records, *, task=None, deny=(), render=None):
     for name in sorted(os.listdir(wdir)):
         if name == WRITEUP_TEMPLATE or name.startswith("."):
             continue
-        m = WRITEUP_NAME_RE.fullmatch(name)
+        m = WRITEUP_NAME_RE.fullmatch(name) or WRITEUP_MD_RE.fullmatch(name)
         rec = records.get(m.group(1)) if m else None
         if task and (rec or {}).get("task") != task:
             continue
@@ -4119,9 +4131,9 @@ def repoint_tables(task_name, old_hash, new_hash, *, asap7_dir=ASAP7_DIR, pnr_di
             if write:
                 with open(path, "w", encoding="utf-8") as fh:
                     fh.write(sizes.data_text(data))
-    src = os.path.join(writeups_dir, f"{old_hash}.md") if writeups_dir else None
+    src = os.path.join(writeups_dir, f"{old_hash}.html") if writeups_dir else None
     if src and os.path.isfile(src):
-        dst = os.path.join(writeups_dir, f"{new_hash}.md")
+        dst = os.path.join(writeups_dir, f"{new_hash}.html")
         if os.path.exists(dst):
             raise Refused([f"{os.path.relpath(dst)} already exists"])
         changed.append(dst)
@@ -4904,8 +4916,8 @@ def submit_text(rec, line, verified, writeup=False):
     assisted = "; ".join(md_escape(a) for a in rec["assisted_by"]) if rec["assisted_by"] else "none (unassisted)"
     body = [f"## {PR_HEADINGS[0]}", "", f"- task: `{rec['task']}`", f"- handle: `{rec['player']}`",
             f"- assisted by: {assisted}", f"- files: `{files}.json`, `.sv` and `.lean`, as `leaderboard.py add` wrote "
-            "them" + (f", and its writeup `leaderboard/writeups/{rec['record_hash']}.md`" if writeup else
-                      "; no writeup yet (encouraged: leaderboard/writeups/TEMPLATE.md)"), "",
+            "them" + (f", and its writeup `leaderboard/writeups/{rec['record_hash']}.html`" if writeup else
+                      "; no writeup yet (encouraged: leaderboard/writeups/TEMPLATE.html)"), "",
             f"## {PR_HEADINGS[1]}", "", line, "",
             f"## {PR_HEADINGS[2]}", "", "`leaderboard.py verify --offline` of this record before it was sent:", "",
             "```text", verified, "```", "", PR_CHECK_NOTE, ""]
@@ -4926,7 +4938,7 @@ def submit_steps(rec, root, files, owner, repo, title):
     names = [f"leaderboard/data/{task}/{h}{ext}" for ext in (".json", ".sv", ".lean")]
     blobs = ("JSON", "SV", "LEAN")
     if len(files) == 4:                   # and the record's writeup (decided 2026-11-13), when there is one
-        names, blobs = names + [f"leaderboard/writeups/{h}.md"], blobs + ("WRITEUP",)
+        names, blobs = names + [f"leaderboard/writeups/{h}.html"], blobs + ("WRITEUP",)
     step = lambda var, argv, index=False, gh=False: {"var": var, "argv": argv, "index": index, "gh": gh}  # noqa: E731
     out = [step("TMP", ["mktemp", "-d"]), step("BODY", []),
            step(None, git + ["fetch", "--no-tags", f"https://github.com/{owner}/{repo}.git", SUBMIT_BRANCH]),
@@ -5071,7 +5083,7 @@ def cmd_submit(args):
         return 2
     line = board_line(board, par, rec["record_hash"])
     # the record's writeup goes with it when there is one (decided 2026-11-13), checked as `verify` checks it
-    wpath = os.path.join(WRITEUPS_DIR, f"{rec['record_hash']}.md")
+    wpath = os.path.join(WRITEUPS_DIR, f"{rec['record_hash']}.html")
     if os.path.isfile(wpath):
         with open(wpath, "rb") as fh:
             wproblems = writeup_problems(os.path.basename(wpath), fh.read(WRITEUP_SIZE_MAX + 1), {rec["record_hash"]},

@@ -1032,11 +1032,13 @@ FIGURES_ANCHOR = "figures-in-a-writeup"           # README.md's "#### Figures in
 
 
 def load_writeups(site, records):
-    """The records' writeups (decided 2026-11-13, the owner's UI feedback items 3 and 6): {record_hash: (title, the
-    body as HTML)} in `site.writeups`, each file checked as `leaderboard.py verify` checks it (`lb.writeup_problems`:
-    a bad one fails the build, which a pull request's check would have refused) and rendered safely
-    (site/writeup.py). A writeup that names no record is not shown: a warning (fatal under --strict). Its figures
-    (decided 2026-11-16) must be drawn from its record's design file, and their captions link how figures are made."""
+    """The records' writeups (decided 2026-11-13, the owner's UI feedback items 3 and 6; HTML since 2026-11-16):
+    {record_hash: (title, the body as HTML)} in `site.writeups`, each file checked as `leaderboard.py verify` checks
+    it (`lb.writeup_problems`: a bad one fails the build, which a pull request's check would have refused) and
+    rendered safely (site/writeup.py: the HTML through site/safehtml.py's allowlists, refused rather than stripped,
+    and the page written from the checked tree). A writeup that names no record is not shown: a warning (fatal under
+    --strict). Its generated figures (decided 2026-11-16) must be drawn from its record's design file, and their
+    captions link how figures are made."""
     site.writeups = {}
     hashes = {r["record_hash"] for r in records}
     by_hash = {r["record_hash"]: r for r in records}
@@ -1056,9 +1058,12 @@ def load_writeups(site, records):
             raise BuildError(f"{WRITEUPS}/{name}: " + "; ".join(problems))
         rec = by_hash[m.group(1)]
         here = f"tasks/{rec['task']}/records/{rec['record_hash']}.html"
-        title, body = writeup.render(data.decode("utf-8"), source=f"{WRITEUPS}/{name}", highlight=_md_highlight,
-                                     design_sha256=rec["files"]["sv"]["sha256"],
-                                     rules_href=rel_link(here, f"rules.html#{FIGURES_ANCHOR}"))
+        try:
+            title, body = writeup.render(data.decode("utf-8"), source=f"{WRITEUPS}/{name}", highlight=_md_highlight,
+                                         design_sha256=rec["files"]["sv"]["sha256"],
+                                         rules_href=rel_link(here, f"rules.html#{FIGURES_ANCHOR}"))
+        except ValueError as e:                   # safehtml.HtmlError: the file, the line and what was refused
+            raise BuildError(str(e)) from None
         site.writeups[m.group(1)] = (title, body)
 
 
@@ -5353,10 +5358,10 @@ def detail_head(s, title_html, status, lead, kind, chips=(), sub_html=None):
         title_html=title_html, sub_html=sub_html, tags_html=" ".join(tags), lead_html=lead)
 
 
-WRITEUP_ASK = ("Write it up: `leaderboard/writeups/<record_hash>.md`, copied from `leaderboard/writeups/TEMPLATE.md`, its "
-               "first line the submission's short title. Say what the idea is, why it scores as it does, how the proof "
-               "goes and what did not work; a record without one is still accepted, and a writeup never changes the "
-               "record.")
+WRITEUP_ASK = ("Write it up: `leaderboard/writeups/<record_hash>.html`, copied from "
+               "`leaderboard/writeups/TEMPLATE.html`, its first line the submission's short title (HTML, inline SVG "
+               "figures welcome). Say what the idea is, why it scores as it does, how the proof goes and what did not "
+               "work; a record without one is still accepted, and a writeup never changes the record.")
 WRITEUP_ASK_PR = " It goes in the record's pull request (`leaderboard.py submit` takes it along)."
 
 
@@ -5366,7 +5371,7 @@ def writeup_ask(config):
     return WRITEUP_ASK + (WRITEUP_ASK_PR if submissions_open(config) else "")
 # one line (decided 2026-11-16, the record page's Writeup tab): what a writeup is, the rules page says ("How to add a
 # writeup" links it)
-WRITEUP_PROMPT = "No writeup yet. Anyone may add one in a pull request; it never changes the record."
+WRITEUP_PROMPT = "No writeup yet. Anyone may add one, figures included, in a pull request; it never changes the record."
 
 
 def writeup_card(site, here, rec):
@@ -5377,7 +5382,7 @@ def writeup_card(site, here, rec):
     how = page.link(rel_link(here, f"rules.html#{WRITEUPS_ANCHOR}"), "How to add a writeup")
     if w is None:
         return f'<p class="empty writeup-none">{esc(WRITEUP_PROMPT)} {how}.</p>'
-    src = f"svgolf/leaderboard/writeups/{rec['record_hash']}.md"
+    src = f"svgolf/leaderboard/writeups/{rec['record_hash']}.html"
     return page.card(f'<div class="writeup-body">{w[1]}</div>', tag="section", title_html="The writeup",
                      cls="writeup", foot_html=f'<p class="fine">From {code(shown_path(src))}, kept beside the record '
                                               f"(it is not part of the record or its hash). {how}.</p>")

@@ -1,0 +1,29 @@
+<h1>Ripple carry, always_comb carry cell</h1>
+
+<p>A ripple-carry adder whose carry cell is procedural. Inside the generate loop, the propagate bit <code>p[i] = a[i] ^ b[i]</code> is a continuous assign. An <code>always_comb</code> block then sets <code>c[i+1]</code> to <code>c[i]</code> when <code>p[i]</code> is set and to <code>a[i]</code> otherwise. The sum is <code>s[i] = p[i] ^ c[i]</code>.</p>
+
+<h2>The idea</h2>
+
+<p>When the operand bits differ, the incoming carry propagates. When they agree, both equal the carry out, so the cell can pick <code>a[i]</code> without looking at <code>b[i]</code>. That is a multiplexer on the propagate bit, written as an <code>if</code>/<code>else</code>. It computes the same majority as par's gate-level cell, and shows that procedural code inside a generate loop can be proved with the same tactics.</p>
+
+<p>The carry chain is par's, one cell per bit in series (Figure 1).</p>
+
+<figure data-figure="add-ripple" data-alt="The carry chain drawn as a prefix graph at N = 8: one carry cell per bit, eight in series.">
+<figcaption>The carry chain: each node is bit l's carry cell, <code>c[l+1]</code> = <code>p[l] ? c[l] : a[l]</code>, written as an <code>if</code>/<code>else</code> in an <code>always_comb</code> block.</figcaption>
+</figure>
+
+<h2>Why it scores as it does</h2>
+
+<p>The pinned flow produces par's netlist shape: 48 NAND2 and 32 XOR2 cells, 460.4 µm², and 2.61 ns over a 32-cell critical path to <code>s[15]</code>. That is 1202.2 µm²·ns on sky130, a tie with par. On the routed ASAP7 course it is 7.00 µm² and 558 ps, or 3.91 µm²·ns, which is 2 ps faster than par's design there and just ahead of it.</p>
+
+<h2>The proof</h2>
+
+<p>The proof (115 code lines) uses the <code>sv_comb</code> tactics like par's <code>add_n.lean</code>, with one twist. <code>design.sem N</code> is not a <code>CombDesign</code>, because that profile requires every process to be a continuous assign. The settle theory instead reaches the design through its <em>lowering</em> <code>Design2.lowerComb</code>, which replaces each <code>always_comb</code> body with the one assign it computes.</p>
+
+<ul>
+<li><code>add_struct</code> proves <code>CombDesign</code> and <code>Acyclic</code> for the lowering <code>d'</code>. <code>sv_structure</code> takes a <code>rippleRank</code> with <code>p[i]</code> at rank 0, bit <code>i</code>'s carry and sum cells at <code>i + 1</code>, and the carry-out at <code>N + 1</code>. It returns arithmetic obligations, including a <code>noSelfRead</code> goal for the procedural body, and <code>intros; omega</code> closes all of them.</li>
+<li><code>satisfiedAt_of_lowered</code> is a short bridge, local to the file, from the lowering to the task's statement. It uses <code>Design2.lowerComb_phases</code>, <code>Terminates2.of_lowerComb_acyclic</code> and <code>Models2.of_combProc_inputs</code>. <code>NoQ.sem_noQ</code> rules out <code>unique</code> and <code>priority</code> cases with one <code>decide</code>.</li>
+<li><code>sv_equations</code> states the carry cell's equation as the body's own <code>if</code>. In <code>add_final</code>, a case split on three Booleans shows that <code>if p then c else a</code>, with <code>p = a ^ b</code>, is the majority. That gives the library's <code>CombLib.AddView</code>, and <code>add_spec</code> turns it into the sum and carry out.</li>
+</ul>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

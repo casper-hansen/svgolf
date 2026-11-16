@@ -4645,20 +4645,26 @@ class PrCheckTest(Tmp):
             f"`leaderboard/data/mul/{g}.lean` is added as a symbolic link: a record's file is a plain file (mode "
             "100644)",
             f"record `mul/{g[:12]}` lacks `{g}.json`, `{g}.lean`: a record is its three files"])
-        # a record's writeup (decided 2026-11-13): added or improved as a plain file, never removed; anything else in
-        # leaderboard/writeups/ (another name, the template) is not a writeup and is refused as before
-        added, problems = pc.classify([("A", f"leaderboard/writeups/{h}.md", f), ("M", f"leaderboard/writeups/{g}.md", f),
-                                       ("D", f"leaderboard/writeups/{g}.md", f),
-                                       ("A", f"leaderboard/writeups/{h}.md", "120000"),
-                                       ("M", "leaderboard/writeups/TEMPLATE.md", f),
-                                       ("A", "leaderboard/writeups/notes.md", f)])
+        # a record's writeup (decided 2026-11-13; HTML since 2026-11-16): added or improved as a plain file, never
+        # removed; a Markdown one is refused with the advice to convert it; anything else in leaderboard/writeups/
+        # (another name, the template) is not a writeup and is refused as before
+        added, problems = pc.classify([("A", f"leaderboard/writeups/{h}.html", f),
+                                       ("M", f"leaderboard/writeups/{g}.html", f),
+                                       ("D", f"leaderboard/writeups/{g}.html", f),
+                                       ("A", f"leaderboard/writeups/{h}.html", "120000"),
+                                       ("A", f"leaderboard/writeups/{h}.md", f),
+                                       ("M", "leaderboard/writeups/TEMPLATE.html", f),
+                                       ("A", "leaderboard/writeups/notes.html", f)])
         self.assertEqual(added, {})
         self.assertEqual(problems, [
-            f"`leaderboard/writeups/{g}.md` is deleted: a pull request may add or improve a writeup, never remove one",
-            f"`leaderboard/writeups/{h}.md` is added as a symbolic link: a writeup is a plain file (mode 100644)",
-            "`leaderboard/writeups/TEMPLATE.md` is changed: it is not a record's file, and a pull request of records "
+            f"`leaderboard/writeups/{g}.html` is deleted: a pull request may add or improve a writeup, never remove "
+            "one",
+            f"`leaderboard/writeups/{h}.html` is added as a symbolic link: a writeup is a plain file (mode 100644)",
+            f"`leaderboard/writeups/{h}.md` is added: writeups are HTML since 2026-11-16, so name it "
+            "`<record_hash>.html` and write it in HTML (README.md, \"Writeups\")",
+            "`leaderboard/writeups/TEMPLATE.html` is changed: it is not a record's file, and a pull request of records "
             "changes nothing else (it would bring the checker it runs)",
-            "`leaderboard/writeups/notes.md` is added: it is not a record's file, and a pull request of records "
+            "`leaderboard/writeups/notes.html` is added: it is not a record's file, and a pull request of records "
             "changes nothing else (it would bring the checker it runs)"])
         pin = {lb.COMB_FLOW: {"yosys": "Yosys 0.53 (rating)"}}
         self.assertEqual(pc.flow_note(pin, pin), "This machine's Yosys is the rating build's (Yosys 0.53 (rating)), so "
@@ -4667,20 +4673,21 @@ class PrCheckTest(Tmp):
                       "check compared no score", pc.flow_note({lb.COMB_FLOW: {"yosys": None}}, pin))
 
 
-GOOD_WRITEUP = (b"# Ripple carry, one cell per bit\n\nThe idea: a full adder per bit.\n\n## The proof\n\n"
-                b"`sv_equations` and `omega`.\n")
+GOOD_WRITEUP = (b"<h1>Ripple carry, one cell per bit</h1>\n\n<p>The idea: a full adder per bit.</p>\n\n"
+                b"<h2>The proof</h2>\n\n<p><code>sv_equations</code> and <code>omega</code>.</p>\n")
 
 
 class WriteupTest(Tmp):
-    """The writeups (decided 2026-11-13, the owner's UI feedback items 3 and 6): leaderboard/writeups/<hash>.md, outside
-    the record, checked by `verify` (`writeup_problems`): named by a record's hash, UTF-8, the title line within 60
-    characters, at most 200 kB, no control or bidirectional-override character, none of the site's internal markers,
-    and a body the site can render."""
+    """The writeups (decided 2026-11-13, the owner's UI feedback items 3 and 6; HTML since 2026-11-16):
+    leaderboard/writeups/<hash>.html, outside the record, checked by `verify` (`writeup_problems`): named by a record's
+    hash, UTF-8, the title line within 60 characters, at most 200 kB, no control or bidirectional-override character,
+    none of the site's internal markers, and HTML the site's allowlist sanitizer accepts (each refusal naming the line
+    and the element or attribute). A Markdown writeup (the format until 2026-11-16) is refused with the advice."""
 
     H = "ab" * 32
 
     def problems(self, data, name=None, known=None, deny=("WP-",), render=None):
-        return lb.writeup_problems(name or f"{self.H}.md", data, {self.H} if known is None else known, deny, render)
+        return lb.writeup_problems(name or f"{self.H}.html", data, {self.H} if known is None else known, deny, render)
 
     def test_a_good_writeup_passes(self):
         self.assertEqual(self.problems(GOOD_WRITEUP, render=lb.writeup_renderer()), [])
@@ -4688,34 +4695,51 @@ class WriteupTest(Tmp):
 
     def test_each_rule_refuses(self):
         cases = {
-            "not named": (GOOD_WRITEUP, "notes.md"),
-            "names no record": (GOOD_WRITEUP, "cd" * 32 + ".md"),
-            "not UTF-8": (b"# T\n\n\xff\xfe\n", None),
-            "line 1 is not the title line": (b"Title\n\nbody\n", None),
-            "over the cap of 60": (b"# " + b"x" * 61 + b"\n\nbody\n", None),
-            "U+0009": (b"# T\n\n\tindented\n", None),
-            "U+000D": (b"# T\r\n\r\nbody\r\n", None),
-            "U+0000": (b"# T\n\nnul \x00 0\x01 here\n", None),
-            "U+202E": ("# T\n\nleft \u202e right\n".encode(), None),
-            "U+FEFF": ("\ufeff# T\n\nbody\n".encode(), None),
-            "internal marker 'WP-'": (b"# T\n\nsee wp-12\n", None),
+            "not named": (GOOD_WRITEUP, "notes.html"),
+            "a Markdown writeup: writeups are HTML": (GOOD_WRITEUP, self.H + ".md"),
+            "names no record": (GOOD_WRITEUP, "cd" * 32 + ".html"),
+            "not UTF-8": (b"<h1>T</h1>\n\n\xff\xfe\n", None),
+            "line 1 is not the title line": (b"Title\n\n<p>body</p>\n", None),
+            "line 1 is not the title line `<h1>": (b"# T\n\n<p>body</p>\n", None),            # the old form
+            "over the cap of 60": (b"<h1>" + b"x" * 61 + b"</h1>\n\n<p>body</p>\n", None),
+            "U+0009": (b"<h1>T</h1>\n\n\t<p>indented</p>\n", None),
+            "U+000D": (b"<h1>T</h1>\r\n\r\n<p>body</p>\r\n", None),
+            "U+0000": (b"<h1>T</h1>\n\n<p>nul \x00 0\x01 here</p>\n", None),
+            "U+202E": ("<h1>T</h1>\n\n<p>left \u202e right</p>\n".encode(), None),
+            "U+FEFF": ("\ufeff<h1>T</h1>\n\n<p>body</p>\n".encode(), None),
+            "internal marker 'WP-'": (b"<h1>T</h1>\n\n<p>see wp-12</p>\n", None),
         }
         for want, (data, name) in cases.items():
             with self.subTest(rule=want):
                 got = self.problems(data, name=name)
                 self.assertTrue(any(want in p for p in got), got)
         self.assertTrue(any("bytes, over the cap" in p
-                            for p in self.problems(b"# T\n\n" + b"a" * lb.WRITEUP_SIZE_MAX)))
-        self.assertEqual(self.problems(b"# " + b"x" * 60 + b"\n\nbody\n"), [])          # 60 characters: at the cap
-        self.assertEqual(self.problems("# Carry-save, 4:2 → 2 · µm²\n\nbody\n".encode()), [])   # UTF-8 text is fine
+                            for p in self.problems(b"<h1>T</h1>\n\n" + b"a" * lb.WRITEUP_SIZE_MAX)))
+        self.assertEqual(self.problems(b"<h1>" + b"x" * 60 + b"</h1>\n\n<p>body</p>\n"), [])   # at the cap
+        self.assertEqual(self.problems("<h1>Carry-save, 4:2 → 2 · µm²</h1>\n\n<p>body</p>\n".encode()), [])  # text
+        # the title is plain text: character references are decoded and count as one character each
+        self.assertEqual(lb.writeup_title("<h1>A &amp; B &lt;C&gt;</h1>\n"), "A & B <C>")
+        self.assertEqual(self.problems(b"<h1>" + b"&amp;" * 60 + b"</h1>\n\n<p>body</p>\n"), [])
+        for bad in (b"<h1><em>T</em></h1>", b"<h1> T</h1>", b"<h1></h1>", b"<h1>T&#9;U</h1>", b"<h1>T</h1> "):
+            with self.subTest(title=bad):
+                self.assertTrue(any("line 1 is not the title line" in p
+                                    for p in self.problems(bad + b"\n\n<p>body</p>\n")))
 
     def test_a_body_the_site_cannot_render_is_refused(self):
+        """What the site's allowlist sanitizer refuses, verify refuses, naming the line and the element or attribute
+        (tests/site/test_safehtml.py has the whole battery)."""
         render = lb.writeup_renderer()
         self.assertIsNotNone(render)
-        for body, why in ((b"![x](https://example.org/x.png)", "images"), (b"> quoted", "blockquotes"),
-                          (b"```\nopen fence", "unterminated code fence"), (b"see [^1]", "footnotes")):
+        for body, why in ((b"<p><img src=x onerror=alert(1)></p>", "line 3: the element <img> is not allowed"),
+                          (b"<p>a</p>\n<p onclick=\"x()\">b</p>", "line 4: <p>: the attribute onclick is not allowed"),
+                          (b"<p><a href=\"javascript:alert(1)\">x</a></p>", "line 3: <a>: href='javascript:alert(1)'"),
+                          (b"<script>alert(1)</script>", "line 3: the element <script> is not allowed"),
+                          (b"<p>unclosed", "line 3: <p> (opened on line 3) is never closed"),
+                          (b"Markdown text", "line 3: text 'Markdown text' outside a block"),
+                          (b'<figure data-figure="nope" data-alt="a"><figcaption>c</figcaption></figure>',
+                           "line 3: no figure is named 'nope'")):
             with self.subTest(why=why):
-                got = self.problems(b"# T\n\n" + body + b"\n", render=render)
+                got = self.problems(b"<h1>T</h1>\n\n" + body + b"\n", render=render)
                 self.assertTrue(any("the site cannot render it" in p and why in p for p in got), got)
 
     def test_verify_checks_the_writeups_and_the_template_is_not_one(self):
@@ -4727,18 +4751,32 @@ class WriteupTest(Tmp):
         os.makedirs(wdir)
         with open(os.path.join(wdir, lb.WRITEUP_TEMPLATE), "w") as fh:
             fh.write("not a writeup at all\n")
-        with open(os.path.join(wdir, f"{h}.md"), "wb") as fh:
+        with open(os.path.join(wdir, f"{h}.html"), "wb") as fh:
             fh.write(GOOD_WRITEUP)
         rc, out, err = env.run("verify", "--offline", "--writeups-dir", wdir)
         self.assertEqual(rc, 0, out + err)
         self.assertIn(f"[ok] writeup toy/{h[:12]}: Ripple carry, one cell per bit", out)
         self.assertIn("writeups: 1 checked, 0 failed", out)
-        with open(os.path.join(wdir, "cd" * 32 + ".md"), "wb") as fh:
+        with open(os.path.join(wdir, "cd" * 32 + ".html"), "wb") as fh:
             fh.write(GOOD_WRITEUP)
         rc, out, _ = env.run("verify", "--offline", "--writeups-dir", wdir)
         self.assertEqual(rc, 1)
         self.assertIn("names no record", out)
         self.assertIn("writeups: 2 checked, 1 failed", out)
+        # a hostile writeup fails the check, and the line names what was refused
+        os.remove(os.path.join(wdir, "cd" * 32 + ".html"))
+        with open(os.path.join(wdir, f"{h}.html"), "wb") as fh:
+            fh.write(GOOD_WRITEUP + b'<figure><svg viewBox="0 0 9 9" onload="alert(1)"><title>t</title></svg>'
+                                    b"<figcaption>c</figcaption></figure>\n")
+        rc, out, _ = env.run("verify", "--offline", "--writeups-dir", wdir)
+        self.assertEqual(rc, 1)
+        self.assertIn(f"[FAIL] writeup toy/{h[:12]}: the site cannot render it: line 8: <svg>: the attribute onload is "
+                      "not allowed (event handlers never are)", out)
+        # a Markdown writeup (the old format) is refused with the advice to convert it
+        os.replace(os.path.join(wdir, f"{h}.html"), os.path.join(wdir, f"{h}.md"))
+        rc, out, _ = env.run("verify", "--offline", "--writeups-dir", wdir)
+        self.assertEqual(rc, 1)
+        self.assertIn(f"[FAIL] writeup toy/{h[:12]}: a Markdown writeup: writeups are HTML since 2026-11-16", out)
         # another data directory without --writeups-dir checks none (the default directory's writeups are its own)
         rc, out, _ = env.run("verify", "--offline")
         self.assertEqual(rc, 0)
@@ -4752,20 +4790,20 @@ class WriteupTest(Tmp):
 
     def test_submit_takes_the_writeup_along(self):
         """`submit` adds the record's writeup to its pull request when there is one (decided 2026-11-13): a fourth blob
-        at leaderboard/writeups/<hash>.md, and the text says so; without one the text points at the template."""
+        at leaderboard/writeups/<hash>.html, and the text says so; without one the text points at the template."""
         rec = make_record(task=toy_task())
         h = rec["record_hash"]
         files = [f"leaderboard/data/toy/{h}{e}" for e in (".json", ".sv", ".lean")]
         three = lb.submit_steps(rec, ".", files, "o", "r", "t")
-        four = lb.submit_steps(rec, ".", files + [f"leaderboard/writeups/{h}.md"], "o", "r", "t")
+        four = lb.submit_steps(rec, ".", files + [f"leaderboard/writeups/{h}.html"], "o", "r", "t")
         idx = lambda steps: next(st["argv"] for st in steps if "update-index" in st["argv"])   # noqa: E731
         self.assertNotIn("WRITEUP", " ".join(idx(three)))
-        self.assertIn(f"100644,$WRITEUP,leaderboard/writeups/{h}.md", idx(four))
+        self.assertIn(f"100644,$WRITEUP,leaderboard/writeups/{h}.html", idx(four))
         self.assertTrue(any(st["var"] == "WRITEUP" for st in four))
         _, with_w = lb.submit_text(rec, "line", "verified", writeup=True)
         _, without = lb.submit_text(rec, "line", "verified")
-        self.assertIn(f"and its writeup `leaderboard/writeups/{h}.md`", with_w)
-        self.assertIn("no writeup yet (encouraged: leaderboard/writeups/TEMPLATE.md)", without)
+        self.assertIn(f"and its writeup `leaderboard/writeups/{h}.html`", with_w)
+        self.assertIn("no writeup yet (encouraged: leaderboard/writeups/TEMPLATE.html)", without)
 
     def test_the_committed_writeups_pass(self):
         recs = {rec["record_hash"]: rec for _, rec, _ in lb.load_records(lb.DEFAULT_DATA)}
@@ -4776,6 +4814,11 @@ class WriteupTest(Tmp):
                 self.assertEqual(problems, [])
                 self.assertTrue(title)
         self.assertTrue(os.path.isfile(os.path.join(lb.WRITEUPS_DIR, lb.WRITEUP_TEMPLATE)))
+        # the template is HTML the site accepts, and no Markdown writeup is left
+        with open(os.path.join(lb.WRITEUPS_DIR, lb.WRITEUP_TEMPLATE), "rb") as fh:
+            self.assertEqual(lb.writeup_problems(self.H + ".html", fh.read(), {self.H}, lb.site_denylist(),
+                                                 lb.writeup_renderer()), [])
+        self.assertEqual([n for n in os.listdir(lb.WRITEUPS_DIR) if n.endswith(".md")], [])
 
 
 REMADE_ENV = {"svgolf_revision": "def456", "lean_toolchain": "leanprover/lean4:v4.35.0",
@@ -4916,12 +4959,12 @@ class RemakeTest(Tmp):
             fh.write(json.dumps({"designs": [{"records": [{"record_hash": old_h, "player": "a"},
                                                           {"record_hash": other, "player": "b"}]}]},
                                 indent=1, sort_keys=True) + "\n")
-        with open(os.path.join(wr, old_h + ".md"), "w") as fh:
-            fh.write("# A title\n")
+        with open(os.path.join(wr, old_h + ".html"), "w") as fh:
+            fh.write("<h1>A title</h1>\n")
         would = lb.repoint_tables("toy", old_h, new_h, asap7_dir=a7, pnr_dir=pnr, sizes_dir=sz, writeups_dir=wr,
                                   write=False)
         self.assertEqual(len(would), 4)
-        self.assertTrue(os.path.isfile(os.path.join(wr, old_h + ".md")))      # nothing written
+        self.assertTrue(os.path.isfile(os.path.join(wr, old_h + ".html")))      # nothing written
         lb.repoint_tables("toy", old_h, new_h, asap7_dir=a7, pnr_dir=pnr, sizes_dir=sz, writeups_dir=wr)
         with open(os.path.join(a7, "toy.json")) as fh:
             text = fh.read()
@@ -4933,8 +4976,8 @@ class RemakeTest(Tmp):
             self.assertEqual(json.load(fh)["designs"][0], {"of": [tag(new_h)], "record": new_h})
         with open(os.path.join(sz, "toy.json")) as fh:
             self.assertEqual([r["record_hash"] for r in json.load(fh)["designs"][0]["records"]], [other, new_h])
-        self.assertFalse(os.path.exists(os.path.join(wr, old_h + ".md")))
-        self.assertTrue(os.path.isfile(os.path.join(wr, new_h + ".md")))
+        self.assertFalse(os.path.exists(os.path.join(wr, old_h + ".html")))
+        self.assertTrue(os.path.isfile(os.path.join(wr, new_h + ".html")))
 
     def test_cli_in_a_trial_directory(self):
         old = make_record()

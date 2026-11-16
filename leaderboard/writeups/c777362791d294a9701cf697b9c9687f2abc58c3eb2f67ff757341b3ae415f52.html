@@ -1,0 +1,33 @@
+<h1>N² multiply-accumulate units, one step counter</h1>
+
+<p>This is the par design for the matmul task, <code>matmul_g1.sv</code>: one multiply-accumulate unit per entry of <code>C</code>, and a single counter that walks the shared index k. Every other record is measured against it, and its proof is the template most later proofs follow.</p>
+
+<h2>The idea</h2>
+
+<p>On <code>start</code> the design copies <code>A</code> and <code>B</code> into the shift registers <code>a_sh</code> and <code>b_sh</code> and clears <code>C</code>. In each of the next N busy cycles, unit (i, j) adds A[i][k]·B[k][j] to its accumulator. Both operands are sign-extended to AccW bits by hand, and the register width does the wrap modulo 2^AccW. After each step <code>a_sh</code> shifts by one entry and <code>b_sh</code> by one row, so every select is a static window and no run-time index appears. <code>done</code> rises after the N-th step and holds, with <code>C</code>, until the next start. The reset clears only <code>busy</code>, <code>done</code> and <code>k</code>.</p>
+
+<p>Figure 1 shows the schedule at the scoring point.</p>
+
+<figure data-figure="matmul-schedule-g1" data-alt="The schedule at N = 4: on edges 1 to 4 every unit adds term k = 0 to 3 of its dot product, reading column k of A and row k of B; done rises on edge 4.">
+<figcaption>Step k is a rank-one update: column k of A against row k of B, all sixteen units at once.</figcaption>
+</figure>
+
+<h2>Why it scores as it does</h2>
+
+<p>At the scoring point (N = 4, W = 8, AccW = 32) the design has 16 multipliers and 16 accumulators, 802 flip-flops and about 87,170 µm² on sky130. The critical path is one multiply-add into an accumulator, 60 cells long, for a period of 10,696 ps. Four cycles take 42,784 ps, a score of about 3.73 million µm²·ns, which is par by definition. On the routed ASAP7 course it scores about 8,886 µm²·ns at a 1,606 ps period. The score is area × cycles × period, so a challenger can win on any of the three factors.</p>
+
+<h2>The proof</h2>
+
+<p>The proof (653 code lines) holds at every in-range (N, W, AccW) and supplies what the library's phase reduction asks for:</p>
+
+<ol>
+<li><code>mm_sem_eq</code>: the loaded design is the hand-built <code>mmD</code>, stage by stage through the nested generate loops (<code>mm_gens</code>, <code>pe_inst</code>).</li>
+<li><code>mm_cycle</code>: one clock edge, from any state of the register shape and under any schedule, is the evaluated commit <code>mmNext</code>, via the library's clock step for flip-flop-only designs.</li>
+<li>The invariant on k: <code>pe_step</code> shows that a busy cycle extends each accumulator's wrapped partial sum by one term (<code>accC</code>), and <code>accC_N</code> identifies the sum at N with the spec's <code>product</code>.</li>
+<li><code>model</code>: the phases Ready, Busy x m and Fin, with their one-cycle obligations.</li>
+<li>The three rules: every power-up state has the model's shape (<code>mm_powerUp</code>); every process is an <code>always_ff</code>, so no output has a combinational path (<code>mm_moore</code>); and a <code>simp</code> shows there is no x-creating construct (<code>mm_xsafe</code>).</li>
+</ol>
+
+<p>Each of the task's six attack designs, the reference with one change, fails this proof at <code>mm_ctrl</code>, <code>mm_decls</code> or <code>pe_inst</code>.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

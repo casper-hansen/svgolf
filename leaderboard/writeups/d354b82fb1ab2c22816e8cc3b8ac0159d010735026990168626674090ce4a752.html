@@ -1,0 +1,31 @@
+<h1>Registered mask round-robin</h1>
+
+<p>The par design for the arbiter: a textbook mask round-robin whose grant sits in a flip-flop, written as one <code>always_comb</code> and one <code>always_ff</code> block and proved for every <code>N ≥ 1</code> with <code>N·N &lt; 2^31</code>.</p>
+
+<h2>The idea</h2>
+
+<p>The state is two <code>N</code>-bit registers: the grant <code>gnt</code> and a thermometer <code>mask</code> marking the clients above the last winner. Each cycle the comb block forms <code>mreq = req &amp; mask</code>. If any masked requester remains, the lowest of them wins; otherwise the lowest requester overall wins, which is the wrap-around. Both picks use the lowest-set-bit trick <code>x &amp; (~x + 1)</code>. On the edge <code>gnt</code> takes the pick and, when something was granted, the mask becomes <code>~((pick &lt;&lt; 1) - 1)</code>, every client strictly above the winner. Reset clears the grant and fills the mask with ones.</p>
+
+<p>Figure 1 runs the arbiter on a request pattern, edge by edge.</p>
+
+<figure data-figure="arbiter-rotation" data-alt="The round-robin arbiter at N = 4 over eleven edges: the requests, the mask before each edge and the grant after it.">
+<figcaption>With all four clients asking, the grant rotates and wraps; a client that stops asking is skipped. The mask marks the clients above the last grant.</figcaption>
+</figure>
+
+<p>No comb block drives an output, so the design is Moore by construction, as the task requires. Fairness comes from the mask: a client that asks and loses can only be passed over by clients between the last winner and itself, so it is served within <code>N</code> cycles.</p>
+
+<h2>Why it scores as it does</h2>
+
+<p>At <code>N = 8</code> on sky130 it is about 769 µm² in 103 cells, 16 of them flip-flops (eight for the grant, eight for the mask), with a 2,826 ps period: about 2,175 µm²·ns, which is par. Between the flops sit the masked AND, a zero test, two lowest-bit isolations, a select and the mask update; the critical path is 15 cells, unit depth 17. On the routed ASAP7 course it is about 12.4 µm² at 470 ps, 5.8 µm²·ns.</p>
+
+<h2>The proof</h2>
+
+<p>The 487-line proof takes the reactive route, <code>ReactTask.satisfiedAt_of_rank</code>, which turns the temporal statement into facts about one clock cycle. <code>rr_sem_eq</code> shows the loaded design is a hand-built model; one helper, <code>inst_ne_fill</code>, lowers <code>mreq != '0</code>, where the instantiation simp set stops. The library's closed-form clock step covers flop-only designs, so the proof settles its own comb block (<code>settle_rr</code>: one pass computes it, a second changes nothing), then builds the cycle in closed form (<code>rr_cycle</code>, <code>rrNext_reset</code>, <code>rrNext_run</code>).</p>
+
+<p>The invariant <code>ArbInv</code> says every signal but the clock is known and the mask is a thermometer. A client's rank is its cyclic distance from the mask's edge, at most <code>N - 1</code>. Safety is <code>pick_grants</code>; progress is the library's <code>RoundRobin.step</code>, under which a requester that loses moves strictly closer to the edge. The structural obligations (Moore output through <code>mooreOut_of_combTargets</code>, termination, x-safety, every power-up state through <code>powerUp_cons</code>) are short <code>simp</code> proofs.</p>
+
+<h2>What did not work</h2>
+
+<p>Two open-source arbiters were tried first and neither loads yet: OpenTitan's tree arbiter declares its nodes inside generate blocks, and the verilog-axis arbiter instantiates a priority encoder over unpacked arrays. Rather than rewrite them for the tool, the task took this design as its reference.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

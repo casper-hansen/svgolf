@@ -1,0 +1,33 @@
+<h1>Insertion-cell array (cell sort)</h1>
+
+<p>The par design for the sorter: an array of <code>N</code> insertion cells adapted from an open-source, MIT-licensed cell-sort design (the header keeps the licence and lists every change with its reason), proved with latency <code>2N</code> for every <code>N, W ≥ 1</code> with <code>N·W &lt; 2^31</code>.</p>
+
+<h2>The idea</h2>
+
+<p>Each cell holds one <code>W</code>-bit value, and cell <code>N-1</code> is the top. While values stream in, every cell compares the broadcast input <code>x</code> with its own value and its upper neighbour's. If <code>x</code> beats the neighbour, the cell takes the neighbour's value, so everything below the insertion point shifts down; else if <code>x</code> beats its own value it takes <code>x</code>; else it holds. The cells stay sorted, with zero padding at the bottom. When the input stops, every cell shifts down and the top takes 0, so the minimum leaves through cell 0 into a registered <code>out_data</code>, one value per cycle. A one-bit token per cell, shifted down with <code>in_valid</code> entering at the top, makes <code>out_valid</code> the input's valid delayed by <code>N</code>. <code>start</code> is not read. After the last output every cell is 0 again, so back-to-back transactions need nothing.</p>
+
+<p>Figure 1 follows four inputs through the cells, edge by edge.</p>
+
+<figure data-figure="sorter-insertion" data-alt="A worked run of the insertion-cell sorter at N = 4, W = 4: the inputs 5, 2, 9, 2 inserted on four edges, then the cells draining 2, 2, 5, 9 through cell 0.">
+<figcaption>Each input lands where it belongs, the cells below it shifting down; when the input stops, every cell shifts down and the values leave smallest first.</figcaption>
+</figure>
+
+<p>The adaptation made one flat module with the task's ports, turned the cells into a generate family over one packed vector, folded the wires into the <code>always_ff</code> bodies so every process is a flop process, and added the streaming output and the tokens.</p>
+
+<h2>Why it scores as it does</h2>
+
+<p>The latency is <code>N</code> cycles to load and <code>N</code> to drain, one cycle above the bound <code>2N - 1</code> because the output is registered. At <code>N = W = 8</code> on sky130 the design is about 5,513 µm² in 713 cells, 81 of them flip-flops, with a 2,523 ps period: 16 × 2,523 ps and about 222,540 µm²·ns, which is par. On ASAP7: about 88.4 µm² at 536 ps, 758.1 µm²·ns.</p>
+
+<h2>The proof</h2>
+
+<p>774 lines through the stream-task reduction <code>StreamTask.satisfiedAtV2_of_phases</code>, which needs one clock cycle in closed form and a phase model:</p>
+
+<ol>
+<li>Agreement (<code>so_sem_eq</code>): the loaded design is a hand-built <code>soD</code>.</li>
+<li>The clock step: every process is an <code>always_ff</code>, so the library's flop-only profile gives a cycle as a commit of the update queues <code>topQ</code>, <code>outQ</code> and <code>cellQ</code> (<code>so_profile</code>, <code>so_cycle</code>); a reset's write wins (<code>next_reset</code>).</li>
+<li>The sort: a load is <code>tail ∘ insertAsc x</code> on ascending cells (<code>hw_ins</code>); insertions commute (<code>ins_comm</code>), hence <code>sort_snoc</code>; the dropped head is a padding zero (<code>tail_ins</code>).</li>
+<li>The invariant <code>j</code> cycles after a start: cells <code>cv</code>, tokens <code>tokv</code>, output valid <code>ovb</code>, advanced by <code>at_step</code>.</li>
+<li>The phase model <code>model</code>, with phases <code>Ready</code> and <code>At ys j</code>; the Moore, x-safety and power-up obligations close by <code>simp</code> and <code>powerUp_cons</code>.</li>
+</ol>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

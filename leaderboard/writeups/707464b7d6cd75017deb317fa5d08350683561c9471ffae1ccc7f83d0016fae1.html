@@ -1,0 +1,32 @@
+<h1>Parametric Dadda tree, ripple final adder</h1>
+
+<p>A Dadda column-compression multiplier written once for every width. The stage count, the target heights and the full and half adders per column are closed forms in <code>N</code>, the stage and the column, so at <code>N = 16</code> the one file <code>dadda_rc.sv</code> builds the same adders as a per-width Dadda generator.</p>
+
+<h2>The idea</h2>
+
+<p>Stage 0 holds the partial products by column: bit <code>i</code> of column <code>k</code> is <code>a[k-i-lo] &amp; b[i+lo]</code>. Dadda's heights 2, 3, 4, 6, 9, 13, 19, ... (each the last plus half of it, rounded down) are the targets: stage <code>s</code> brings every column down to the next height, greedily, with full adders while a column is at least two bits over its target and then at most one half adder. At <code>N = 16</code> that is six stages (13, 9, 6, 4, 3, 2); a ripple-carry adder adds the last two rows.</p>
+
+<p>Figure 1 draws the reduction at <code>N = 8</code>: four stages (6, 4, 3, 2).</p>
+
+<figure data-figure="mul-dadda" data-alt="The Dadda reduction at N = 8 as dot diagrams: the partial products, then four stages down to 6, 4, 3 and 2 rows, with each stage&#x27;s full and half adders marked.">
+<figcaption>Each stage adds only where a column is over its target height: 35 full and 7 half adders at N = 8, then the final adder on two rows.</figcaption>
+</figure>
+
+<p>The file uses generate constructs only, no functions. The height table is a chain of <code>?:</code> on the stage, the stage count <code>S</code> is a sum of comparisons against it (enough for the task's range, <code>N &lt; 2^30</code>), and each count is computed inline and named by a one-iteration generate loop whose genvar equals it.</p>
+
+<h2>Why it scores as it does</h2>
+
+<p>A column-wise schedule spends very few half adders, so the area is low: about 8,230 µm² on sky130 in 1,408 cells, at 5,461 ps, for about 44,946 µm²·ns, half of par (the array, 90,424). The critical path is 59 cells to <code>p[30]</code>, unit depth 61, and the ripple final adder sets most of that depth. On ASAP7 it is about 123.4 µm² at 1,187 ps, 146.5 µm²·ns; second on both courses.</p>
+
+<h2>The proof</h2>
+
+<p>The <code>sv_comb</code> tactics do not read this shape (a stage count from <code>N</code>, inner loop bounds that mention the outer genvar, a conditional generate per column), so the 3,241-line proof is by hand, in four parts:</p>
+
+<ol>
+<li>Arithmetic in plain Lean. The ledger <code>ldg</code>, the weighted sum of all column bits, is <code>a * b</code> on the partial products (<code>ldg_zero</code>) and is unchanged by a stage (<code>step_ledger</code>): a full adder is <code>x + y + z = s + 2c</code>, a half adder <code>x + y = s + 2c</code>. The adder counts obey linear identities (<code>id_carry</code>, <code>id_height</code>, ...), closed by one macro that splits the column index into regions for <code>omega</code>.</li>
+<li>The design at symbolic <code>N</code>: the header expressions evaluate to the closed forms (<code>eT_eval</code>, <code>eF_eval</code>) and the generate nest expands to explicit cell lists (<code>gens_expand</code>).</li>
+<li>Combinational profile and acyclicity: pairwise disjoint write windows (<code>dWs_pairwise</code>) and a rank by stage (<code>rkW</code>, <code>dProcs_reads</code>).</li>
+<li>The settled state: induction over the stages (<code>cells_step</code>), then over the final adder's columns (<code>cells_K</code>), giving <code>dadda_settled</code>.</li>
+</ol>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

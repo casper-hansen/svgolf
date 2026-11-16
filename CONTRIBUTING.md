@@ -231,11 +231,13 @@ maintainer re-makes the ranked number on the rating build when the pull request 
 `--data-dir` so your records stay out of the repository's own (README.md, "Leaderboard").
 
 **Write it up** (decided 2026-11-13). Every golfer and every agent is asked for a writeup with the pull request:
-`leaderboard/writeups/<record_hash>.md`, copied from `leaderboard/writeups/TEMPLATE.md`, its first line `# <title>`,
-the submission's short title (at most 60 characters). Say what the idea is, why it scores as it does, how the proof
-goes and what did not work, as a competition write-up post would. It is optional (a record without one is accepted),
-it lies outside the record (adding or improving one never changes the record or its hash), and `verify --offline`
-checks it (README.md, "Writeups").
+`leaderboard/writeups/<record_hash>.html`, copied from `leaderboard/writeups/TEMPLATE.html`, its first line
+`<h1>title</h1>`, the submission's short title (at most 60 characters). Say what the idea is, why it scores as it
+does, how the proof goes and what did not work, as a competition write-up post would. It is an HTML fragment of a
+short list of elements, and may hold your own inline SVG figures (HTML since 2026-11-16). It is optional (a record
+without one is accepted), it lies outside the record (adding or improving one never changes the record or its
+hash), and `verify --offline` checks it, refusing anything outside the lists with the line it is on (README.md,
+"Writeups", has the lists and how to preview a writeup).
 
 A record is one JSON file, `data/<task>/<record_hash>.json`, with your `.sv` and `.lean` copied next to it
 (`leaderboard/README.md` has the full schema, `svgolf-leaderboard-record/1`):

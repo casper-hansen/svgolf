@@ -39,7 +39,9 @@ sys.path.insert(0, SITE)
 sys.dont_write_bytecode = True
 
 import figs                                        # noqa: E402
+import html                                        # noqa: E402
 import md                                          # noqa: E402
+import safehtml                                    # noqa: E402
 import writeup                                     # noqa: E402
 from figs import adders, clmul, clocked, divider, matmul, multipliers   # noqa: E402
 
@@ -79,7 +81,11 @@ def missing(*exes):
 
 
 def block(name, alt="Alt text.", caption="A caption."):
-    return f"```figure\nname: {name}\nalt: {alt}\ncaption: {caption}\n```"
+    """A writeup's figure the site draws (HTML since 2026-11-16): `alt` plain text, `caption` HTML."""
+    return f'<figure data-figure="{name}" data-alt="{html.escape(alt)}">\n<figcaption>{caption}</figcaption>\n</figure>'
+
+
+FIGURE_NAME = re.compile(r'<figure data-figure="([^"]+)"')
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -87,12 +93,13 @@ def block(name, alt="Alt text.", caption="A caption."):
 
 class FigureBlockTest(unittest.TestCase):
     def render(self, body, **kw):
-        return writeup.render(f"# T\n\nText.\n\n{body}\n", source="w.md", **kw)[1]
+        return writeup.render(f"<h1>T</h1>\n\n<p>Text.</p>\n\n{body}\n", source="w.html", **kw)[1]
 
     def test_a_block_is_a_figure_with_its_caption_and_credit(self):
         fig = figs.get("add-kogge-stone")
-        h = self.render(block("add-kogge-stone", "The graph & its <nodes>.", "Every carry, `g` and [a link](https://"
-                              "example.org/x)."), design_sha256=fig.designs[0], rules_href="../../../rules.html#f")
+        h = self.render(block("add-kogge-stone", "The graph & its <nodes>.", 'Every carry, <code>g</code> and <a href='
+                              '"https://example.org/x">a link</a>.'), design_sha256=fig.designs[0],
+                        rules_href="../../../rules.html#f")
         self.assertRegex(h, r'<figure class="wfig" id="writeup-figure-1"><div class="wfig-box"><svg class="wfig-svg" ')
         self.assertIn('<title id="writeup-figure-1-t">The graph &amp; its &lt;nodes&gt;.</title>', h)
         self.assertIn('aria-labelledby="writeup-figure-1-t writeup-figure-1-d"', h)
@@ -102,7 +109,7 @@ class FigureBlockTest(unittest.TestCase):
                       'design (<a href="../../../rules.html#f">how</a>).</span></figcaption></figure>', h)
 
     def test_figures_are_numbered_and_ids_stay_unique(self):
-        h = self.render("## Figure 1\n\n" + block("add-ripple") + "\n\n" + block("add-ripple"))
+        h = self.render("<h2>Figure 1</h2>\n\n" + block("add-ripple") + "\n\n" + block("add-ripple"))
         ids = re.findall(r'\bid="([^"]+)"', h)
         self.assertEqual(len(ids), len(set(ids)), ids)
         self.assertEqual(h.count('<span class="wfig-n">Figure 2.</span>'), 1)
@@ -111,28 +118,33 @@ class FigureBlockTest(unittest.TestCase):
         good = figs.get("add-kogge-stone").designs[0]
         ks = "add-kogge-stone"
         for body, why in ((block("no-such-figure"), "no figure is named"),
-                          (f"```figure\nname: {ks}\nalt: a\n```", "needs caption"),
-                          (f"```figure\nname: {ks}\nalt: a\ncaption: c\nsrc: x.svg\n```", "no key 'src'"),
-                          (f"```figure\nname: {ks}\nname: {ks}\nalt: a\ncaption: c\n```", "twice"),
-                          ("```figure\n<svg onload=alert(1)>\n```", "lines are `key: value`"),
+                          (f'<figure data-figure="{ks}" data-alt="a"></figure>', "holds one <figcaption>"),
+                          (f'<figure data-figure="{ks}"><figcaption>c</figcaption></figure>', "both data-figure"),
+                          (f'<figure data-figure="{ks}" data-alt="a" src="x.svg"><figcaption>c</figcaption></figure>',
+                           "the attribute src is not allowed"),
+                          (f'<figure data-figure="{ks}" data-figure="{ks}" data-alt="a"><figcaption>c</figcaption>'
+                           "</figure>", "twice"),
+                          (f'<figure data-figure="{ks}" data-alt="a"><svg onload=alert(1)></svg><figcaption>c'
+                           "</figcaption></figure>", "the attribute onload is not allowed"),
                           (block(ks, caption="x" * 301), "over 300"),
-                          (block(ks, caption="![i](https://example.org/i.png)"), "images are not")):
+                          (block(ks, alt="x" * 301), "over 300"),
+                          (block(ks, caption='<img src="https://example.org/i.png">'), "<img> is not allowed")):
             with self.subTest(why=why):
-                with self.assertRaisesRegex(md.MarkdownError, re.escape(why)):
+                with self.assertRaisesRegex(safehtml.HtmlError, re.escape(why)):
                     self.render(body, design_sha256=good)
-        with self.assertRaisesRegex(md.MarkdownError, "another design"):
+        with self.assertRaisesRegex(safehtml.HtmlError, "another design"):
             self.render(block("add-ripple"), design_sha256=good)          # the Kogge-Stone record: not its figure
 
     def test_nothing_a_writer_types_becomes_markup(self):
-        h = self.render(block("add-ripple", alt='"><script>alert(1)</script>', caption="<img src=x onerror=y> "
+        h = self.render(block("add-ripple", alt='"><script>alert(1)</script>', caption="&lt;img src=x onerror=y&gt; "
                               "[x](javascript:alert(1))"))
         self.assertNotIn("<script", h)
         self.assertNotIn("<img", h)
-        self.assertNotIn("javascript:", h.split("<figcaption>")[1].split('title="')[0])
+        self.assertIn("<title id=\"writeup-figure-1-t\">&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;</title>", h)
         self.assertNotRegex(h, r"<[^>]*\son[a-z]+=")
 
     def test_outside_a_writeup_the_fence_is_code(self):
-        h = md.render(block("add-ripple")).html
+        h = md.render("```figure\nname: add-ripple\nalt: a\ncaption: c\n```").html
         self.assertIn('<pre class="code" data-lang="figure">', h)
         self.assertNotIn("<svg", h)
 
@@ -144,10 +156,24 @@ class FigureBlockTest(unittest.TestCase):
         spec.loader.exec_module(lb)
         render = lb.writeup_renderer()
         rec = RECORDS[0]["record_hash"]
-        good = f"# T\n\n{block('add-ripple')}\n".encode()
-        bad = f"# T\n\n{block('nope')}\n".encode()
-        self.assertEqual(lb.writeup_problems(rec + ".md", good, {rec}, (), render), [])
-        self.assertTrue(any("no figure is named" in p for p in lb.writeup_problems(rec + ".md", bad, {rec}, (), render)))
+        good = f"<h1>T</h1>\n\n{block('add-ripple')}\n".encode()
+        bad = f"<h1>T</h1>\n\n{block('nope')}\n".encode()
+        self.assertEqual(lb.writeup_problems(rec + ".html", good, {rec}, (), render), [])
+        self.assertTrue(any("line 3: no figure is named" in p
+                            for p in lb.writeup_problems(rec + ".html", bad, {rec}, (), render)))
+
+    def test_a_drawn_and_a_generated_figure_in_one_writeup(self):
+        """A writer's own drawing and a generated figure are numbered together; only the generated one carries the
+        line "Figure by the maintainers, generated from the design"."""
+        fig = figs.get("add-kogge-stone")
+        own = ('<figure>\n<svg viewBox="0 0 100 40"><title>A box.</title><rect class="b" x="1" y="1" width="20" '
+               'height="10"/></svg>\n<figcaption>Hand-drawn by the writer.</figcaption>\n</figure>')
+        h = self.render(own + "\n\n" + block("add-kogge-stone"), design_sha256=fig.designs[0])
+        first, second = h.split('<figure class="wfig"')[1:]
+        self.assertIn('<span class="wfig-n">Figure 1.</span> Hand-drawn by the writer.</figcaption>', first)
+        self.assertNotIn("generated from the design", first)
+        self.assertIn('<span class="wfig-n">Figure 2.</span>', second)
+        self.assertIn("Figure by the maintainers, generated from the design", second)
 
 
 SAFE_TAGS = {"svg", "title", "desc", "g", "line", "path", "polyline", "polygon", "circle", "rect", "text"}
@@ -188,12 +214,12 @@ class RegistryTest(unittest.TestCase):
     def test_every_writeup_figure_is_its_records(self):
         by_hash = {r["record_hash"]: r for r in RECORDS}
         for name in sorted(os.listdir(WRITEUPS)):
-            if not name.endswith(".md") or name == "TEMPLATE.md":
+            if not name.endswith(".html") or name == "TEMPLATE.html":
                 continue
             with open(os.path.join(WRITEUPS, name), encoding="utf-8") as fh:
                 text = fh.read()
-            rec = by_hash[name[:-3]]
-            for m in re.finditer(r"```figure\nname: (\S+)\n", text):
+            rec = by_hash[name[:-5]]
+            for m in FIGURE_NAME.finditer(text):
                 with self.subTest(writeup=name[:12], figure=m.group(1)):
                     self.assertIn(rec["files"]["sv"]["sha256"], figs.get(m.group(1)).designs)
             writeup.render(text, source=name, design_sha256=rec["files"]["sv"]["sha256"])
@@ -204,9 +230,9 @@ class RegistryTest(unittest.TestCase):
         matmul, sorter and arbiter)."""
         shown = {}
         for name in sorted(os.listdir(WRITEUPS)):
-            if name.endswith(".md") and name != "TEMPLATE.md":
+            if name.endswith(".html") and name != "TEMPLATE.html":
                 with open(os.path.join(WRITEUPS, name), encoding="utf-8") as fh:
-                    shown[name[:-3]] = set(re.findall(r"```figure\nname: (\S+)\n", fh.read()))
+                    shown[name[:-5]] = set(FIGURE_NAME.findall(fh.read()))
         drawn = {}
         for fig in figs.REGISTRY.values():
             for sha in fig.designs:

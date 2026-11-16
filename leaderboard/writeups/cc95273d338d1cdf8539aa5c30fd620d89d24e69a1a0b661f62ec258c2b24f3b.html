@@ -1,0 +1,32 @@
+<h1>Array multiplier, proved by hand</h1>
+
+<p>This record is the task's par design, the <code>N × N</code> array multiplier <code>mul_n</code>, with a second proof. The design file is a byte-for-byte copy of par; the par proof uses the <code>sv_comb</code> tactics and is 70 lines, while this one is 1,385 lines and uses none of them. It is the baseline that shows what the tactics save.</p>
+
+<h2>The idea</h2>
+
+<p>Partial products are <code>pp[i][j] = a[j] &amp; b[i]</code>. Row 0 is <code>pp[0]</code>; each later row adds the upper <code>N</code> bits of the row before to <code>pp[i]</code> with an <code>N</code>-bit ripple-carry adder of full adders. Bit <code>i &lt; N</code> of the product is bit 0 of row <code>i</code>, and the top half is the upper bits of the last row.</p>
+
+<p>Figure 1 draws the array at <code>N = 8</code>.</p>
+
+<figure data-figure="mul-array" data-alt="The array multiplier at N = 8, drawn by weight: seven rows of eight full adders, with one longest chain of 20 adders marked.">
+<figcaption>Each row adds the next partial-product row to the previous row's sum, its carry rippling along the row. The accent marks one longest chain of adders; at N = 16 it is 44 long.</figcaption>
+</figure>
+
+<h2>Why it scores as it does</h2>
+
+<p>The netlist is par's: about 8,290 µm² on sky130 in 1,408 cells, 10,907 ps, 90,424 µm²·ns. The carries ripple through every row, so the critical path is 87 cells (unit depth 88), far deeper than the tree designs. On ASAP7: about 123.9 µm² at 2,029 ps, 251.5 µm²·ns.</p>
+
+<h2>The proof</h2>
+
+<p><code>N</code>, the inputs and every index stay symbolic; nothing is unrolled or bit-blasted, and the tactics used are <code>simp</code>, <code>omega</code>, <code>grind</code>, <code>decide</code> and induction.</p>
+
+<ol>
+<li>Arithmetic over <code>Nat</code>. The row sums are <code>R 0 = x·y₀</code> and <code>R (i+1) = R i / 2 + x·y_{i+1}</code>. The invariant <code>R_inv</code>, <code>x * (y mod 2^(i+1)) = 2^i * R i + L</code> with <code>L &lt; 2^i</code>, gives <code>testBit_mul_row</code> (bit <code>k</code> of the product is bit 0 of row <code>k</code>) and <code>testBit_mul_top</code> for the upper half.</li>
+<li>The design at symbolic <code>N</code>: the three generate loops expand to a flat list of one-bit cells, <code>mulProcs N</code> (<code>mul_pp_expand</code>, <code>mul_row_expand</code>, <code>mul_out_expand</code>, then <code>mul_sem_processes</code>), and the one-driver guard passes (<code>mul_driversOk</code>).</li>
+<li>Profile and acyclicity: every process is a slice assign with disjoint write windows (<code>mul_disjoint</code>), and a row-major rank <code>rkWin</code> is checked reader by reader (<code>mul_reader</code>) with <code>omega</code>.</li>
+<li>The settled state (<code>mul_settled</code>): by induction on the row, then on the bit within it, row <code>i</code> of <code>s</code> holds <code>R i</code>. The carries are core's <code>BitVec.carry</code> (<code>carry_gate</code> matches the netlist's AND/OR carry to <code>Bool.atLeastTwo</code>) and the sums <code>BitVec.getLsbD_add</code>. <code>CombTask.satisfiedAt_of_comb</code> turns this into the statement.</li>
+</ol>
+
+<p>In the tactic proof, <code>sv_structure</code>, <code>sv_equations</code>, <code>sv_bridge</code> and <code>sv_cover</code> do parts 2 and 3 and the bridging in part 4, leaving essentially the arithmetic. That is why it is about a twentieth of the length; the by-hand file still elaborates faster.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

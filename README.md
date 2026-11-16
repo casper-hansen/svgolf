@@ -2360,12 +2360,13 @@ a writeup tells the story, as a write-up post after a competition does: what the
 does, how the proof goes and what did not work. Every golfer and every agent is asked for one with each pull
 request of a record; a record without one is still accepted.
 
-A writeup is one Markdown file, `leaderboard/writeups/<record_hash>.md`, named by the full hash of its record.
-Start from `leaderboard/writeups/TEMPLATE.md`. Its first line is `# <title>`: the submission's short title, plain
-text of at most 60 characters, the name of the idea ("Kogge-Stone prefix adder", "Carry-save tree, ripple final
-adder", "Strassen, one level"). The site shows the title as the record page's heading, under the player in a
-task's submissions list and in every chart's tooltip, and the rest of the file in the record page's Writeup tab.
-A good writeup has:
+A writeup is one HTML file, `leaderboard/writeups/<record_hash>.html`, named by the full hash of its record (HTML
+since 2026-11-16, so that a writeup can hold inline SVG figures; a Markdown writeup is no longer read, and `verify`
+says so). Start from `leaderboard/writeups/TEMPLATE.html`. Its first line is `<h1>title</h1>`: the submission's
+short title, plain text of at most 60 characters (write `&` as `&amp;`), the name of the idea ("Kogge-Stone prefix
+adder", "Carry-save tree, ripple final adder", "Strassen, one level"). The site shows the title as the record page's
+heading, under the player in a task's submissions list and in every chart's tooltip, and the rest of the file in the
+record page's Writeup tab. A good writeup has:
 
 * **the approach**: the circuit's architecture and its trick, the area/time trade-off it makes;
 * **the key insight**: why it beats, or does not beat, par and the record before it;
@@ -2375,34 +2376,99 @@ A good writeup has:
 
 The file lies outside the record: no field of the record and none of its hashes name it, so adding a writeup or
 improving one later never changes a record, its hash or its rank, and a pull request may add a writeup to a record
-already on the board. `leaderboard.py verify --offline` checks each writeup: it names a record, it is UTF-8 with
-Unix newlines and no control or bidirectional-override character, its first line is the title within its length,
-it is at most 200 kB, it carries none of the site's internal markers (`site/config.json`'s denylist: a writeup is
-shown as the site's own text), and its body stays inside the site's Markdown subset: headings, paragraphs, lists,
-code spans and fenced code, emphasis, tables and links to `http` or `https` addresses; no raw HTML (it is shown as
-text), no images, no block quotes. The site renders it with everything escaped. A record without a writeup shows
-its design file's name as its title and, in its Writeup tab, one line: "No writeup yet". The writeups of the
-first records were written by the maintainers from each record's design and proof files, and say so at their end.
+already on the board. The rest of the file after the title is an HTML fragment (no `<html>`, `<head>` or `<body>`)
+made of these elements only:
+
+* text: `h2`, `h3`, `h4` (sections: the site shows them under the card's title and gives each an id from its text,
+  `the-idea` for "The idea"), `p`, `ul`, `ol` (`start`), `li`, `blockquote`, `hr`, `em`, `strong`, `code`, `sub`,
+  `sup`, `br`, `span` and `div` (`class="muted"`), `pre` holding one `code` (`class="language-lean"`, or `sv`,
+  `systemverilog`, `verilog`, `bash`, `text`: the site highlights it), `table` with `thead`, `tbody`, `tr`, `th`
+  and `td` (`class` `al-left`, `al-center` or `al-right`; `colspan`, `rowspan`), and `figure` with `figcaption`;
+* links: `a` with an `href` that is an `https://` or `http://` address, a `mailto:` address, a relative path to a
+  page of the site (`../index.html`) or `#id` of a heading or figure of the same writeup (`#the-idea`,
+  `#figure-1`); no other scheme;
+* drawings, inside a `figure` only (below): `svg`, `g`, `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`,
+  `polygon`, `text`, `tspan`, `title`, `desc`, `defs`, `marker`, `clipPath`, `linearGradient`, `stop`.
+
+Nothing else: no `script`, `style`, `img`, `iframe`, `object`, form elements, `foreignObject`, `use` or `animate`;
+no comment; no `style` attribute, no attribute starting with `on`, no `id` (the site gives headings and figures
+theirs), no class outside the lists. Every element is closed and nested as HTML requires (no `div` inside a `p`,
+no `tr` outside a `tbody`), text sits in a block (a `p`, an `li`, a `td`), and `<`, `>` and `&` in text are written
+`&lt;`, `&gt;` and `&amp;`. `leaderboard.py verify --offline` checks each writeup: it names a record, it is UTF-8
+with Unix newlines and no control or bidirectional-override character (none written as a character reference
+either), its first line is the title within its length, it is at most 200 kB, it carries none of the site's
+internal markers (`site/config.json`'s denylist: a writeup is shown as the site's own text), and its HTML passes
+the site's allowlist sanitizer (`site/safehtml.py`, the standard library's HTML parser and the lists above). The
+check refuses anything else, naming the line and the element or attribute, rather than dropping it, so a pull
+request with a bad writeup fails its check; the site then writes the page from the checked tree, every text
+escaped. Behind that, every page of the site carries a Content-Security-Policy under which only the site's own
+script files run (no inline script, event handler or `javascript:` address). To preview yours: `python3.12 leaderboard/leaderboard.py verify --offline`, then
+`python3.12 site/build.py --offline` and `python3 -m http.server -d site/_out -b 127.0.0.1`, and open the record's
+page at `tasks/<task>/records/<record_hash>.html#writeup`. A record without a writeup shows its design file's name
+as its title and, in its Writeup tab, one line: "No writeup yet". The writeups of the first records were written
+by the maintainers from each record's design and proof files, and say so at their end.
 
 #### Figures in a writeup
 
-A writeup can show figures that the site draws from the design (decided 2026-11-16), never a picture file. A figure
-is a small generator in `site/figs/`, registered under a name for the design files it is drawn from: it restates
-the design's parameters and index formulas (its generate conditions, loop bounds and cells' update rules) and draws
-the result at a small display size. A writeup shows one with a fenced block whose info string is `figure` and whose
-three lines are `name:` (a registered figure of this record's design), `alt:` (a text alternative) and `caption:`
-(one short line). The site adds the figure's number and a last line made from the registration: the size it is
-drawn at, the record's scoring point and who made the figure.
+A writeup can show two kinds of figure, numbered together ("Figure 1."), each a `figure` with a `figcaption` of at
+most 300 characters: a drawing of your own, as inline SVG, and a figure the site draws from the design.
 
-Every figure is checked against its design by the site's tests (`tests/site/test_figures.py`): a combinational
-drawing against the netlist Yosys elaborates from the design at the drawn size (which signal each drawn node
-reads), a clocked one against an Icarus Verilog simulation of the design on the figure's own inputs (every value it
-shows, cycle by cycle). Those checks skip where Yosys or Icarus Verilog is not installed. A new figure comes as a
-pull request to `site/figs/` with its check.
+**A drawing of your own** is an `svg` in the `figure`, before its caption:
 
-When the maintainers add to a player's writeup, they mark it: a figure's caption ends "Figure by the maintainers,
-generated from the design", and an added sentence sits in a paragraph that starts "Maintainers' note:". The player's
-own text is not rewritten.
+```html
+<figure>
+<svg viewBox="0 0 330 90">
+<title>Two cells and the carry between them.</title>
+<desc>Cell 0 passes its carry to cell 1.</desc>
+<defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path class="arrow-hot" d="M0 0L10 5L0 10z"/></marker></defs>
+<rect class="b" x="10" y="20" width="80" height="50"/>
+<rect class="b-hot" x="240" y="20" width="80" height="50"/>
+<line class="e-hot" x1="90" y1="45" x2="238" y2="45" marker-end="url(#head)"/>
+<text class="t-lab" x="50" y="49" text-anchor="middle">cell 0</text>
+<text class="t-lab" x="280" y="49" text-anchor="middle">cell 1</text>
+</svg>
+<figcaption>The carry chain. Drawn by the writer.</figcaption>
+</figure>
+```
+
+* **Size**: a `viewBox` and no width. A viewBox unit is a CSS pixel at full size, at most 1200 wide and 2000 high;
+  the site shows the drawing at most that wide, and on a narrow screen never narrower than two thirds of it (nor
+  than 320 px): its box scrolls sideways instead, the page never does. At most 50 kB per drawing.
+* **Text alternative**: `title` comes first (what a screen reader reads, at most 300 characters), then optionally
+  `desc` (a longer description); the site adds `role="img"` and the labels.
+* **Both themes**: colours come from classes, which the site draws from its light and dark colours (the classes of
+  the figures it generates): lines `w`, `w-faint`; edges `e`, `e-hot` (the accent), `e-blue`, `e-dash`; dots `n`,
+  `n-hot`, `n-open`; boxes `b`, `b-hot`, `b-blue`, `b-soft`, `b-on`; arrow heads `arrow`, `arrow-hot`; text
+  `t-lab`, `t-head`, `t-note`, `t-mono`, `t-hot`, `t-on` (without a class, small mono text). `fill` and `stroke` may
+  only be `none`, `currentColor` (the text's colour) or `url(#id)` of a `linearGradient`, whose `stop`s have
+  `stop-color="currentColor"` and vary `stop-opacity`; no colour values.
+* **Ids**: only on a `marker`, `clipPath` or `linearGradient`, named as `url(#id)` in the same drawing; the site
+  makes them unique on the page. Values are checked: numbers, a path's commands, `translate`, `scale`, `rotate`,
+  `skewX`, `skewY` and `matrix` transforms.
+
+**A figure the site draws from the design** (decided 2026-11-16), never a picture file. Such a figure is a small
+generator in `site/figs/`, registered under a name for the design files it is drawn from: it restates the design's
+parameters and index formulas (its generate conditions, loop bounds and cells' update rules) and draws the result
+at a small display size. A writeup names it, and the site puts the drawing in its place:
+
+```html
+<figure data-figure="add-kogge-stone" data-alt="The Kogge-Stone prefix graph of an 8-bit adder.">
+<figcaption>The carry network after four levels.</figcaption>
+</figure>
+```
+
+`data-figure` is a registered figure of this record's design and `data-alt` its text alternative (at most 300
+characters). After the caption the site adds a last line made from the registration: the size it is drawn at, the
+record's scoring point and who made the figure. Every such figure is checked against its design by the site's tests
+(`tests/site/test_figures.py`): a combinational drawing against the netlist Yosys elaborates from the design at the
+drawn size (which signal each drawn node reads), a clocked one against an Icarus Verilog simulation of the design on
+the figure's own inputs (every value it shows, cycle by cycle). Those checks skip where Yosys or Icarus Verilog is
+not installed. A new figure comes as a pull request to `site/figs/` with its check.
+
+When the maintainers add to a player's writeup, they mark it: a generated figure's caption ends "Figure by the
+maintainers, generated from the design" (the site adds it), a drawing of theirs says "Drawn by the maintainers"
+in its caption, and an added sentence sits in a paragraph that starts "Maintainers' note:". The player's own text
+is not rewritten.
 
 ## Tests
 

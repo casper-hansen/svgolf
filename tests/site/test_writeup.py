@@ -1,7 +1,9 @@
-"""The writeups on the site (decided 2026-11-13, the owner's UI feedback items 3 and 6): site/writeup.py renders a
-player's Markdown with everything escaped, no raw HTML, no image, links to http(s) addresses only, and headings whose
-ids cannot take one of the page's; the record page shows the writeup as a card, its title as the page's heading, the
-title in the submissions list and the charts' tooltips; a record without one shows a short prompt.
+"""The writeups on the site (decided 2026-11-13, the owner's UI feedback items 3 and 6; HTML since 2026-11-16):
+site/writeup.py renders a player's HTML from site/safehtml.py's checked tree (the allowlists, refusals naming the
+line: tests/site/test_safehtml.py is the adversarial battery), links to http(s) addresses carry rel="nofollow ugc
+noopener", headings sit under the card with ids that cannot take one of the page's; the record page shows the
+writeup as a card, its title as the page's heading, the title in the submissions list and the charts' tooltips; a
+record without one shows a short prompt.
 
     python3.12 svgolf/tests/site/test_writeup.py
 
@@ -22,12 +24,12 @@ SITE = os.path.join(SVGOLF, "site")
 sys.path.insert(0, SITE)
 sys.path.insert(0, HERE)
 
-import md          # noqa: E402
+import safehtml    # noqa: E402
 import writeup     # noqa: E402
 
 
 def render(body, title="T"):
-    return writeup.render(f"# {title}\n\n{body}\n", source="w.md")[1]
+    return writeup.render(f"<h1>{title}</h1>\n\n{body}\n", source="w.html")[1]
 
 
 def tags(h):
@@ -35,67 +37,72 @@ def tags(h):
     return sorted(set(re.findall(r"<([a-zA-Z][a-zA-Z0-9]*)", h)))
 
 
-ALLOWED_TAGS = {"a", "code", "em", "h3", "h4", "h5", "h6", "li", "ol", "p", "pre", "span", "strong", "table", "tbody",
-                "td", "th", "thead", "tr", "ul", "div", "hr"}
+ALLOWED_TAGS = {"a", "code", "em", "h3", "h4", "h5", "li", "ol", "p", "pre", "span", "strong", "table", "tbody",
+                "td", "th", "thead", "tr", "ul", "div", "hr", "br", "sub", "sup", "blockquote"}
 
 
 class RendererTest(unittest.TestCase):
-    def test_raw_html_is_text(self):
-        for body in ("<script>alert(1)</script>", "<img src=x onerror=alert(1)>", "<a href='javascript:x'>a</a>",
-                     "<iframe src=https://evil.example></iframe>", "<style>body{display:none}</style>",
-                     "<svg onload=alert(1)>", "<!-- comment --> <b>bold</b>", "&lt;script&gt; & <<x>>"):
+    def test_hostile_html_is_refused_and_escaped_text_stays_text(self):
+        for body in ("<script>alert(1)</script>", "<p><img src=x onerror=alert(1)></p>",
+                     "<p><a href='javascript:x'>a</a></p>", "<iframe src=https://evil.example></iframe>",
+                     "<style>body{display:none}</style>", "<p><svg onload=alert(1)></svg></p>",
+                     "<!-- comment --> <p><b>bold</b></p>", "<p>&lt;script&gt; & <<x>></p>"):
             with self.subTest(body=body):
-                h = render(body)
-                self.assertNotIn("<script", h)
-                self.assertNotIn("<img", h)
-                self.assertNotIn("<iframe", h)
-                self.assertNotIn("<style", h)
-                self.assertNotIn("<svg", h)
-                self.assertNotIn("<b>", h)
-                self.assertNotRegex(h, r"<[^>]*\son[a-z]+=")   # no tag carries an event attribute (the text may)
-                self.assertLessEqual(set(tags(h)), ALLOWED_TAGS)
-                self.assertIn(html.escape(body.split(">")[0][:5], quote=False)[:4], h)
-
-    def test_only_http_links_are_links(self):
-        h = render("[a](https://example.org/x?y=1#z) [b](http://example.org)")
-        self.assertIn('<a rel="nofollow ugc noopener" href="https://example.org/x?y=1#z">a</a>', h)
-        self.assertIn('<a rel="nofollow ugc noopener" href="http://example.org">b</a>', h)
-        for target in ("javascript:alert(1)", "JAVASCRIPT:alert(1)", "data:text/html,<script>x</script>",
-                       "vbscript:x", "//evil.example/x", "/abs", "rel/path.html", "#frag", "file:///etc/passwd",
-                       "https://ex\"onmouseover=alert(1)", "https://example.org/`x`", "https:///nohost",
-                       "https://user@localhost/", "mailto:someone"):
-            with self.subTest(target=target):
-                h = render(f"[click]({target})")
-                self.assertNotIn("<a ", h)
-                self.assertNotIn('href="', h)
-
-    def test_images_and_constructs_outside_the_subset_are_refused(self):
-        for body in ("![x](https://example.org/x.png)", "![x](data:image/png;base64,AAAA)", "> quoted",
-                     "[ref]: https://example.org", "Title\n=====", "see [^1]"):
-            with self.subTest(body=body):
-                with self.assertRaises(md.MarkdownError):
+                with self.assertRaises(safehtml.HtmlError):
                     render(body)
+        h = render("<p>&lt;script&gt;alert(1)&lt;/script&gt; &amp; a &lt; b &gt; c \"q\" 'a'</p>")
+        self.assertEqual(h, "<p>&lt;script&gt;alert(1)&lt;/script&gt; &amp; a &lt; b &gt; c \"q\" 'a'</p>")
+        self.assertLessEqual(set(tags(h)), ALLOWED_TAGS)
 
-    def test_code_is_escaped(self):
-        h = render("```html\n</code></pre><script>alert(1)</script>\n```\n\n`</code><b>x</b>`")
+    def test_only_safe_links_are_links(self):
+        h = render('<p><a href="https://example.org/x?y=1&amp;z=2#z">a</a> <a href="http://example.org">b</a></p>')
+        self.assertIn('<a rel="nofollow ugc noopener" href="https://example.org/x?y=1&amp;z=2#z">a</a>', h)
+        self.assertIn('<a rel="nofollow ugc noopener" href="http://example.org">b</a>', h)
+        # a relative path to a page of the site, a mailto address and a fragment of this writeup are kept
+        # (the address written with a character reference, as an author may; the site writes the character)
+        h = render('<h2>The idea</h2>\n<p><a href="../index.html">t</a> <a href="mailto:a&#64;example.org">m</a> '
+                   '<a href="#the-idea">i</a></p>')
+        self.assertIn('<a href="../index.html">t</a> <a href="mailto:a' + chr(64) + 'example.org">m</a> '
+                      '<a href="#writeup-the-idea">i</a>', h)
+        for target in ("javascript:alert(1)", "JAVASCRIPT:alert(1)", "data:text/html,<script>x</script>",
+                       "vbscript:x", "//evil.example/x", "/abs", "file:///etc/passwd", "https:///nohost",
+                       'https://ex"onmouseover=alert(1)', "https://example.org/`x`", "https://user@localhost/",
+                       "mailto:someone", "#nothing-here", "#schematics", " https://example.org", "HTTPS://x.org"):
+            with self.subTest(target=target):
+                with self.assertRaises(safehtml.HtmlError):
+                    render(f"<p><a href=\"{html.escape(target)}\">click</a></p>")
+
+    def test_code_is_escaped_and_highlighted_by_the_site(self):
+        h = render('<pre><code class="language-lean">&lt;/code&gt;&lt;/pre&gt;&lt;script&gt;x</code></pre>\n\n'
+                   "<p><code>&lt;/code&gt;&lt;b&gt;x&lt;/b&gt;</code></p>")
         self.assertNotIn("<script", h)
         self.assertNotIn("<b>", h)
-        self.assertIn("&lt;/code&gt;&lt;/pre&gt;&lt;script&gt;", h)
+        self.assertIn('<pre class="code" data-lang="lean"><code>&lt;/code&gt;&lt;/pre&gt;&lt;script&gt;x</code>'
+                      "</pre>", h)
+        seen = []
+        writeup.render('<h1>T</h1>\n\n<pre><code class="language-sv">a</code></pre>\n', source="w",
+                       highlight=lambda code, lang: seen.append((code, lang)) or "X")
+        self.assertEqual(seen, [("a", "sv")])
 
     def test_headings_start_under_the_card_and_never_take_a_page_id(self):
-        h = render("# Sources\n\n## main\n\n### netlist")
+        h = render("<h2>Sources</h2>\n\n<h3>main</h3>\n\n<h4>netlist</h4>")
         self.assertNotIn("<h1", h)
         self.assertNotIn("<h2", h)
         ids = re.findall(r'\bid="([^"]+)"', h)
         self.assertEqual(ids, ["writeup-sources", "writeup-main", "writeup-netlist"])
-        self.assertIn('<h3 id="writeup-sources">', h)
-        self.assertIn('<h4 id="writeup-netlist">', h)
+        self.assertIn('<h3 id="writeup-sources">Sources <a class="anchor" href="#writeup-sources" aria-label="link to '
+                      'this section">#</a></h3>', h)
+        self.assertIn('<h4 id="writeup-main">', h)
+        self.assertIn('<h5 id="writeup-netlist">', h)
+        with self.assertRaises(safehtml.HtmlError):
+            render('<h2 id="schematics">x</h2>')                         # ids are the site's
 
     def test_the_title_is_plain_text(self):
-        title, _ = writeup.render("# <b>Bold</b> & `code`\n\nbody\n", source="w.md")
+        title, _ = writeup.render("<h1>&lt;b&gt;Bold&lt;/b&gt; &amp; `code`</h1>\n\n<p>body</p>\n", source="w.html")
         self.assertEqual(title, "<b>Bold</b> & `code`")          # the caller escapes it
-        with self.assertRaises(ValueError):
-            writeup.render("No title\n\nbody\n", source="w.md")
+        for bad in ("No title\n\n<p>body</p>\n", "# Markdown\n\n<p>body</p>\n", "<h1><em>x</em></h1>\n"):
+            with self.assertRaises(ValueError):
+                writeup.render(bad, source="w.html")
         self.assertEqual(writeup.fallback_title("mul_tree.sv"), "mul_tree")
 
     def test_safe_target(self):
@@ -122,7 +129,7 @@ class SiteWriteupTest(unittest.TestCase):
     def test_a_writeup_is_the_record_pages_card_and_heading(self):
         seen = 0
         for rec in self.recs:
-            path = os.path.join(self.lb.WRITEUPS_DIR, rec["record_hash"] + ".md")
+            path = os.path.join(self.lb.WRITEUPS_DIR, rec["record_hash"] + ".html")
             h = self.page(rec)
             with self.subTest(record=rec["record_hash"][:12]):
                 # the page's Writeup tab (decided 2026-11-16): its pane holds the id, the card or the one-line prompt
@@ -136,7 +143,7 @@ class SiteWriteupTest(unittest.TestCase):
                 h1 = re.search(r"<h1\b[^>]*>(.*?)</h1>", h, re.S).group(1)
                 if os.path.isfile(path):
                     with open(path, encoding="utf-8") as fh:
-                        title = fh.readline()[2:].strip()
+                        title = self.lb.writeup_title(fh.read())
                     self.assertEqual(h1, html.escape(title))
                     self.assertIn("The writeup", card.group(1))
                     self.assertIn("Writeup by the maintainers, from the design and proof files.", card.group(1))
@@ -174,12 +181,62 @@ class SiteWriteupTest(unittest.TestCase):
                     self.assertRegex(h, r'data-id="' + rec["record_hash"] + r'"[^>]*data-tip="'
                                      + re.escape(html.escape(title)) + "\n")
 
+    def test_every_page_runs_only_the_sites_own_scripts(self):
+        """Defence in depth behind the writeups' sanitizer (decided 2026-11-16): every page carries the site's
+        Content-Security-Policy (page.py CSP) as its first <meta> after the charset, and holds no inline script (a
+        JSON data block is no script), no event-handler attribute and no javascript: address."""
+        import html.parser
+        import page
+
+        class Scan(html.parser.HTMLParser):
+            def __init__(self):
+                super().__init__(convert_charrefs=True)
+                self.bad = []
+
+            def handle_starttag(self, tag, attrs):
+                a = dict(attrs)
+                for k, v in attrs:
+                    if k.startswith("on") or (v and re.match(r"\s*javascript:", v, re.I)):
+                        self.bad.append(f"<{tag} {k}>")
+                if tag == "script" and not (re.fullmatch(r"(\.\./)*(site|pdk|charts)\.js", a.get("src") or "")
+                                            or a.get("type") == "application/json"):
+                    self.bad.append(f"<script {a}>")
+
+        self.assertIn("script-src 'self';", page.CSP)
+        self.assertNotRegex(page.CSP, r'["<>&]')                     # written into the attribute as it is
+        self.assertNotIn("unsafe-eval", page.CSP)
+        self.assertNotIn("'unsafe-inline'", page.CSP.split("script-src", 1)[1].split(";", 1)[0])
+        pages = [p for p in self.site.files if p.endswith(".html")]
+        self.assertGreater(len(pages), 100)
+        for path in pages:
+            h = self.site.files[path].decode("utf-8")
+            with self.subTest(page=path):
+                self.assertTrue('<meta charset="utf-8">\n<meta http-equiv="Content-Security-Policy" content="'
+                                + page.CSP + '">\n' in h)
+                self.assertEqual(h.count('http-equiv="Content-Security-Policy"'), 1)
+                scan = Scan()
+                scan.feed(h)
+                self.assertEqual(scan.bad, [])
+
+    def test_a_hand_drawn_figure_is_on_its_page(self):
+        """The maintainers' inline SVG in the Booth record's writeup (decided 2026-11-16, the HTML writeups'
+        demonstration): Figure 1, drawn by the site's rules for a writer's drawing, its caption the writer's (no
+        generated line)."""
+        rec = next(r for r in self.recs if r["record_hash"].startswith("efbea7ef0e3d"))
+        h = self.page(rec)
+        fig = h.split('<figure class="wfig" id="writeup-figure-1"><div class="wfig-box">', 1)[1].split("</figure>")[0]
+        self.assertTrue(fig.startswith('<svg class="wfig-svg" viewBox="0 0 640 232" width="640.0" height="232.0" '
+                                       'style="max-width:640.0px;min-width:426.7px" role="img" '
+                                       'aria-labelledby="writeup-figure-1-t writeup-figure-1-d"'))
+        self.assertIn("Drawn by the maintainers from the design.</figcaption>", fig)
+        self.assertNotIn("generated from the design", fig)
+
     def test_the_rules_page_says_how_to_write_one(self):
         rules = self.site.files["rules.html"].decode("utf-8")
         self.assertIn('id="writeups"', rules)
         text = re.sub(r"<[^>]+>", " ", rules.split('id="writeups"', 1)[1].split("<h2", 1)[0])
-        for phrase in ("leaderboard/writeups/TEMPLATE.md", "at most 60 characters", "never changes a record",
-                       "the dead ends", "the proof strategy"):
+        for phrase in ("leaderboard/writeups/TEMPLATE.html", "at most 60 characters", "never changes a record",
+                       "the dead ends", "the proof strategy", "verify --offline", "inline SVG"):
             self.assertIn(phrase, " ".join(text.split()))
 
 

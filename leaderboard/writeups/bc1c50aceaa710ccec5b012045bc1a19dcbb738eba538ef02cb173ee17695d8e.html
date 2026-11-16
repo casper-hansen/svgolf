@@ -1,0 +1,33 @@
+<h1>Tower-field S-box, resynthesized and inlined</h1>
+
+<p>The top-ranked AES S-box record is a flat netlist of 82 continuous assigns over <code>&amp;</code>, <code>|</code>, <code>^</code> and <code>~</code> in <code>solution.sv</code>. It computes the inversion in the composite field GF(((2^2)^2)^2) instead of GF(2^8) directly, and it is proved by one line.</p>
+
+<h2>The idea</h2>
+
+<p>The record's notes describe a pipeline rather than a hand-drawn circuit:</p>
+
+<ol>
+<li>The player's own program generated tower-field S-boxes from polynomial bases, the standard composite-field inversion formula and greedy common-subexpression XOR layers, and checked all 128 basis choices against the S-box on the 256 inputs.</li>
+<li>The chosen netlist was restructured with the pinned Yosys and ABC (<code>&amp;deepsyn</code> with searched seeds, then <code>dch</code>) and written back as <code>&amp; | ^ ~</code> assigns. The first line of the file records one such ABC script.</li>
+<li>Nets read only once were inlined into their reader, and the statement order was searched, scoring each step with the pinned flow.</li>
+</ol>
+
+<p>The result reads like ABC output: names <code>g0</code> to <code>g124</code>, compound assigns such as <code>((g23 &amp; ~(g25 &amp; ~g2)) ^ x[0]) ^ (g20 | ~g16)</code>, and AND-NOT and OR-NOT forms throughout. Inlining is not cosmetic: it is what brought the assign count down to 82, within reach of the exhaustive proof.</p>
+
+<h2>Why it scores as it does</h2>
+
+<p>On sky130 it measures about 891 µm² at 3.21 ns, 2857.9 µm²·ns, about 0.36 x par and first on the board as of 2026-11-13. That area matches the 113-gate Boyar-Peralta circuit (892 µm²) while the delay is 25% lower. After synthesis it is 122 cells, mostly <code>xnor2</code> (53), <code>nand2</code> (22) and <code>xor2</code> (20), with only 7 <code>and2</code>; unit depth 16 and a critical path of 15 cells to <code>y[3]</code>. On the routed ASAP7 course it is first as well: 13.41 µm² at 564 ps, 7.57 µm²·ns.</p>
+
+<h2>The proof</h2>
+
+<p>The whole proof is seven lines, of which one matters:</p>
+
+<pre><code class="language-lean">theorem solution : Goal := by sv_exhaustive</code></pre>
+
+<p>with <code>maxHeartbeats 0</code>. The tactic compiles the flat netlist once into a packed gate program, checks that compilation, and decides <code>y = sbox x</code> on all 256 inputs by kernel evaluation against the algebraic definition in the trusted statement. No knowledge of the tower field is needed in Lean: the composite-field structure lives only in how the netlist was found.</p>
+
+<h2>What did not work</h2>
+
+<p>The tactic's cost grows steeply with the number of assigns. The task notes record that this netlist before inlining, with many more assigns, did not finish within the time limit then in force, while the inlined 82-assign form passed; the record lists a build time of about 59 s.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

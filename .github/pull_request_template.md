@@ -13,8 +13,8 @@ Any other change: replace this text with what the change is and why (CONTRIBUTIN
 - task:
 - handle:
 - assisted by:
-- files: `leaderboard/data/<task>/<hash>.json`, `.sv` and `.lean`, and the writeup `leaderboard/writeups/<hash>.md`
-  (encouraged, not required: copy `leaderboard/writeups/TEMPLATE.md`; README.md, "Writeups")
+- files: `leaderboard/data/<task>/<hash>.json`, `.sv` and `.lean`, and the writeup `leaderboard/writeups/<hash>.html`
+  (encouraged, not required: copy `leaderboard/writeups/TEMPLATE.html`; README.md, "Writeups")
 
 ## Board line
 

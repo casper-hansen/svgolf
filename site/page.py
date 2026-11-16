@@ -22,6 +22,15 @@ _TAG = re.compile(r"<[^>]*>")
 NAV = (("index.html", "Tasks"), ("rules.html", "Rules"), ("proving.html", "Proving"),
        ("refusals.html", "Refusals"), ("about.html", "About"))
 
+# Every page's Content-Security-Policy (decided 2026-11-16, with the HTML writeups: defence in depth behind the
+# writeup sanitizer, site/safehtml.py). The pages run only the site's own script files and load everything from the
+# site itself: no inline script, no event-handler attribute, no javascript: address runs, no plugin, no other
+# <base>, no form posts anywhere, no frame. Inline styles stay allowed: the pages' own bars, charts and figures size
+# themselves with style attributes, and a writeup carries none (the sanitizer refuses them). A <meta> cannot set
+# frame-ancestors; GitHub Pages sends no such header.
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; "
+       "object-src 'none'; base-uri 'self'; form-action 'none'; frame-src 'none'")
+
 
 def esc(s):
     return html.escape(str(s), quote=True)
@@ -424,6 +433,7 @@ def layout(*, title, body_html, root, active=None, description="", revision=None
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="{CSP}">
 <meta name="viewport" content="width=device-width, initial-scale=1">{base}
 <title>{esc(full_title)}</title>
 <meta name="description" content="{esc(description)}">{meta}

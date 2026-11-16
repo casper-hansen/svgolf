@@ -1,0 +1,33 @@
+<h1>Ripple-carry adder, proved without tactics</h1>
+
+<p><code>add_n_byhand.sv</code> is par's ripple-carry adder, byte for byte. It uses one <code>generate for</code> over the bits, with <code>s[i] = a[i] ^ b[i] ^ c[i]</code> and <code>c[i+1] = (a[i] &amp; b[i]) | (c[i] &amp; (a[i] ^ b[i]))</code>, plus <code>c[0] = cin</code> and <code>cout = c[N]</code>. What this record adds is a second proof of the same statement, written without any <code>sv_comb</code> tactic.</p>
+
+<h2>The idea</h2>
+
+<p>Each bit's carry out is the majority of its three inputs, written as generate OR (carry AND propagate), and it feeds the next bit. It is the simplest adder, small and slow: its area and its delay both grow linearly with <code>N</code>.</p>
+
+<p>Figure 1 draws the carry chain as a prefix graph at <code>N = 8</code>, the form the board's prefix adders are drawn in.</p>
+
+<figure data-figure="add-ripple" data-alt="The ripple-carry adder&#x27;s carry chain drawn as a prefix graph at N = 8: one node per level, eight levels.">
+<figcaption>The carry chain in the form of the prefix adders' figures: each node is bit l's carry cell, so the carry into the top bit waits for every cell below it.</figcaption>
+</figure>
+
+<h2>Why it scores as it does</h2>
+
+<p>At <code>N = 16</code> the pinned flow maps each bit to three NAND2 cells and two XOR2 cells, for 80 cells and 460.4 µm² on sky130. The critical path is 32 cells long, through the carry chain to <code>s[15]</code>, at 2.61 ns. That gives 1202.2 µm²·ns, which is par. On the routed ASAP7 course it is 7.00 µm² and 560 ps, for 3.92 µm²·ns.</p>
+
+<h2>The proof</h2>
+
+<p>The tactic proof of this design, <code>add_n.lean</code>, is 84 code lines. This one is 509, and it spells out every step the tactics hide. It is the baseline the tactics are measured against, and the route for designs they refuse: both prefix adders on this board follow it.</p>
+
+<ol>
+<li><strong>Instantiation at symbolic <code>N</code>.</strong> The envelope's generate loop and static assigns are pinned by <code>rfl</code> (<code>ripple_generates</code>, <code>ripple_static_source</code>). <code>GenItem.expand2_genFor_ascending_processes</code> expands the loop into <code>rippleProcs N</code>: carry-in, carry-out, then one sum cell and one carry cell per bit.</li>
+<li><strong>One driver per bit, for every <code>N</code>.</strong> <code>ripple_driversOk</code> computes the driver windows and splits the family with <code>pairwise_flatMap_range</code>, then closes each pair with <code>omega</code>.</li>
+<li><strong>Comb profile and acyclicity.</strong> <code>ripple_proc</code> characterises process <code>j</code> by its index, with <code>getElem?_flatMap_pair</code> handling the interleaving. <code>ripple_comb</code> follows from it. <code>ripple_acyclic</code> uses <code>rippleRank</code>: rank 0 for the carry-in, <code>i + 1</code> for bit <code>i</code>'s cells, and <code>N + 1</code> for the carry-out.</li>
+<li><strong>The settled state.</strong> <code>eval_carry</code> shows that the carry gate is core's <code>Bool.atLeastTwo</code>. <code>ripple_settled</code> then proves, by induction on the bit index, that <code>c[k]</code> holds <code>BitVec.carry k x y ci</code>. The sum bits follow from <code>BitVec.getLsbD_add_add_bool</code> and <code>cout</code> from <code>BitVec.carry_width</code>.</li>
+<li><strong>The statement.</strong> <code>CombTask.satisfiedAt_of_comb</code> reduces the statement to the settled state, and <code>sum_eq_ofNat</code> and <code>carry_eq_ofNat</code> turn the bit-vector sum into the task's <code>Nat</code> form.</li>
+</ol>
+
+<p>The file pins its axioms with <code>#guard_msgs</code> on <code>#print axioms</code>.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

@@ -1,0 +1,21 @@
+<h1>4:2 compressor heap, two rows per leaf</h1>
+
+<p>A carry-save tree multiplier for every <code>N</code> in which each leaf holds two partial-product rows: <code>H = ⌈N/2⌉</code> leaves, each already a carry-save pair, every internal node a 4:2 compressor, and a ripple-carry adder on the root's two rows.</p>
+
+<h2>The idea</h2>
+
+<p>Two rows of partial products already form a carry-save pair, so leaf <code>j</code> is <code>(S, C) = (pp[2j], pp[2j+1])</code>, both gather reads of a zero-padded copy of <code>a</code>. With the <code>H</code> leaves numbered as the last nodes of a heap (<code>H-1</code> to <code>2H-2</code>, node <code>k</code> with children <code>2k+1</code>, <code>2k+2</code>), every internal node compresses. Unlike the one-row-per-leaf heap, there are no pairing nodes and no constant selects to tell nodes apart.</p>
+
+<p>The count is <code>localparam integer H = (N + 1) / 2</code>. The <code>sv_comb</code> tactics read it as one more constant of <code>N</code> and inline it as <code>(N + 1) / 2</code>, which <code>omega</code> handles. <code>b</code> is zero-extended to <code>2H+1</code> bits, so the last leaf of an odd <code>N</code> gets a zero row. Each compressor is two rows of full adders in the textbook form: three-input XOR sums and AND/OR majority carries.</p>
+
+<h2>Why it scores as it does</h2>
+
+<p>At <code>N = 16</code> there are 8 leaves and 7 compressors in three levels. On sky130 it is about 8,563 µm² in 1,450 cells at 5,992 ps: about 51,311 µm²·ns, 0.57 × par. That is only a little better than the one-row-per-leaf heap (8,603 µm², 6,129 ps): that design's pairing nodes were already free after synthesis, so the localparam buys a simpler design and proof more than area. The critical path is 56 cells to <code>p[30]</code>, unit depth 62. On ASAP7: about 128.0 µm² at 1,224 ps, 156.6 µm²·ns. The same dataflow with re-chosen gate forms is a separate, faster record.</p>
+
+<h2>The proof</h2>
+
+<p>307 lines on the tactic route. The arithmetic, <code>heap_mul</code> in <code>HeapArith</code>, is plain Lean. Each leaf is two gated, shifted lanes of <code>a</code> (<code>lane_gated</code>), and <code>csum_leaves2</code> sums the leaves to <code>a * b</code>. Each compressor keeps its children's value up to <code>2^(2N)</code> (<code>node_sum</code>, built from <code>csa_row</code> twice). The sum over the cut <code>{t, ..., 2t}</code> of the heap is then invariant modulo <code>2^(2N)</code> from <code>t = H-1</code> down to the root, by induction with no pairing case. The library's <code>ripple_row</code> finishes the final adder.</p>
+
+<p>On the netlist side, <code>sv_structure</code> with the key <code>treeKey</code> (stage, node order, phase; <code>H</code> inlined) proves structure and acyclicity, <code>sv_interface</code> handles the ports and the localparam's valuation, sixteen <code>sv_bridge</code> lines turn the printed equations into <code>heap_mul</code>'s hypotheses, and <code>sv_cover</code> proves every heap read has a writer.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

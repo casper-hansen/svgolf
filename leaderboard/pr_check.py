@@ -11,10 +11,12 @@ on, the branch it goes to) and checks, in order:
      (leaderboard/data/<task>/<record_hash>.json, .sv and .lean), added as a plain file (git's mode 100644: not a
      symbolic link, which would make the record's content another path's, and not an executable), and every record
      comes with all three, of a task this repository has, under a player's handle (`svgolf-reference` is
-     par's handle, whose records are par: decided 2026-11-12); or a record's WRITEUP (decided 2026-11-13: the
-     Markdown file leaderboard/writeups/<record_hash>.md, outside the record), added or improved as a plain file:
-     data the site renders safely, never code the check runs, and checked by step 2 (`verify --offline` checks every
-     writeup: it names a record, its title, its size, its characters, no internal marker, a body the site renders);
+     par's handle, whose records are par: decided 2026-11-12); or a record's WRITEUP (decided 2026-11-13; HTML since
+     2026-11-16: the file leaderboard/writeups/<record_hash>.html, outside the record), added or improved as a plain
+     file: data the site renders from its allowlist sanitizer's tree, never code the check runs, and checked by step
+     2 (`verify --offline` checks every writeup: it names a record, its title, its size, its characters, no internal
+     marker, HTML the sanitizer accepts, each refusal naming the line and the element or attribute). A Markdown
+     writeup (`.md`, the format until 2026-11-16) is refused with the advice to convert it;
   2. `leaderboard.py verify --offline` on every record (hashes and arithmetic, the added ones included);
   3. `leaderboard.py verify --full` on the added records alone: check.py runs again on each pair, the whole check,
      with `--sandbox` as given (not run when step 1 failed: the pull request would bring the checker it runs).
@@ -62,7 +64,8 @@ lb = _load_leaderboard()
 RECORD_FILE_RE = re.compile(r"leaderboard/data/([^/]+)/([0-9a-f]{64})\.(json|sv|lean)")
 RECORD_EXTS = ("json", "sv", "lean")
 # a record's writeup (decided 2026-11-13), as a path relative to svGolf's directory: (record_hash)
-WRITEUP_FILE_RE = re.compile(r"leaderboard/writeups/([0-9a-f]{64})\.md")
+WRITEUP_FILE_RE = re.compile(r"leaderboard/writeups/([0-9a-f]{64})\.html")
+WRITEUP_MD_RE = re.compile(r"leaderboard/writeups/([0-9a-f]{64})\.md")      # the old format (until 2026-11-16)
 STATUS_WORDS = {"A": "added", "M": "changed", "D": "deleted", "T": "changed in type"}
 RATING_NOTE = "The ranked number is re-made on the rating build by a maintainer when the pull request is merged."
 FILE_MODE = "100644"                          # git's mode of a plain, non-executable file
@@ -121,6 +124,9 @@ def classify(changed):
         elif WRITEUP_FILE_RE.fullmatch(path):
             problems.append(f"`{path}` is {STATUS_WORDS.get(status, status)}: a pull request may add or improve a "
                             "writeup, never remove one")
+        elif WRITEUP_MD_RE.fullmatch(path) and status in ("A", "M"):
+            problems.append(f"`{path}` is {STATUS_WORDS.get(status, status)}: writeups are HTML since 2026-11-16, so "
+                            "name it `<record_hash>.html` and write it in HTML (README.md, \"Writeups\")")
         else:
             problems.append(f"`{path}` is {STATUS_WORDS.get(status, status)}: it is not a record's file, and a pull "
                             "request of records changes nothing else (it would bring the checker it runs)")

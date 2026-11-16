@@ -1,0 +1,25 @@
+<h1>Wallace tree as a queue of rows</h1>
+
+<p>A Wallace-tree multiplier for every <code>N</code>, written as a tape: one 2-D array <code>T</code> of <code>3N-1</code> rows of <code>2N</code> bits used as a queue, where each carry-save adder takes the three oldest live rows and appends a sum row and a carry row.</p>
+
+<h2>The idea</h2>
+
+<p>Rows <code>0</code> to <code>N-1</code> are the partial products (row <code>j</code> is <code>a</code> shifted by <code>j</code> and gated by <code>b[j]</code>, a gather read of a zero-padded copy of <code>a</code>), and row <code>N</code> is a zero dummy, so <code>N+1</code> rows are live. Adder <code>g</code>, for <code>g</code> from 0 to <code>N-2</code>, reads rows <code>3g</code>, <code>3g+1</code>, <code>3g+2</code> and writes their XOR at row <code>N+1+2g</code> and their shifted majority at <code>N+2+2g</code>. Each adder consumes three rows and adds two, so after <code>N-1</code> adders exactly two rows are left, at <code>3N-3</code> and <code>3N-2</code>, for a ripple-carry adder. This is Wallace's grouping by threes, the live rows shrinking by about 2/3 per level.</p>
+
+<p>The tape position replaces the stage index: every index is affine in <code>N</code> and the genvars, with no localparam, division or conditional generate, so the <code>sv_comb</code> tactics read the design as written.</p>
+
+<h2>Why it scores as it does</h2>
+
+<p>On sky130 it is about 8,966 µm² in 1,502 cells at 5,982 ps: about 53,635 µm²·ns, 0.59 × par. The delay matches the other trees, since the ripple final adder sets the depth (56 cells to <code>p[30]</code>, unit depth 62). The area is the cost: grouping whole rows spends a half adder at both edges of every row, where a column-wise Dadda schedule spends almost none. On ASAP7: about 133.9 µm² at 1,264 ps, 169.3 µm²·ns.</p>
+
+<h2>The proof</h2>
+
+<p>At 264 lines it is the shortest of the tree proofs. The arithmetic, <code>TapeArith</code>, has <code>csa_row</code> (a row of 3:2 counters keeps the column-weighted sum up to the dropped top carry), <code>lane_gated</code> (a partial-product row's value) and <code>tape_mul</code>. Its invariant is the live window: the sum of rows <code>[3g, N+1+2g)</code> (<code>csum V (3g) (N+1-g)</code>) is <code>a * b</code> modulo <code>2^(2N)</code> for every <code>g ≤ N-1</code>. The proof is by induction on <code>g</code>: adder <code>g</code> swaps its three rows for the two it appends, which <code>csa_row</code> shows have the same sum. At <code>g = N-1</code> the window is the last two rows, added by the library's <code>ripple_row</code>.</p>
+
+<p><code>sv_structure</code> takes the key <code>tapeKey</code> (stage, adder), sound because an adder reads only rows that earlier adders wrote. <code>sv_interface</code>, eleven <code>sv_bridge</code> lines and <code>sv_cover</code>, which recovers adder <code>(r - N - 1) / 2</code> from a row read, finish it.</p>
+
+<h2>What did not work</h2>
+
+<p>Three variants of the tape did not beat it: the dummy row first, the partial products in reverse order, and the carry row appended before the sum row.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

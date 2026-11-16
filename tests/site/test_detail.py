@@ -504,7 +504,7 @@ class DetailTest(unittest.TestCase):
 
     def test_a_record_page_is_titled_by_who_made_it(self):
         """A record page's heading (decided 2026-11-13, the owner's UI feedback item 6): the record's title, its
-        writeup's (leaderboard/writeups/<hash>.md, line 1) or else its design file's stem; under it who made the record,
+        writeup's (leaderboard/writeups/<hash>.html, line 1) or else its design file's stem; under it who made the record,
         on which task, and when (decided 2026-11-11): "{player} on {task} · {date}" ("{stem} on {task} · reference"
         for a proved reference's record), its hash a chip of the tag row; the browser's <title> "{title} · {player} on
         {task} · record {hash, first 12}", unique per page. No score in either: the score differs by course, and the
@@ -518,10 +518,10 @@ class DetailTest(unittest.TestCase):
             sub = text_of(re.search(r'<p class="head-sub">(.*?)</p>', raw, re.S).group(1)).strip()
             title = html.unescape(re.search(r"<title>(.*?)</title>", raw, re.S).group(1))
             titles.append(title)
-            wpath = os.path.join(SVGOLF, "leaderboard", "writeups", rec["record_hash"] + ".md")
+            wpath = os.path.join(SVGOLF, "leaderboard", "writeups", rec["record_hash"] + ".html")
             if os.path.isfile(wpath):
                 with open(wpath, encoding="utf-8") as fh:
-                    mine_title = fh.readline()[2:].strip()
+                    mine_title = lb.writeup_title(fh.read())
             else:
                 mine_title = posixpath.splitext(rec["files"]["sv"]["name"])[0]
             with self.subTest(page=path):

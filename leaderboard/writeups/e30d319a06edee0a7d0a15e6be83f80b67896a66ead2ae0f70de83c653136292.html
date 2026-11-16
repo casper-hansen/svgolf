@@ -1,0 +1,30 @@
+<h1>Ripple carry, XNOR-selected multiplexer carry</h1>
+
+<p>A ripple-carry adder written with <code>~</code> and the conditional operator instead of AND/OR gates. For each bit, <code>e[i] = ~(a[i] ^ b[i])</code> tests whether the operand bits are equal, the carry is <code>c[i+1] = e[i] ? a[i] : c[i]</code>, and the sum is <code>s[i] = ~(e[i] ^ c[i])</code>.</p>
+
+<h2>The idea</h2>
+
+<p>If the operand bits are equal, the carry out is their common value, whatever the carry in is. If they differ, the carry in passes through. So the carry cell is a two-way multiplexer selected by an XNOR, and the sum reuses the same XNOR, inverted once more. It is the same majority function as par's cell, written as a selection rather than as gates.</p>
+
+<p>The carry chain is par's, one cell per bit in series (Figure 1).</p>
+
+<figure data-figure="add-ripple" data-alt="The carry chain drawn as a prefix graph at N = 8: one carry cell per bit, eight in series.">
+<figcaption>The carry chain: each node is bit l's carry cell, the multiplexer <code>c[l+1]</code> = <code>e[l] ? a[l] : c[l]</code>.</figcaption>
+</figure>
+
+<h2>Why it scores as it does</h2>
+
+<p>The pinned flow maps the <code>?:</code> carry to the same netlist as par's gates: 48 NAND2 and 32 XOR2 cells, 460.4 µm², and a 32-cell critical path to <code>s[15]</code> at 2.61 ns. That is 1202.2 µm²·ns on sky130, a tie with par. It also matches par on the routed ASAP7 course, at 7.00 µm², 560 ps and 3.92 µm²·ns. The task README notes this effect in general: the flow restructures what is written, and a multiplexer carry comes out as the same three NAND gates per bit as the reference.</p>
+
+<h2>The proof</h2>
+
+<p>The proof is 97 code lines and follows the intended tactic route with no detours. Unlike the <code>always_comb</code> variants, every process here is a continuous assign, so <code>design.sem N</code> is itself a <code>CombDesign</code>:</p>
+
+<ol>
+<li><code>add_struct</code> calls <code>sv_structure</code> once to prove <code>CombDesign</code> and <code>Acyclic</code>, using the player's rank. The carry-in gets 0, bit <code>i</code>'s three cells get <code>3i + 1</code> to <code>3i + 3</code> in source order, and the carry-out gets <code>3N + 1</code>. Every obligation closes with <code>intros; omega</code>.</li>
+<li><code>add_interface</code> is one line of <code>sv_interface</code>.</li>
+<li><code>sv_equations</code> derives the netlist's equations over <code>Bool</code> under stable names: <code>eq_c_1</code> (<code>c[0] = cin</code>), <code>eq_e_1</code> (the XNOR), <code>eq_c_2</code> (the carry cell, read as an <code>if</code> on <code>e[i]</code>), <code>eq_s_1</code> and <code>eq_cout_1</code>. It also proves every driven bit is known. The side goals close by <code>omega</code>, <code>sv_cover</code> and <code>inKnown_ofBitVec</code>.</li>
+<li><code>add_final</code> holds the only mathematics. Two case splits over three Booleans show that the multiplexer is the majority and that the double XNOR is the parity. Together these give <code>CombLib.AddView</code>, <code>add_spec</code> yields the sum, and <code>SvState.lookup_eq_ofBitVec_bv</code> turns the bits back into port values.</li>
+</ol>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

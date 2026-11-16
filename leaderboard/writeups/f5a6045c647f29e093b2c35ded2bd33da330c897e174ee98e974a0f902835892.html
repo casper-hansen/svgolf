@@ -1,0 +1,41 @@
+<h1>Restoring divider, word-level generate form</h1>
+
+<p>This is par for <code>fdivp</code>, the simplest algorithm: IEEE 754 division with round to nearest even and full subnormals, generic in the exponent width <code>W</code> and precision <code>P</code>, in <code>fdivp.sv</code>. It is a word-level netlist of 34 sites (D3 in the task notes), proved for every format and scored at binary16.</p>
+
+<h2>The idea</h2>
+
+<p>The datapath folds the bit-level structure into vector sites and two generate families:</p>
+
+<ol>
+<li>classify the operands (NaN, infinity, zero) with reductions over the fields;</li>
+<li>normalize each significand in <code>P - 1</code> one-bit stages, a wide register counting the shifts down;</li>
+<li><code>P + 2</code> restoring division steps, one quotient bit each, the last remainder giving the sticky bit;</li>
+<li>the exponent in two's complement, with normal and overflow flags read from its sign bit and two reductions;</li>
+<li>for a subnormal result, a run-time right shift with the sticky test <code>(qs &lt;&lt; dsh) != qm</code>;</li>
+<li>round by adding the increment to the packed <code>{exponent, fraction}</code> word, so the carry moves a subnormal up to the least normal, and the largest finite value to infinity, for free.</li>
+</ol>
+
+<p>A detail from the header: <code>adj</code> must be its own one-bit signal, because inline in the wider sum its complement would be taken after the extension.</p>
+
+<h2>Why it scores as it does</h2>
+
+<p>On sky130 it is about 9,676 µm² at 38.0 ns, 367,515 µm²·ns, which defines par. The 13 serial restoring steps dominate the delay: unit depth 289 and a critical path of 285 cells to <code>q[12]</code>, in 1515 cells. The task notes name the linear normalizer and denormalizer as where logarithmic forms would save area. On the routed ASAP7 course: 147.2 µm² at 7.25 ns, 1066.7 µm²·ns, the smallest area there.</p>
+
+<figure data-figure="fdivp-cores" data-alt="Par&#x27;s restoring core, 13 steps of one quotient bit each, beside the SRT record&#x27;s core, 7 stages of two bits each and one final adder, at binary16.">
+<figcaption>The quotient core beside the SRT record's: thirteen serial steps, each with a 12-bit subtraction.</figcaption>
+</figure>
+
+<h2>The proof</h2>
+
+<p>The proof (4034 code lines) is self-contained apart from the general library:</p>
+
+<ul>
+<li><code>IEEE754Proofs</code>: facts about the trusted spec, including its five characterization theorems, such as <code>divide_isUniquelyCharacterized</code>.</li>
+<li><code>CertF</code> and its helper sections: <code>certF_bridge</code> says, for every format, that the rounded quotient of two finite nonzero operands is <code>c</code> exactly when a certificate using only <code>+ - *</code>, comparisons and powers of two accepts <code>c</code>. Any other divider's proof can start here.</li>
+<li><code>DpN</code> to <code>DpU</code>: the datapath as a <code>Nat</code> model <code>OutN</code>, and <code>OutN_fdivBits</code>, equating it with the task function.</li>
+<li><code>DpG1</code> to <code>DpG5</code>: one glue lemma per equation shape, and <code>Glue.chain</code>, from the 34 printed equations to the value of <code>q</code>.</li>
+</ul>
+
+<p>The submission is then short: <code>sv_structure</code> with a <code>rippleRank</code> (plain sites by depth, the <code>norm</code> and <code>div</code> families by stage), <code>sv_interface</code> after unfolding the task, <code>sv_equations</code>, <code>chain</code> and <code>OutN_fdivBits</code>. The task's eight attack designs, each this netlist with one plausible change (ties to odd, flush to zero, a narrow exponent register), all fail at the <code>chain</code> application.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>

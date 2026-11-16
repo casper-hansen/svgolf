@@ -1,0 +1,36 @@
+<h1>Carry-less array multiplier</h1>
+
+<p>This is par for <code>clmul</code>, the simplest algorithm: the array multiplier of the <code>mul</code> task with XOR where it has a full adder and no carries at all, in <code>clmul_n.sv</code>. One 2-D packed array <code>r</code> of <code>N</code> rows of <code>N</code> bits and four generate loops make it a single design for every <code>N</code>.</p>
+
+<h2>The idea</h2>
+
+<p>Row <code>i</code> holds the accumulator of the first <code>i + 1</code> rows of partial products, shifted down by <code>i</code>:</p>
+
+<pre><code class="language-systemverilog">assign r[i][j] = r[i-1][j+1] ^ (a[i] &amp; b[j]);</code></pre>
+
+<p>with <code>r[0][j] = a[0] &amp; b[j]</code> and <code>r[i][N-1] = a[i] &amp; b[N-1]</code> at the edge. Output bit <code>i &lt; N</code> is bit 0 of row <code>i</code>; the top <code>N - 1</code> bits are the upper bits of the last row. That is <code>N^2</code> ANDs and <code>(N - 1)^2</code> XORs, with a linear XOR chain of depth <code>N</code> as written.</p>
+
+<p>Figure 1 draws the array at <code>N = 8</code>.</p>
+
+<figure data-figure="clmul-array" data-alt="The carry-less array at N = 8, drawn by weight: each row XORs its partial products onto the row above; output bit 7&#x27;s chain of seven XORs is marked.">
+<figcaption>Row i XORs a[i] &amp; b[j] onto the cell one weight up in the row above. The accent is output bit 7's chain of seven XORs, as written; synthesis rebalances it.</figcaption>
+</figure>
+
+<h2>Why it scores as it does</h2>
+
+<p>Synthesis does not keep the chain: ABC rebalances it to a unit depth of 6 at <code>N = 16</code>. On sky130 the result is 481 two-input cells, <code>xnor2</code> (225), <code>and2</code> (199) and <code>nand2</code> (57), for about 3,430 µm² at 1.11 ns, with a critical path of 6 cells to <code>p[15]</code>. Its product, 3820.5 µm²·ns, defines par. The schoolbook record with an explicit balanced tree per column synthesizes to exactly the same cell mix and area but one level shallower, which is the whole of its advantage. On the routed ASAP7 course par is 50.26 µm² at 184 ps, 9.25 µm²·ns.</p>
+
+<h2>The proof</h2>
+
+<p>The proof (238 code lines) covers every <code>N &gt;= 1</code>, and its arithmetic is what the other tactic-proved entries of this task reuse:</p>
+
+<ol>
+<li><code>clmul_struct</code>: <code>sv_structure</code> with a lexicographic key <code>(row, 0, 0)</code> (<code>clmulKey</code>). The key goes through a partial classifier of the five site families, <code>clmulFamily?</code>, and <code>clmul_sites_classified</code> proves every site is classified, so a change of layout fails loudly instead of falling into a default rank. A <code>#guard_msgs</code> check prints the (empty) list of unclassified sites.</li>
+<li><code>clmul_interface</code> by <code>sv_interface</code>; <code>sv_equations</code> returns the five equations, and <code>sv_cover</code> closes coverage.</li>
+<li>A <code>View</code> structure with one field per equation, each filled by one <code>sv_bridge</code> line.</li>
+<li>The mathematics in plain Lean: <code>view_row</code>, by induction on the row, shows <code>r i j</code> is the XOR over <code>t &lt;= i</code> of <code>a t &amp; b (i + j - t)</code> (<code>rowSum</code>); <code>view_spec</code> collapses the trusted statement's double sum with <code>bx_pair</code> for the low outputs and the last row; <code>coeff_eq</code> and <code>getLsbD_ofBits</code> connect to the statement's <code>BitVec</code>.</li>
+</ol>
+
+<p>The record lists a build time of about 17 s.</p>
+
+<p>Writeup by the maintainers, from the design and proof files.</p>
