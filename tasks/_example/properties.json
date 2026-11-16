@@ -115,7 +115,7 @@
     {
       "name": "Process2.isEdgePhase",
       "decl": "LeanModels.Sv.Process2.isEdgePhase",
-      "file": "LeanModels/Sv/Sem2.lean",
+      "file": "LeanModels/Sv/Sem2Ast.lean",
       "text": "True for the processes that run at the clock edge: always_ff, always @(posedge …) and asynchronous-reset blocks."
     }
   ]

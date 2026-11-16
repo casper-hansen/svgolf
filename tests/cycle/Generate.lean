@@ -4,6 +4,9 @@ import SvGolf.Cycle
 /-!
 # `sv_mirror` and `sv_cycle` (`SvGolf.Cycle`): the designs they cover, and the shapes they refuse
 
+Every `int` parameter takes a range hypothesis below `2^31` (`(hN32 : N < 2147483648)`): the pinned ls-sv
+instantiates a design with exact 32-bit `int` arithmetic, so a parameter is its own value only in that range.
+
 * `shift0.sv`: a shift register of `N` stages of `W` bits (one `always_ff` for stage 0, a generate loop of
   `N` stages, one for the output). The generated opening block is checked end to end: the mirror, the
   agreement, the profile, the clock step at symbolic `N` and `W`, power-up and the initial state; then a
@@ -13,20 +16,23 @@ import SvGolf.Cycle
   whose bound `N - 1` is zero at `N = 1`.
 * `clash.sv`: generate blocks labelled like the commands' own names (`procs`; `p0Q`, the updates of process 0):
   the generated names step aside.
-* `square.sv`: a window beyond `sv_disch` (nonlinear in the genvar): refused with the condition printed; a
-  `sorry` window tactic is refused too, a real one is accepted.
+* `square.sv`: a window beyond `sv_disch` (nonlinear in the genvar): refused with the condition printed; the
+  player's window tactic is accepted.
 * `comb_ff.sv`, `assign.sv`: one comb process (an `always_comb`, a continuous assignment) beside a register:
   the comb settle and the cycle generated end to end.
-* `lpcmp.sv`: a localparam chosen by a comparison of the parameters: refused with the comparison printed, and
-  generated under each case hypothesis.
+* `lpcmp.sv`: a localparam chosen by a comparison of the parameters (`(N > W) ? N - W : 1`, an `int` localparam the
+  exact 32-bit `int` instantiation computes on the width-exact path, `evalSized`): refused with the comparison
+  printed, then generated under each case hypothesis, one mirror per case.
 * Refusals, each naming the construct: two comb processes (`comb2.sv`), a comb process inside a generate loop
   (`combgen.sv`), a generate loop that does not start at 0 (`shift.sv`), a blocking assignment in an
   `always_ff` (`blocking.sv`), an asynchronous reset (`areset.sv`), a plain `always @(posedge clk)`
   (`plain.sv`), a nonblocking write to a dynamic index (`dynidx.sv`), a loop bound that can be negative under
-  the hypotheses, parameters given out of order, a hypothesis or a disjointness term containing `sorry`, an
-  ill-typed disjointness term, a prefix already in use, `sv_cycle` before `sv_mirror`. (A generate `if`, two
+  the hypotheses, parameters given out of order, an ill-typed disjointness term, a prefix already in use, `sv_cycle` before `sv_mirror`. (A generate `if`, two
   clocks and a process writing an input are refused too, by name, but the pinned loader refuses the small
   designs written for them first, at load time; an x literal is refused earlier still, by the source gate.)
+
+An unfinished hypothesis, disjointness term or window tactic is refused too; that test states one, so it is in the
+development tree only (`tests/cycle/Unfinished.lean`, compiled by `tests/run.py`; the public export leaves it out).
 -/
 
 namespace SvGolf.Tests.Cycle
@@ -37,7 +43,7 @@ open LeanModels.Sv SvGolf SvGolf.Cycle
 
 load_sv shiftD from "tests/cycle/designs/shift0.sv" (top := "shift0")
 
-sv_mirror sh := shiftD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W)
+sv_mirror sh := shiftD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
 
 /-- Stage `0` writes `s[0 +: W]`, stage `k + 1` writes `s[(k+1)*W +: W]`, the output register `q`. -/
 theorem sh_disj (N W : Nat) : (sh.procs N W).Pairwise ProcDisj := by
@@ -60,10 +66,11 @@ theorem sh_disj (N W : Nat) : (sh.procs N W).Pairwise ProcDisj := by
 sv_cycle sh using sh_disj N W
 
 /-- The generated clock step, as the player uses it: any schedule, any stimulus, any fuel from its bound. -/
-example (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (σ : ScheduleOracle) (e : SvState) (clk rst d q s : LVec) :
+example (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+    (σ : ScheduleOracle) (e : SvState) (clk rst d q s : LVec) :
     cycleStep2 (shiftD.sem N W) σ 30 e (sh.St clk rst d q s) 0 =
       .ok (sh.next N W (appIn e "clk" clk) (appIn e "rst" rst) (appIn e "d" d) q s, 3) :=
-  sh.cycle N W hN hW σ e clk rst d q s 0 30 (Nat.le_refl _)
+  sh.cycle N W hN hW hN32 hW32 σ e clk rst d q s 0 30 (Nat.le_refl _)
 
 /-- A fact about the generated next state, from its definitions alone: with `rst` high every stage's
 update is the zero window, whatever the state. -/
@@ -80,16 +87,12 @@ theorem sh_reset_stage (N W k : Nat) (clk d q s : LVec) :
 /-- error: sv_mirror: `SvGolf.Tests.Cycle.sh.env` already exists (an earlier `sv_mirror sh` or a declaration of
 yours): choose another name than `sh` -/
 #guard_msgs (whitespace := lax) in
-sv_mirror sh := shiftD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W)
+sv_mirror sh := shiftD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
 
 /-- error: sv_mirror: the binder `W` is in the position of the design's parameter `N`: give the parameters in the
 design's order, (N W : Nat) -/
 #guard_msgs (whitespace := lax) in
 sv_mirror shw := shiftD (W N : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W)
-
-/-- error: sv_mirror: the hypothesis `h` contains `sorry` -/
-#guard_msgs in
-sv_mirror shs := shiftD (N W : Nat) (h : (sorry : Prop))
 
 /-! ## 2. Shapes covered exactly -/
 
@@ -98,9 +101,9 @@ load_sv oddD from "tests/cycle/designs/oddshapes.sv" (top := "oddshapes")
 /-- error: sv_mirror: refused: the bound of generate loop `g_s` is not proved to be the `Nat` `N - 1` under the
 hypotheses (a bound such as `N - 1` needs a hypothesis that keeps it non-negative, e.g. `1 ≤ N`) -/
 #guard_msgs (whitespace := lax) in
-sv_mirror od0 := oddD (N W : Nat) (hW : 1 ≤ W)
+sv_mirror od0 := oddD (N W : Nat) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
 
-sv_mirror od := oddD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W)
+sv_mirror od := oddD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
 
 /-- The family is empty at `N = 1` (its bound `N - 1` is zero there). -/
 example (W : Nat) : od.procs 1 W = [od.p0 1 W, od.p1 1 W] := by simp [od.procs]
@@ -128,11 +131,6 @@ theorem od_disj (N W : Nat) : (od.procs N W).Pairwise ProcDisj := by
 /-- error: Unknown identifier `od_disj_typo` -/
 #guard_msgs in
 sv_cycle od using od_disj_typo N W
-
-/-- error: sv_cycle: the disjointness term contains `sorry` (a lemma of yours may be unfinished while you work;
-the command's argument may not) -/
-#guard_msgs (whitespace := lax) in
-sv_cycle od using sorry
 
 sv_cycle od using od_disj N W
 
@@ -163,7 +161,7 @@ theorem od_idle (N W : Nat) (clk rst d q acc s idle : LVec) :
 
 load_sv clashD from "tests/cycle/designs/clash.sv" (top := "clash")
 
-sv_mirror cl := clashD (N : Nat) (hN : 1 ≤ N)
+sv_mirror cl := clashD (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 
 /-- The two blocks are `cl.procs_1` and `cl.p0Q_1`. -/
 example (N : Nat) : cl.procs N = cl.p0 N :: (List.map (cl.procs_1 N) (List.range N) ++
@@ -195,7 +193,7 @@ example (N k : Nat) (clk d q s : LVec) :
       cl.p0Q_1Q N k clk d q s = [("s", N + k, (d.extract k 1).resizeU 1)] := by
   simp [cl.p0Q, cl.p0Q_1Q]
 
-/-! ## 4. A window beyond `sv_disch`: the player's tactic, never a `sorry` -/
+/-! ## 4. A window beyond `sv_disch`: the player's tactic -/
 
 load_sv squareD from "tests/cycle/designs/square.sv" (top := "square")
 
@@ -205,15 +203,7 @@ is neither proved nor refuted by `sv_disch`. If it is a window of a register fam
 tactic that proves it with `sv_mirror X (window := by …) := …` (it runs on the condition, with the genvars and
 their bounds in scope). -/
 #guard_msgs (whitespace := lax) in
-sv_mirror sq0 := squareD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W)
-
-/-- error: sv_mirror: cannot instantiate the process of generate block `g_sq`: the condition
-  ↑k * ↑k * ↑W + ↑W - 1 < ↑(↑N * ↑N * ↑W - 1).natAbs + 1
-is neither proved nor refuted by `sv_disch`. If it is a window of a register family inside its vector, give a
-tactic that proves it with `sv_mirror X (window := by …) := …` (it runs on the condition, with the genvars and
-their bounds in scope). -/
-#guard_msgs (whitespace := lax) in
-sv_mirror sq1 (window := by sorry) := squareD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W)
+sv_mirror sq0 := squareD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
 
 -- The window `k*k*W + W ≤ N*N*W`, from `k*k < N*N` (the condition is stated over `Int`: the casts are pulled
 -- out first).
@@ -221,7 +211,7 @@ sv_mirror sq (window := by
     have := Nat.mul_le_mul_right W (Nat.mul_lt_mul'' ‹_ < N› ‹_ < N›)
     rw [Nat.succ_mul] at this
     simp only [← Int.natCast_mul, ← Int.natCast_one, ← Int.natCast_add, Int.ofNat_le, Int.ofNat_lt]
-    omega) := squareD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W)
+    omega) := squareD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
 
 /-- info: 'SvGolf.Tests.Cycle.sq.instantiate' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms sq.instantiate
@@ -230,7 +220,7 @@ sv_mirror sq (window := by
 
 load_sv combD from "tests/cycle/designs/comb_ff.sv" (top := "comb_ff")
 
-sv_mirror cf := combD (N : Nat) (hN : 1 ≤ N)
+sv_mirror cf := combD (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 
 /-- The comb block writes `t`, the register `q`. -/
 theorem cf_disj (N : Nat) : (cf.procs N).Pairwise ProcDisj := by
@@ -244,17 +234,17 @@ sv_cycle cf using cf_disj N
 any state, `q` takes the settled `t` of the applied inputs, `t` is settled again. -/
 example (N : Nat) (clk a b q t : LVec) : cf.comb_t N clk a b q t = (a.and b).resizeU t.width := rfl
 
-example (N : Nat) (hN : 1 ≤ N) (σ : ScheduleOracle) (e : SvState) (clk a b q t : LVec) :
+example (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648) (σ : ScheduleOracle) (e : SvState) (clk a b q t : LVec) :
     ∃ k', cycleStep2 (combD.sem N) σ 32 e (cf.St clk a b q t) 0 =
       .ok (cf.next N (appIn e "clk" clk) (appIn e "a" a) (appIn e "b" b) q t, k') :=
-  cf.cycle N hN σ e clk a b q t 0 32 (Nat.le_refl _)
+  cf.cycle N hN hN32 σ e clk a b q t 0 32 (Nat.le_refl _)
 
 /-- info: 'SvGolf.Tests.Cycle.cf.cycle' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms cf.cycle
 
 load_sv assignD from "tests/cycle/designs/assign.sv" (top := "assign_ff")
 
-sv_mirror af := assignD (N : Nat) (hN : 1 ≤ N)
+sv_mirror af := assignD (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 
 theorem af_disj (N : Nat) : (af.procs N).Pairwise ProcDisj := by
   refine .cons (fun p hp => ?_) (.cons (fun p hp => ?_) .nil) <;> simp at hp <;> subst hp <;>
@@ -273,15 +263,17 @@ example (N : Nat) (clk a b q t : LVec) : af.comb_t N clk a b q t = (a.or b).resi
 load_sv lpD from "tests/cycle/designs/lpcmp.sv" (top := "lpcmp")
 
 /-- error: sv_mirror: refused: the parameter environment depends on the comparison
-  W < N
+  N ≤ W
 of the parameters (a localparam chosen by it): give the case as a hypothesis, `(h : <the comparison>)`, and a
 second `sv_mirror` under `(h : ¬ <the comparison>)` for the other case -/
 #guard_msgs (whitespace := lax) in
-sv_mirror lp0 := lpD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W)
+sv_mirror lp0 := lpD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
 
-sv_mirror lpA := lpD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (h : W < N)
+sv_mirror lpA := lpD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (h : W < N) (hN32 : N < 2147483648)
+  (hW32 : W < 2147483648)
 
-sv_mirror lpB := lpD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (h : ¬ W < N)
+sv_mirror lpB := lpD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (h : ¬ W < N) (hN32 : N < 2147483648)
+  (hW32 : W < 2147483648)
 
 /-- Under each case `r` is declared at its own width: `N - W` bits, or one. -/
 example (N W : Nat) : lpA.decls N W = [{ name := "clk", width := 1, isInput := true },
@@ -290,6 +282,10 @@ example (N W : Nat) : lpA.decls N W = [{ name := "clk", width := 1, isInput := t
     lpB.decls N W = [{ name := "clk", width := 1, isInput := true },
       { name := "d", width := W, isInput := true }, { name := "q", width := W, isOutput := true },
       { name := "r", width := 1 }] := ⟨rfl, rfl⟩
+
+/-- The localparam is bound at its 32-bit value, the case's: `N - W`, or `1`. -/
+example (N W : Nat) : (lpA.env N W).nvals.lookup "X" = some ((N : Int) - W, 32, true) ∧
+    (lpB.env N W).nvals.lookup "X" = some (1, 32, true) := ⟨rfl, rfl⟩
 
 /-- `sv_window` with a genvar bounded by `N - 1` (bumped by 2, the bump spelled out for `omega`): the window of
 row `k + 1` of a row-major family, the shape of matmul record 4a4d9cd6's array rows. -/
@@ -306,7 +302,7 @@ load_sv comb2D from "tests/cycle/designs/comb2.sv" (top := "comb2")
 that read each other's outputs (a lemma that every order of `combPass2` reaches the same fixpoint, from an
 acyclic order of the comb processes), which is not proved yet -/
 #guard_msgs (whitespace := lax) in
-sv_mirror c2 := comb2D (N : Nat) (hN : 1 ≤ N)
+sv_mirror c2 := comb2D (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 
 load_sv combgenD from "tests/cycle/designs/combgen.sv" (top := "combgen")
 
@@ -314,7 +310,7 @@ load_sv combgenD from "tests/cycle/designs/combgen.sv" (top := "combgen")
 is not covered (their settle in every schedule order needs the commutation of their runs over a permutation,
 `combPass2` of a family, which is not proved yet) -/
 #guard_msgs (whitespace := lax) in
-sv_mirror cg := combgenD (N : Nat) (hN : 1 ≤ N)
+sv_mirror cg := combgenD (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 
 load_sv shift1D from "tests/cycle/designs/shift.sv" (top := "shift")
 
@@ -322,14 +318,14 @@ load_sv shift1D from "tests/cycle/designs/shift.sv" (top := "shift")
 error: sv_mirror: refused: generate loop `g_stage` does not start at 0 (only `for (g = 0; g < e; g++)` is covered)
 -/
 #guard_msgs in
-sv_mirror s1 := shift1D (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W)
+sv_mirror s1 := shift1D (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
 
 load_sv blockingD from "tests/cycle/designs/blocking.sv" (top := "blocking")
 
 /-- error: sv_mirror: refused: a blocking assignment (`=`) to `t` in the module's process 0 (in source order):
 the FF-only clock step takes nonblocking assignments (`<=`) only (`Stmt2.nbaOnly`) -/
 #guard_msgs (whitespace := lax) in
-sv_mirror bl := blockingD (N : Nat) (hN : 1 ≤ N)
+sv_mirror bl := blockingD (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 
 load_sv aresetD from "tests/cycle/designs/areset.sv" (top := "areset")
 
@@ -337,20 +333,20 @@ load_sv aresetD from "tests/cycle/designs/areset.sv" (top := "areset")
 step's reset-event phase is not covered; only `always_ff @(posedge clk)` with a synchronous reset (an `if` in the
 body) is -/
 #guard_msgs (whitespace := lax) in
-sv_mirror ar := aresetD (N : Nat) (hN : 1 ≤ N)
+sv_mirror ar := aresetD (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 
 load_sv plainD from "tests/cycle/designs/plain.sv" (top := "plain")
 
 /-- error: sv_mirror: refused: a plain `always @(posedge clk)` process: only `always_ff` processes are covered -/
 #guard_msgs in
-sv_mirror pl := plainD (N : Nat) (hN : 1 ≤ N)
+sv_mirror pl := plainD (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 
 load_sv dynidxD from "tests/cycle/designs/dynidx.sv" (top := "dynidx")
 
 /-- error: sv_mirror: refused: a nonblocking assignment to a dynamic index `q[…]` in the module's process 0 (in
 source order): the target is not a static window (`Stmt2.nbaStaticB`) -/
 #guard_msgs (whitespace := lax) in
-sv_mirror dy := dynidxD (N : Nat) (hN : 1 ≤ N)
+sv_mirror dy := dynidxD (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 
 /--
 error: sv_cycle: `SvGolf.Tests.Cycle.nothing.instantiate` does not exist: run `sv_mirror nothing := …` first

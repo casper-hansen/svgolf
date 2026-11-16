@@ -12,7 +12,7 @@ defaultTargets = ["SvGolf", "tasks", "tests", "svgolf-eval"]
 [[require]]
 name = "lean-models"
 git = "https://github.com/thomasnormal/lean-surfaces"
-rev = "178529f15e736ea2aff7188cf9051ed6810dec9d"
+rev = "855fb485e2bc9660486a98af714ade34b8d73e9d"
 
 # The framework: trusted task-statement helpers (`SvGolf.Task`), proof
 # helpers (`SvGolf.Comb`) and the `load_sv` command (`SvGolf.LoadSv`).

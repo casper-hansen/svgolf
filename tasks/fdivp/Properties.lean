@@ -15,10 +15,10 @@ namespace SvGolf.Tasks.FdivP.Properties
 open SvGolf LeanModels.Sv
 
 /-- The formats the statement covers: every exponent width `W ≥ 2` and precision `P ≥ 2` with
-`W + P + 1 < 2^31` (so that the widths `W + P` and `W + P + 1`, `int` expressions of the module, stay
-below `2^31`, the values an `int` holds). -/
+`W + P < 2^20` (decided 2026-11-14: the `int` arithmetic a design does on `W` and `P`, the widths `W + P` and
+`W + P + 1` among it, stays below `2^31`). -/
 def ParamsInRange (W P : Nat) : Prop :=
-  2 ≤ W ∧ 2 ≤ P ∧ W + P + 1 < 2 ^ 31
+  2 ≤ W ∧ 2 ≤ P ∧ W + P < 2 ^ 20
 
 /-- Exactly these ports, in this order, with these widths. -/
 def Interface (W P : Nat) (d : Design2) : Prop :=

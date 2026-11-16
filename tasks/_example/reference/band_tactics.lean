@@ -33,14 +33,14 @@ open LeanModels.Sv LeanModels.Sv.CombView LeanModels.Sv.CombEq SvGolf
 
 /-! ## 1. Structure: `sv_structure` -/
 
-theorem band_struct (N : Nat) (hN : 1 ≤ N) :
+theorem band_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 31) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) ∧ SharedObl design.pdesign [N] := by
   sv_structure (rank := rippleRank (fun _ => 0) (fun _ _ _ => 0))
   all_goals (intros; omega)
 
 /-! ## 2. The ports (the task's `Interface`) -/
 
-theorem band_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
+theorem band_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 31) (hc : CombDesign (design.sem N)) :
     SvGolf.Tasks.Example.task.Interface N (design.sem N) := by
   sv_interface
 
@@ -50,8 +50,9 @@ theorem band_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N))
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha, hso⟩ := band_struct N hN'
-  refine CombTask.satisfiedAt_of_comb (band_interface N hN' hc) hc ha ?_
+  have hR : N < 2 ^ 31 := hN.2
+  obtain ⟨hc, ha, hso⟩ := band_struct N hN' hR
+  refine CombTask.satisfiedAt_of_comb (band_interface N hN' hR hc) hc ha ?_
   intro st heqs hs v hv
   obtain ⟨x, z, ⟨⟩⟩ := v
   simp only [SvGolf.Tasks.Example.task, HoldAll_cons, HoldAll_nil, and_true] at hv ⊢

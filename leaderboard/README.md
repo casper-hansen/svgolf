@@ -217,7 +217,7 @@ changes more than records, 2 usage or git.
 `record_hash` is the sha256 of the record's **canonical JSON** (sorted keys,
 no whitespace, ASCII-only, no NaN) with `record_hash` itself removed. The
 record's file name is its hash. Unknown or missing top-level keys are
-errors, except the one OPTIONAL key `ppa` (below). A different schema is a different `schema` string, never a
+errors, except the OPTIONAL keys `ppa` and `remade` (below). A different schema is a different `schema` string, never a
 silent change; the optional keys are the exception that proves it, additive and
 READER-FORWARD ONLY: a record that carries `ppa` (or `postsynth.mode`) is
 invalid to a `leaderboard.py` from before that key, and a clocked record (`checker.flow`, `postsynth.points`) to one
@@ -241,6 +241,7 @@ shortest round-trip text, which another implementation has to reproduce.)
 | `ppa` | OPTIONAL (absent in every record made before the sky130 columns, which stay valid; hashed when present; the schema string is unchanged: additive, like `postsynth.mode`). check.py's `ppa` object of the run: `available: true`, `ppa_version`, `area_um2_sky130` (= `area_e4um2_sky130` / 10^4), `area_e4um2_sky130` (integer, 1e-4 um^2), `delay_ps_sky130` (integer ps), `unit_depth` (= `score.depth`, checked), `cells_sky130` (= `score.num_gates`, plus 1 if `constants`: the priced tie cell; checked, and equal to the sum of `cell_hist_sky130`), `cell_hist_sky130`, `constants`, `critical`, `setup`, `liberty_file`, and the hashes `liberty_sha256`, `ppa_pins_sha256`, `ppa_script_sha256`, `netlist_sha256`, and (since 2026-11-01) the optional sub-object `mapped` (flow A1': `{"available": true, ...}` with `ppa_mapped_version`, `area_um2_sky130_mapped_v1` (= `area_e4um2_sky130_mapped_v1` / 10^4), `area_e4um2_sky130_mapped_v1`, `mapped_delay_sky130_v1`, `mapped_cells_sky130_v1` (= the sum of `mapped_cell_hist_sky130_v1`), `mapped_levels_sky130_v1`, `mapped_buffers_sky130_v1`, `mapped_inverters_sky130_v1`, `equivalence`, the hashes and the Yosys/ABC builds; its `rtlil_sha256` must be the record's `score.rtlil_sha256`; or `{"available": false, "reason": "..."}` for a design the mapping could not weigh; an old reader accepts the key, extra keys of `ppa` are allowed); or `{"available": false, "reason": "..."}` for a design the pinned flow could not weigh (recorded only from a `--ppa require` run: under `auto` a missing liberty would look the same). THE RANKED SCORE: the boards rank `area_e4um2_sky130` and the time (`delay_ps_sky130`; a clocked record's `score.time_ps`); a record without the key, or with an unavailable one, is not ranked |
 | `postsynth` | the post-synthesis check that passed. A combinational record: `point`, `vectors` (those the run used), `mismatches` (0), `salted` (whether `$SVGOLF_POSTSYNTH_SALT` was set), `seed`, `mode` (`"full"` or `"light"`; absent in records made before the modes existed, which read as full) and `full_vectors` (what the full mode would have used; equal to `vectors` for a full record; absent in those same records). Additive: the schema is unchanged. A CLOCKED record (`checker.flow` `"seq"`, decided 2026-11-07) has exactly `mode` (`"light"` when one point ran light, else `"full"`), `mismatches` (0), `netlist_sha256` (the scored netlist: the scoring point's, and `ppa.netlist_sha256`) and `points`, one per point of the task in check.py's order, each exactly `point` (check.py's name, `N=8`, `default` for a parameterless top), `params` (`{"N": 8}`), `mode`, `mismatches` (0), `netlist_sha256` (that point's netlist), `latency` (the latency that point was checked at, `null` when the kind declares none: since 2026-11-08 (the rule `check.py` calls F8), each point's own `lat p`, the kernel's value of the proved latency function there; the scoring point's is the declared n, and `score.cycles` is it, or 1; the points declare one all or none) and `seeds`, the seeds 0 to n-1 in order, each with `seed`, `cycles` (stimulus entries), `segments` (react-family) or `transactions` (tx-family, stream-family) as a count (a seq-family seed counts only its cycles), and, where the check recorded them, `reset_cycles`, `salted`, `seed_sha256` and (F5, decided 2026-11-07: everything random in a seed's run derives from `$SVGOLF_POSTSYNTH_SALT` and is recorded) the power-ups' draws `netlist_randseed` (Verilator's `randSeed`, 1 to 2^31 - 1) and `lssv_start` (`zeros` or ls-sv's `seed:<k>`); the run's timings are not kept. `validate_record` holds the points to the record's own score and `ppa` block; acceptance holds them to the task. A netlist bit tied to an unknown value that nothing reads (accepted since 2026-11-11) is listed in `check.py`'s result (`netlist_unread_unknown`) and on its stderr, not in the record |
 | `notes` | free text (at most 2000 characters) |
+| `remade` | OPTIONAL (decided 2026-11-16; present only in a record `remake` made, "Re-making a record" below; additive and reader-forward like `ppa`): exactly `date` (the re-make's ISO date), `from_record` (the hash of the record this one replaces; the repository's history keeps its three files), `proof` (`"original"`: the stored proof is the player's, `files.lean.sha256` = `original_lean_sha256`; `"maintainer port"`: the maintainers' port of the player's proof to the current checker, which differs from it), `original_lean_sha256` (the sha256 of the player's proof as first recorded, carried along a chain of re-makes), `scores` (`"carried"`: `canonical_sha256`, `score`, `postsynth` and `ppa` are the replaced record's, unchanged) and `reason` (free text, at most 2000 characters: the change that made the re-make necessary). `validate_record` checks the shape and that `proof` agrees with the hashes |
 | `record_hash` | as above |
 
 A real record is `data/_example/*.json` (every key above except the optional `ppa`, which that file predates, and nothing else).
@@ -536,6 +537,38 @@ axiom set; the git history is the ledger. The boards skip a record that is
 not intact (hash, name, shape) and say so. `submitted_at`, `player`,
 `assisted_by` and `notes` are the submitter's word.
 
+## Re-making a record (decided 2026-11-16)
+
+A change of the checker, of the library pin or of a task's statement leaves a stored record unranked (its
+`checker.statement` is not the task's now) or its proof no longer compiling, while its design and its score are what
+they were. The maintainers then RE-MAKE it:
+
+```bash
+python3.12 check.py tasks/T leaderboard/data/T/HASH.sv PROOF.lean --json RESULT.json   # the proof, checked now
+python3.12 leaderboard/leaderboard.py remake --task T --record HASH --check RESULT.json [--lean PROOF.lean] \
+    --reason "why" [--date YYYY-MM-DD] [--dry-run]
+```
+
+`PROOF.lean` is the stored proof, or, when that no longer compiles, the maintainers' port of it (the design is never
+changed; the port's first line says what it changes). A par record (`svgolf-reference`) is re-made with the tree's
+reference proof, byte for byte, as `seed-references` records it: the boards and the site tie par to its reference by
+the design and the proof. `remake` refuses unless the check accepted the record's design
+(`stages.source.sha256`, byte for byte) and that proof (`stages.solution.sha256`), with the canonical text the record
+names, axioms within the task's set, and the scoring flow unchanged: the record's Yosys build and flow hashes are
+`tests/expected.json`'s pins (which match the files), its sky130 columns were weighed under the pinned
+`ppa_version`, pins, liberty and input drive, and its mapped columns under the pinned mapping; a clocked record's
+`score.cycles` must be the latency the new check proved (`stages.latency.declared`) and the proof's `def lat` line the
+stored proof's (the carried post-synthesis points were checked against it). Then the new record is
+the old one with the proof's facts (`proof`), the checker (revisions, toolchain, extractor, checker files, statement)
+and `files.lean` of the new check, and `remade` (above); `score`, `ppa`, `postsynth` and `canonical_sha256` are
+CARRIED, not measured again, which is sound exactly because the design file and the flow are the same. The svGolf and
+library revisions it names must be clean. The old record's three files are removed (the git history keeps them, the
+player's proof among them), its writeup moves to the new hash, and the derived tables that name it (the ASAP7 view's
+and the routed course's `of` and `record`, the other sizes' `records`) name the new record, each written back in its
+written form; their measurements are of the design file and do not change. A record whose scoring flow changed is
+not re-made: it is measured again on the rating build (`add`). The check may run unsandboxed (the maintainers' re-check
+of files already on the board); a player's submission still goes through `add`.
+
 ## Records in the tree
 
 `data/<task>/` holds the board's records: par's design, as player `svgolf-reference` (`assisted_by`
@@ -546,7 +579,9 @@ statement the references are re-seeded as a routine step, from the same files, w
 and post-synthesis vectors (new: the checker hashes and revisions, the statement, the build time, the date and the
 record hash). A player's record made before such a change is not ranked until it is made again; the maintainers
 have re-recorded such records with the design, the player, the assistance and the date kept (`add
---require-clean`; a proof ported to a changed statement says so in its notes). The git history keeps every earlier record and says when each was made; the site shows what the board
+--require-clean`; a proof ported to a changed statement says so in its notes), and since 2026-11-16 re-make them
+with `remake` when the design and the scoring flow are unchanged ("Re-making a record": the proof checked again,
+the scores carried, `remade` in the record says so; on 2026-11-16 every record was re-made at the new library pin). The git history keeps every earlier record and says when each was made; the site shows what the board
 ranks now. Par is ONE design per task, the simplest algorithm (decided 2026-11-12: `leaderboard/par.json`, one line per
 task, `par_names`), and only its records are under `svgolf-reference`: only `seed-references` records under the handle
 (`add`, `submit` and the pull-request check refuse it), and only par's design (`add` refuses any other design under

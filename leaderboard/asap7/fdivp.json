@@ -14,7 +14,7 @@
    "netlist_sha256": "b7dae79dd7fb975f4670e9b0b90c933949a5b5fbd5f92c2f03739b264660c80b",
    "of": [
     "baseline:fdivp_d2",
-    "record:318fa07afcc76eb9e86c0b84c52304b9c82bfa7f364da5f543b2f4bffdfb053e"
+    "record:ffcad16e02e487364e0380791f13c4338a76914b98993cf31b2bf362f30cc78f"
    ],
    "repaired_sha256": "f20e2ec9c6d0fc93f6a6f30c8e63ec7f21da734f6b5e6dfd26f3c2e260e2a06a",
    "rtlil_sha256": "95eb4bea18ef64c28f572ae49bcec2dd8193914e40d5953bc627e07c2390ec0e",
@@ -35,7 +35,7 @@
    "flops": null,
    "netlist_sha256": "2005e2c7cf970697947c217ef4c462647f7ce1dfa43c9d3a97a434361a822a2b",
    "of": [
-    "record:b4c12abf595b73967c0e77de0a539544b11a1ebdbffbccc07a32814e3bb8cdaa",
+    "record:f5a6045c647f29e093b2c35ded2bd33da330c897e174ee98e974a0f902835892",
     "reference:fdivp"
    ],
    "repaired_sha256": "2a8f1e6e6f2288fcd96e3550182983814f55f3151cd9c4bd8f8733b938488085",
@@ -57,7 +57,7 @@
    "flops": null,
    "netlist_sha256": "942547f5b4f26ae116a7391320f670e9fc156a57ef7c7816d1b173ad2721cdda",
    "of": [
-    "record:eaec05cb8733b7ae46497a8b4071ed30f00914c284eaa754c95075574126ed71",
+    "record:9aa52640fe80ffe54d5422953ec8a3df35f3b5dbb5d8c79955a6ed6fe0c36e1f",
     "reference:fdivp_srt"
    ],
    "repaired_sha256": "3dd2acac6e05d51e9f5623a213c7105660536c44a41c692c5ba207ac6cdea366",
@@ -79,7 +79,7 @@
    "flops": null,
    "netlist_sha256": "506bbfbb49a6f8eec778ff86e575c03a69bc57b55c22faffb88a2a7be939e39d",
    "of": [
-    "record:64613194a816a915350832aa12af8cca5cc4b24e99fad3e80d84e4985f15ea8a",
+    "record:6395a1d6d55ee756f62a3a661edc9bcba5bf400b3769dbf1a0744c13499f223b",
     "reference:fdivp_newton"
    ],
    "repaired_sha256": "eb5d1060f5c3e4389339debf954f9fbc34d8a008613a0a484ebe1a9c8919f50e",

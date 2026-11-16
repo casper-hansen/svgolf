@@ -22,8 +22,9 @@ REF = ROOT / "tasks" / "fdivp" / "reference"
 COPIES = ["fdivp_newton.lean", "fdivp_srt.lean"]
 
 # the sections every file of COPIES copies from fdivp.lean (D3), in file order
-SHARED = ["IEEE754Proofs", "ScaleInvariance", "RneInterval", "RoundingBounds", "CertF", "DpN", "DpM", "DpQ", "DpR",
-          "DpS", "DpT", "DpU", "DpG1", "DpG2", "DpG3", "DpG4"]
+# (IEEE754Proofs, ScaleInvariance, RneInterval, RoundingBounds, CertF and DpM, and DpN's rounding core, are Proglib's
+# IEEE 754 library `LeanModels.SoftFloat.Binary` since 2026-11-13, which the statement names since 2026-11-14)
+SHARED = ["DpN", "DpQ", "DpR", "DpS", "DpT", "DpU", "DpG1", "DpG2", "DpG3", "DpG4"]
 
 HEAD = re.compile(r"^/-! # Section `(\w+)`", re.M)
 

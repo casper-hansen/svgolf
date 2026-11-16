@@ -6,7 +6,8 @@ uses it as binding check (ii): in every cycle where the netlist shows `done` = 1
 `C` must be `good` for the transaction being held, so a bug that a design shares with ls-sv is
 still caught. It is reviewed with the spec (REVIEW.md, "The oracle").
 
-`params` maps "N", "W", "AccW" to ints (each >= 1, and N*N*W, N*N*AccW < 2^31: C10). Matrices are
+`params` maps "N", "W", "AccW" to ints (1 <= N < 2^5, 1 <= W < 2^10, 1 <= AccW < 2^12 since 2026-11-16;
+C10). Matrices are
 FLAT ints, as the ports carry them: entry (i, k) of A is bits [(i*N+k)*W, (i*N+k+1)*W), two's
 complement, least significant entry first; B likewise; entry (i, j) of C is bits
 [(i*N+j)*AccW, (i*N+j+1)*AccW).
@@ -54,7 +55,7 @@ PARAMS = ("N", "W", "AccW")
 
 def _point(params):
     n, w, accw = (int(params[k]) for k in PARAMS)
-    if min(n, w, accw) < 1 or n * n * w >= 1 << 31 or n * n * accw >= 1 << 31:
+    if min(n, w, accw) < 1 or n >= 1 << 5 or w >= 1 << 10 or accw >= 1 << 12:
         raise ValueError(f"matmul: point {params} is out of range (Spec.lean `task.inRange`)")
     return n, w, accw
 
@@ -238,7 +239,8 @@ def self_test(seeds=range(5)):
     assert product(1, 8, 32, 0x80, 0x7F) == (-128 * 127) % 2 ** 32
     assert oracle({"N": 2, "W": 4, "AccW": 8}, {"A": 0x432F, "B": 0x0765}) == {"C": 0x122BFA09}
     # out of range is refused, never answered
-    for bad in ({"N": 0, "W": 1, "AccW": 1}, {"N": 1, "W": 0, "AccW": 1}, {"N": 1 << 16, "W": 1, "AccW": 1}):
+    for bad in ({"N": 0, "W": 1, "AccW": 1}, {"N": 1, "W": 0, "AccW": 1}, {"N": 1 << 5, "W": 1, "AccW": 1},
+                {"N": 1, "W": 1 << 10, "AccW": 1}, {"N": 1, "W": 1, "AccW": 1 << 12}):
         try:
             _point(bad)
             raise AssertionError(f"{bad} accepted")

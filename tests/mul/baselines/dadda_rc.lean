@@ -3,6 +3,7 @@ import LeanModels.Sv.CombLib
 import LeanModels.Sv.Gen2
 import LeanModels.Sv.Hier2Gen
 import SvGolf.Comb
+import SvGolf.CombLemmas
 import LeanModels.Sv.Comb2
 import LeanModels.Sv.Known2
 
@@ -1020,18 +1021,22 @@ theorem ev_ternary {c t e : PExpr} (ht : t.isInt E = true) (he : e.isInt E = tru
     by_cases h : cv = 0 <;> simp [h]
 
 theorem ev_shr {l r : PExpr} (hl : l.isInt E = true) (hr : r.isInt E = true) {a b : Int}
-    (hla : evalInt E l = .ok a) (hrb : evalInt E r = .ok b) (ha : 0 ≤ a) (hb : 0 ≤ b) :
+    (hla : evalInt E l = .ok a) (hrb : evalInt E r = .ok b) (ha : 0 ≤ a) (hb : 0 ≤ b) (hb32 : b < 32) :
     evalInt E (.binary .shr l r) = .ok (a.tdiv ((2 : Int) ^ b.toNat)) := by
   have ha' : ¬ a < 0 := by omega
   have hb' : ¬ b < 0 := by omega
-  simp [evalInt, hl, hr, hla, hrb, ha', hb', Gen2.except_ok_bind]
+  have hb'' : ¬ (32 : Int) ≤ b := by omega
+  simp [evalInt, hl, hr, hla, hrb, ha', hb', hb'', Gen2.except_ok_bind]
 
 theorem ev_int (v : Int) : evalInt E (.int v) = .ok v := rfl
 
 theorem ev_gv {n : String} : evalInt E (.genvarRef n) =
     match E.vals.lookup n with
     | some v => .ok v
-    | none => .error s!"genvar '{n}' outside its loop" := rfl
+    | none =>
+        match E.nvals.lookup n with
+        | some (v, _, _) => .ok v
+        | none => .error s!"genvar '{n}' outside its loop" := rfl
 
 theorem ev_pr {n : String} {v : Int} (h : E.vals.lookup n = some v) : evalInt E (.paramRef n none) = .ok v :=
   evalInt_paramRef_of h
@@ -1138,33 +1143,12 @@ theorem evu_shr (l r : PExpr) : evalInt E (.binary .shr l r) =
       (evalInt E l >>= fun a => evalInt E r >>= fun b =>
         if a < 0 then .error "'>>' of a negative constant (width-dependent)"
         else if b < 0 then .error "shift by a negative amount"
+        else if 32 ≤ b then .error "shift amount above 32 in an untyped constant context"
         else .ok (a.tdiv ((2 : Int) ^ b.toNat)))
     else evalSized E (.binary .shr l r) := by
   by_cases h : l.isInt E && r.isInt E
   · rw [if_pos h]; simp only [evalInt, h, if_true]
   · rw [if_neg h]; simp only [evalInt, h, if_false, Bool.false_eq_true]
-
-/-! Generate conditions (`evalGenGuard`). -/
-
-theorem evg_slt (l r : PExpr) : evalGenGuard E (.binary .slt l r) =
-    (evalGenGuard E l >>= fun a => evalGenGuard E r >>= fun b => .ok (if a < b then 1 else 0)) := by
-  simp only [evalGenGuard]
-  apply ev_cmp_aux
-  intro a b
-  by_cases h : a < b
-  · rw [if_pos h, decide_eq_true h]; rfl
-  · rw [if_neg h, decide_eq_false h]; rfl
-
-theorem evg_add (l r : PExpr) : evalGenGuard E (.binary (.m0 .add) l r) =
-    (evalGenGuard E l >>= fun a => evalGenGuard E r >>= fun b => .ok (a + b)) := by
-  simp only [evalGenGuard]
-
-theorem evg_gv (n : String) : evalGenGuard E (.genvarRef n) =
-    match E.vals.lookup n with
-    | some v => .ok v
-    | none => .error s!"genvar '{n}' outside its loop" := rfl
-
-theorem evg_ternary (c t e : PExpr) : evalGenGuard E (.ternary c t e) = evalInt E (.ternary c t e) := rfl
 
 end evu
 
@@ -1172,14 +1156,14 @@ end evu
 macro "ev_simp" : tactic => `(tactic| simp [gv, pr, ii, eAdd, eSub, eMul, eSlt, eSle, eSgt, eSge, eEq,
       eTer, eShr, e2N, eR, eU, eMk, eMk', eMinU, ePosT, eFirst, eF, eH, eC, eH0, eLo, eHn, eW,
       evu_add, evu_sub, evu_mul, evu_slt, evu_sle, evu_sgt, evu_sge, evu_eq, evu_ternary, evu_shr, ev_int,
-      ev_gv, evu_pr, evg_slt, evg_add, evg_gv, evg_ternary, IEnv.bindVal, List.lookup, Gen2.except_ok_bind])
+      ev_gv, evu_pr, IEnv.bindVal, List.lookup, Gen2.except_ok_bind])
 
 set_option hygiene false in
 /-- `ev_simp` with the parameter lookups `hN`, `hS`, `hNP` of the context. -/
 macro "ev_simpE" : tactic => `(tactic| simp [gv, pr, ii, eAdd, eSub, eMul, eSlt, eSle, eSgt, eSge, eEq,
       eTer, eShr, e2N, eR, eU, eMk, eMk', eMinU, ePosT, eFirst, eF, eH, eC, eH0, eLo, eHn, eW,
       evu_add, evu_sub, evu_mul, evu_slt, evu_sle, evu_sgt, evu_sge, evu_eq, evu_ternary, evu_shr, ev_int,
-      ev_gv, evu_pr, evg_slt, evg_add, evg_gv, evg_ternary, IEnv.bindVal, List.lookup, Gen2.except_ok_bind, hN, hS, hNP])
+      ev_gv, evu_pr, IEnv.bindVal, List.lookup, Gen2.except_ok_bind, hN, hS, hNP, hNv, hSv, hNPv])
 
 /-- Decide every `if` and `min` by `omega` in a fixed region of the column index, then the linear goal. -/
 macro "region_close" N:term "," t:term "," u:term "," k:term "," s:term : tactic => `(tactic| (
@@ -1197,9 +1181,50 @@ def NPn (N : Nat) : Nat := if N < 2 then 2 else N
 
 /-- What the header and index expressions read from the environment. -/
 structure DEnv (E : IEnv) (N : Nat) : Prop where
-  hN : E.vals.lookup "N" = some (N : Int)
-  hS : E.vals.lookup "S" = some (nst N : Int)
-  hNP : E.vals.lookup "NP" = some (NPn N : Int)
+  hNv : E.vals.lookup "N" = none
+  hSv : E.vals.lookup "S" = none
+  hNPv : E.vals.lookup "NP" = none
+  hN : E.nvals.lookup "N" = some ((N : Int), 32, true)
+  hS : E.nvals.lookup "S" = some ((nst N : Int), 32, true)
+  hNP : E.nvals.lookup "NP" = some ((NPn N : Int), 32, true)
+  hst : E.stale = []
+
+/-- (port) An INT parameter of the exact instantiation, as `IEnv.intVal?` reads it. -/
+theorem intVal_of_nvals {G : IEnv} {n : String} {v : Int} (h1 : G.vals.lookup n = none)
+    (h2 : G.nvals.lookup n = some (v, 32, true)) (h3 : G.stale = []) : G.intVal? n = some v := by
+  simp [IEnv.intVal?, h1, h2, h3]
+
+/-- (port) A generate condition of the in-range INT fragment is its `evalInt` value (`SvGolf.ConstEval`). -/
+theorem guard_of_frag {G : IEnv} {e : PExpr} {X v : Int} {k : Bool} (hf : SvGolf.ConstEval.Frag G e v k)
+    (hX : evalInt G e = .ok X) : evalGenGuard G e = .ok X := by
+  rw [hf.evalGenGuard_eq]
+  rw [hf.evalInt_eq] at hX
+  exact hX
+
+set_option hygiene false in
+/-- (port) The `SvGolf.ConstEval.Frag` derivation of a header expression over `h : DEnv G N`; each 32-bit side
+condition by `omega` over the context. -/
+macro "dadda_frag " h:term : tactic => `(tactic| repeat (first
+  | (show SvGolf.ConstEval.InInt32 _; unfold SvGolf.ConstEval.InInt32; constructor <;> omega)
+  | (apply intVal_of_nvals <;> simp [IEnv.bindVal, List.lookup, ($h).hNv, ($h).hSv, ($h).hNPv, ($h).hN, ($h).hS,
+      ($h).hNP, ($h).hst])
+  | rfl
+  | apply SvGolf.ConstEval.Frag.int
+  | apply SvGolf.ConstEval.Frag.genvar
+  | apply SvGolf.ConstEval.Frag.param (n := "N") (v := ((N : Nat) : Int))
+  | apply SvGolf.ConstEval.Frag.param (n := "S") (v := ((nst N : Nat) : Int))
+  | apply SvGolf.ConstEval.Frag.param (n := "NP") (v := ((NPn N : Nat) : Int))
+  | apply SvGolf.ConstEval.Frag.add
+  | apply SvGolf.ConstEval.Frag.sub
+  | apply SvGolf.ConstEval.Frag.shr
+  | apply SvGolf.ConstEval.Frag.mul (Or.inl rfl)
+  | apply SvGolf.ConstEval.Frag.cmp (op := .slt) (by simp [SvGolf.ConstEval.cmpOps])
+  | apply SvGolf.ConstEval.Frag.cmp (op := .sle) (by simp [SvGolf.ConstEval.cmpOps])
+  | apply SvGolf.ConstEval.Frag.cmp (op := .sgt) (by simp [SvGolf.ConstEval.cmpOps])
+  | apply SvGolf.ConstEval.Frag.cmp (op := .sge) (by simp [SvGolf.ConstEval.cmpOps])
+  | apply SvGolf.ConstEval.Frag.cmp (op := .m0 .eq) (by simp [SvGolf.ConstEval.cmpOps])
+  | apply SvGolf.ConstEval.Frag.ternary))
+
 
 abbrev stEnv (E : IEnv) (s : Nat) : IEnv := E.bindVal "s" (s : Int)
 abbrev tEnv (E : IEnv) (s t : Nat) : IEnv := (stEnv E s).bindVal "t" (t : Int)
@@ -1270,7 +1295,7 @@ include hE
 
 set_option hygiene false in
 /-- The three parameter lookups, by name, for `ev_simpE`. -/
-local macro "dfs" : tactic => `(tactic| (have hN := hE.hN; have hS := hE.hS; have hNP := hE.hNP))
+local macro "dfs" : tactic => `(tactic| (have hN := hE.hN; have hS := hE.hS; have hNP := hE.hNP; have hNv := hE.hNv; have hSv := hE.hSv; have hNPv := hE.hNPv))
 
 theorem eR_eval {s : Nat} (hs : s < nst N) (w : Int) :
     (evalInt (stEnv E s) eR = .ok ((nst N - 1 - s : Nat) : Int) ∧ eR.isInt (stEnv E s) = true) ∧
@@ -1318,10 +1343,13 @@ theorem eC_eval {s t u k f h : Nat} (hst : Stg N s t u) (hk : k < 2 * N) (w : In
   constructor <;> ev_simpE <;> unfold cF mF' <;> region_close N, t, u, k, s
 
 /-- The keep guard reads the height after the stage. -/
-theorem eHn_guard {s t u k f h c i : Nat} (hst : Stg N s t u) (hk : k < 2 * N) :
+theorem eHn_guard (h30 : N < 2 ^ 30) {s t u k f h c i : Nat} (hst : Stg N s t u) (hk : k < 2 * N)
+    (hi32 : i < 2147483648) :
     evalGenGuard ((ccEnv E s t u k f h c).bindVal "i" (i : Int)) (eSlt (gv "i") eHn) =
       .ok (if i < HnF N t k then 1 else 0) := by
   have := hst.t2; have := hst.tu; have := hst.uN; have := hst.u3; have := hst.first
+  apply guard_of_frag
+  case hf => dadda_frag hE
   dfs
   ev_simpE
   unfold HnF
@@ -1590,7 +1618,7 @@ include hD
 set_option hygiene false in
 /-- Evaluate an index expression with the parameter lookups of `hD`, deciding the `if`s by `omega`. -/
 local macro "evc" : tactic =>
-  `(tactic| (have hN := hD.env.hN; have hS := hD.env.hS; have hNP := hD.env.hNP; ev_simpE
+  `(tactic| (have hN := hD.env.hN; have hS := hD.env.hS; have hNP := hD.env.hNP; have hNv := hD.env.hNv; have hSv := hD.env.hSv; have hNPv := hD.env.hNPv; ev_simpE
              all_goals (repeat (any_goals (first
                | simp (disch := omega) only [if_pos, if_neg, Except.ok.injEq, Gen2.except_ok_bind]
                | split)))
@@ -1952,23 +1980,33 @@ def finProcs (N : Nat) : List Process2 := (List.range (2 * N)).flatMap fun k => 
 
 theorem DEnv.bind {E : IEnv} {N : Nat} (h : DEnv E N) (g : String) (h1 : "N" ≠ g) (h2 : "S" ≠ g)
     (h3 : "NP" ≠ g) (v : Int) : DEnv (E.bindVal g v) N where
-  hN := by rw [vals_lookup_bindVal_ne v h1]; exact h.hN
-  hS := by rw [vals_lookup_bindVal_ne v h2]; exact h.hS
-  hNP := by rw [vals_lookup_bindVal_ne v h3]; exact h.hNP
+  hNv := by rw [vals_lookup_bindVal_ne v h1]; exact h.hNv
+  hSv := by rw [vals_lookup_bindVal_ne v h2]; exact h.hSv
+  hNPv := by rw [vals_lookup_bindVal_ne v h3]; exact h.hNPv
+  hN := h.hN
+  hS := h.hS
+  hNP := h.hNP
+  hst := h.hst
 
 theorem DIn.bind {E : IEnv} {elems : List (String × Nat)} {N : Nat} (h : DIn E elems N) (g : String)
     (h1 : "N" ≠ g) (h2 : "S" ≠ g) (h3 : "NP" ≠ g) (v : Int) : DIn (E.bindVal g v) elems N :=
   ⟨h.env.bind g h1 h2 h3 v, h.hT, h.hSM, h.hCY, h.hK, h.ha, h.hb, h.hp, h.hKe⟩
 
-theorem ev_pN {G : IEnv} {N : Nat} (h : DEnv G N) : evalInt G (pr "N") = .ok (N : Int) :=
-  evalInt_paramRef_of h.hN
-theorem ev_pS {G : IEnv} {N : Nat} (h : DEnv G N) : evalInt G (pr "S") = .ok (nst N : Int) :=
-  evalInt_paramRef_of h.hS
-theorem ev_pNP {G : IEnv} {N : Nat} (h : DEnv G N) : evalInt G (pr "NP") = .ok (NPn N : Int) :=
-  evalInt_paramRef_of h.hNP
-theorem isInt_pN {G : IEnv} {N : Nat} (h : DEnv G N) : (pr "N").isInt G = true := isInt_paramRef_of h.hN
-theorem isInt_pS {G : IEnv} {N : Nat} (h : DEnv G N) : (pr "S").isInt G = true := isInt_paramRef_of h.hS
-theorem isInt_pNP {G : IEnv} {N : Nat} (h : DEnv G N) : (pr "NP").isInt G = true := isInt_paramRef_of h.hNP
+theorem ev_pN {G : IEnv} {N : Nat} (h : DEnv G N) : evalInt G (pr "N") = .ok (N : Int) := by
+  simp [evalInt, h.hNv, h.hN]
+theorem ev_pS {G : IEnv} {N : Nat} (h : DEnv G N) : evalInt G (pr "S") = .ok (nst N : Int) := by
+  simp [evalInt, h.hSv, h.hS]
+theorem ev_pNP {G : IEnv} {N : Nat} (h : DEnv G N) : evalInt G (pr "NP") = .ok (NPn N : Int) := by
+  simp [evalInt, h.hNPv, h.hNP]
+theorem isInt_pN {G : IEnv} {N : Nat} (h : DEnv G N) : (pr "N").isInt G = true := by
+  simp [PExpr.isInt, h.hNv, h.hN]
+theorem isInt_pS {G : IEnv} {N : Nat} (h : DEnv G N) : (pr "S").isInt G = true := by
+  simp [PExpr.isInt, h.hSv, h.hS]
+theorem isInt_pNP {G : IEnv} {N : Nat} (h : DEnv G N) : (pr "NP").isInt G = true := by
+  simp [PExpr.isInt, h.hNPv, h.hNP]
+/-- (port) `N` as an INT parameter of the exact instantiation (`IEnv.intVal?`, the bridge's lookup). -/
+theorem intVal_pN {G : IEnv} {N : Nat} (h : DEnv G N) : G.intVal? "N" = some (N : Int) := by
+  simp [IEnv.intVal?, h.hNv, h.hN, h.hst]
 
 theorem ev_2N {G : IEnv} {N : Nat} (h : DEnv G N) : evalInt G e2N = .ok ((2 * N : Nat) : Int) := by
   rw [e2N, ev_mul rfl (isInt_pN h), ev_int, ev_pN h]
@@ -1976,7 +2014,7 @@ theorem ev_2N {G : IEnv} {N : Nat} (h : DEnv G N) : evalInt G e2N = .ok ((2 * N 
   rfl
 
 theorem isInt_2N {G : IEnv} {N : Nat} (h : DEnv G N) : e2N.isInt G = true := by
-  simp only [e2N, eMul, ii, PExpr.isInt, SymBinOp.intArith, h.hN, Option.isSome_some, Bool.and_self]
+  simp [e2N, eMul, ii, PExpr.isInt, SymBinOp.intArith, h.hNv, h.hN]
 
 /-! ## 3. One adder slot, one bit -/
 
@@ -1986,17 +2024,18 @@ theorem expand_procs {env : IEnv} {elems : List (String × Nat)} {F : Nat} (ps :
   expandList2_processes ps
 
 theorem guard_lt {G : IEnv} {a b : String} {x y : Nat} (ha : G.vals.lookup a = some (x : Int))
-    (hb : G.vals.lookup b = some (y : Int)) :
-    evalGenGuard G (eSlt (gv a) (gv b)) = .ok (if (x : Int) < (y : Int) then 1 else 0) := by
-  rw [eSlt, gv, evg_slt, evg_gv, evg_gv, ha, hb]
-  rfl
+    (hb : G.vals.lookup b = some (y : Int)) (hx : x < 2147483648) (hy : y < 2147483648) :
+    evalGenGuard G (eSlt (gv a) (gv b)) = .ok (if (x : Int) < (y : Int) then 1 else 0) :=
+  SvGolf.ConstEval.Frag.evalGenGuard_eq (SvGolf.ConstEval.Frag.cmp (op := .slt)
+    (by simp [SvGolf.ConstEval.cmpOps]) (SvGolf.ConstEval.Frag.genvar ha ⟨by omega, by omega⟩)
+    (SvGolf.ConstEval.Frag.genvar hb ⟨by omega, by omega⟩))
 
 section cells
 
 variable {E : IEnv} {elems : List (String × Nat)} {N F : Nat} (hD : DIn E elems N)
 include hD
 
-theorem add_expand {s t u k q : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : k < 2 * N)
+theorem add_expand (h30 : N < 2 ^ 30) {s t u k q : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : k < 2 * N)
     (c : Nat) (hq : q < u - t + 1) :
     expandList2 (qEnv E s t u k (fF N s t u k) (hF N s t u k) c q) elems F [addGen] =
       .ok (addCell N s k (fF N s t u k) (hF N s t u k) q) := by
@@ -2008,7 +2047,7 @@ theorem add_expand {s t u k q : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : 
   have := hst.t2
   apply expandList2_singleton_ok
   rw [addGen]
-  have g1 := guard_lt (G := qEnv E s t u k (fF N s t u k) (hF N s t u k) c q) (a := "q") (b := "f") rfl rfl
+  have g1 := guard_lt (G := qEnv E s t u k (fF N s t u k) (hF N s t u k) c q) (a := "q") (b := "f") rfl rfl (by omega) (by omega)
   by_cases h1 : q < fF N s t u k
   · rw [GenItem.expand2_genIf_of_ne g1 (by rw [if_pos (by omega)]; decide)]
     rw [show [proc faSmT, proc faCyT] = [faSmT, faCyT].map GenItem.process from rfl, expand_procs]
@@ -2018,8 +2057,7 @@ theorem add_expand {s t u k q : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : 
     apply expandList2_singleton_ok
     have g2 : evalGenGuard (qEnv E s t u k (fF N s t u k) (hF N s t u k) c q) (eSlt (gv "q") (eAdd (gv "f") (gv "h"))) =
         .ok (if (q : Int) < (fF N s t u k : Int) + (hF N s t u k : Int) then 1 else 0) := by
-      rw [eSlt, evg_slt, gv, evg_gv, eAdd, evg_add, gv, evg_gv, evg_gv]
-      rfl
+      exact SvGolf.ConstEval.Frag.evalGenGuard_eq (by dadda_frag hD.env)
     by_cases h2 : q < fF N s t u k + hF N s t u k
     · rw [GenItem.expand2_genIf_of_ne g2 (by rw [if_pos (by omega)]; decide)]
       rw [show [proc haSmT, proc haCyT] = [haSmT, haCyT].map GenItem.process from rfl, expand_procs]
@@ -2030,7 +2068,7 @@ theorem add_expand {s t u k q : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : 
       simp only [List.map_cons, List.map_nil, addCell, if_neg h1, if_neg h2]
       rw [noSm_inst hD hs hk (by omega), noCy_inst hD hs hk (by omega)]
 
-theorem bit_expand {s t u k i : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : k < 2 * N) (hi : i < t) :
+theorem bit_expand (h30 : N < 2 ^ 30) {s t u k i : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : k < 2 * N) (hi : i < t) :
     expandList2 (iEnv E s t u k (fF N s t u k) (hF N s t u k) (cF N t u k) i) elems F [bitGen] =
       .ok (bitCell N s t k (cF N t u k) (fF N s t u k) (hF N s t u k) i) := by
   have hr := id_reads hst hk
@@ -2042,7 +2080,8 @@ theorem bit_expand {s t u k i : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : 
   have := hst.tu
   apply expandList2_singleton_ok
   rw [bitGen]
-  have g1 := guard_lt (G := iEnv E s t u k (fF N s t u k) (hF N s t u k) (cF N t u k) i) (a := "i") (b := "c") rfl rfl
+  have g1 := guard_lt (G := iEnv E s t u k (fF N s t u k) (hF N s t u k) (cF N t u k) i) (a := "i") (b := "c") rfl rfl (by omega)
+    (by have := HnF_le N t k; omega)
   by_cases h1 : i < cF N t u k
   · rw [GenItem.expand2_genIf_of_ne g1 (by rw [if_pos (by omega)]; decide)]
     rw [show [proc carT] = [carT].map GenItem.process from rfl, expand_procs]
@@ -2057,8 +2096,8 @@ theorem bit_expand {s t u k i : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : 
     have g2 : evalGenGuard (iEnv E s t u k (fF N s t u k) (hF N s t u k) (cF N t u k) i)
         (eSlt (gv "i") (eAdd (eAdd (gv "c") (gv "f")) (gv "h"))) =
         .ok (if (i : Int) < (cF N t u k : Int) + (fF N s t u k : Int) + (hF N s t u k : Int) then 1 else 0) := by
-      rw [eSlt, evg_slt, gv, evg_gv, eAdd, evg_add, eAdd, evg_add, gv, evg_gv, evg_gv, evg_gv]
-      rfl
+      have := HnF_le N t k
+      exact SvGolf.ConstEval.Frag.evalGenGuard_eq (by dadda_frag hD.env)
     by_cases h2 : i < cF N t u k + fF N s t u k + hF N s t u k
     · rw [GenItem.expand2_genIf_of_ne g2 (by rw [if_pos (by omega)]; decide)]
       rw [show [proc sumT] = [sumT].map GenItem.process from rfl, expand_procs]
@@ -2066,7 +2105,8 @@ theorem bit_expand {s t u k i : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : 
       rw [sum_inst hD hs hk (by omega) (by omega)]
     · rw [GenItem.expand2_genIf_of_eq (by rw [g2, if_neg (by omega)])]
       apply expandList2_singleton_ok
-      have g3 := eHn_guard hD.env (f := fF N s t u k) (h := hF N s t u k) (c := cF N t u k) (i := i) hst hk
+      have g3 := eHn_guard hD.env h30 (f := fF N s t u k) (h := hF N s t u k) (c := cF N t u k) (i := i) hst hk
+        (by have := hst.tu; have := hst.uN; omega)
       by_cases h3 : i < HnF N t k
       · rw [GenItem.expand2_genIf_of_ne g3 (by rw [if_pos h3]; decide)]
         rw [show [proc keepT] = [keepT].map GenItem.process from rfl, expand_procs]
@@ -2079,7 +2119,7 @@ theorem bit_expand {s t u k i : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : 
 
 /-! ## 4. One column, one stage -/
 
-theorem col_expand {s t u k : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : k < 2 * N) (hFu : 2 * N + 60 < F) :
+theorem col_expand (h30 : N < 2 ^ 30) {s t u k : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : k < 2 * N) (hFu : 2 * N + 60 < F) :
     expandList2 (ccEnv E s t u k (fF N s t u k) (hF N s t u k) (cF N t u k)) elems F colBody =
       .ok (colProcs N s t u k) := by
   have := hst.t2; have := hst.tu; have := hst.uN
@@ -2087,7 +2127,7 @@ theorem col_expand {s t u k : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : k 
   refine expandList2_cons_ok ?_ (expandList2_cons_ok ?_ (expandList2_cons_ok ?_
     (expandList2_cons_ok ?_ (expandList2_singleton_ok ?_))))
   · refine expand_count (n := u - t + 1) (fun _ => rfl) (fun w => ?_) (by omega)
-      (fun q hq => add_expand hD hst hs hk _ hq)
+      (fun q hq => add_expand hD h30 hst hs hk _ hq)
     have e0 : evalInt ((ccEnv E s t u k (fF N s t u k) (hF N s t u k) (cF N t u k)).bindVal "q" w) eW =
         .ok ((u : Int) - (t : Int) + 1) := rfl
     rw [e0]
@@ -2096,13 +2136,13 @@ theorem col_expand {s t u k : Nat} (hst : Stg N s t u) (hs : s < nst N) (hk : k 
   · rw [GenItem.expand2_process, smPart_inst hD hs hk hst]
   · rw [GenItem.expand2_process, cyPart_inst hD hs hk hst]
   · exact expand_count (n := t) (fun _ => rfl) (fun _ => rfl) (by omega)
-      (fun i hi => bit_expand hD hst hs hk hi)
+      (fun i hi => bit_expand hD h30 hst hs hk hi)
   · rw [GenItem.expand2_process, tPart_inst hD hs hk hst]
 
 omit hD in
 theorem isInt_eF {G : IEnv} (h : DEnv G N) : eF.isInt G = true := by
   simp [eF, ePosT, eMinU, eMk, eFirst, eTer, eSub, eAdd, eMul, eSgt, eSlt, eSle, eEq, e2N, gv, pr, ii,
-    PExpr.isInt, SymBinOp.intArith, h.hN]
+    PExpr.isInt, SymBinOp.intArith, h.hNv, h.hN]
 
 omit hD in
 theorem isInt_eH {G : IEnv} (h : DEnv G N) : eH.isInt G = true := by
@@ -2111,10 +2151,10 @@ theorem isInt_eH {G : IEnv} (h : DEnv G N) : eH.isInt G = true := by
 omit hD in
 theorem isInt_eC {G : IEnv} (h : DEnv G N) : eC.isInt G = true := by
   simp [eC, ePosT, eMinU, eMk', eTer, eSub, eAdd, eMul, eSgt, eSlt, eSle, e2N, gv, pr, ii,
-    PExpr.isInt, SymBinOp.intArith, h.hN]
+    PExpr.isInt, SymBinOp.intArith, h.hNv, h.hN]
 
 /-- One column of a stage: the one-iteration loops naming `f`, `h`, `c`, then the column's body. -/
-theorem colGen_expand {s t u : Nat} (hst : Stg N s t u) (hs : s < nst N) (hFu : 2 * N + 60 < F) :
+theorem colGen_expand (h30 : N < 2 ^ 30) {s t u : Nat} (hst : Stg N s t u) (hs : s < nst N) (hFu : 2 * N + 60 < F) :
     colGen.expand2 (uEnv E s t u) elems F = .ok ((List.range (2 * N)).flatMap fun k => colProcs N s t u k) := by
   have hDu : DIn (uEnv E s t u) elems N :=
     ((hD.bind "s" (by decide) (by decide) (by decide) _).bind "t" (by decide) (by decide) (by decide) _).bind "u"
@@ -2136,14 +2176,14 @@ theorem colGen_expand {s t u : Nat} (hst : Stg N s t u) (hs : s < nst N) (hFu : 
   refine expand_one (eC_eval hD.env hst hk 0).1
     (fun w => isInt_eC (hh.bind "c" (by decide) (by decide) (by decide) w)) (fun w => (eC_eval hD.env hst hk w).2)
     (by omega) ?_
-  exact col_expand hD hst hs hk (by omega)
+  exact col_expand hD h30 hst hs hk (by omega)
 
 omit hD in
 theorem isInt_eT {G : IEnv} (h : DEnv G N) : eT.isInt G = true := gchE_isInt 6 0
 
 omit hD in
 theorem isInt_eU {G : IEnv} (h : DEnv G N) : eU.isInt G = true := by
-  simp [eU, eTer, eEq, eAdd, eShr, gv, pr, ii, PExpr.isInt, SymBinOp.intArith, h.hN]
+  simp [eU, eTer, eEq, eAdd, eShr, gv, pr, ii, PExpr.isInt, SymBinOp.intArith, h.hNv, h.hN]
 
 /-- The stages. -/
 theorem stGen_expand (hN : N < 2 ^ 30) (hFu : 2 * N + 60 < F) :
@@ -2159,13 +2199,15 @@ theorem stGen_expand (hN : N < 2 ^ 30) (hFu : 2 * N + 60 < F) :
   have h2 := h1.bind "t" (by decide) (by decide) (by decide) (tS N s : Int)
   refine expand_one (eU_eval hD.env hs 0).1 (fun w => isInt_eU (h2.bind "u" (by decide) (by decide) (by decide) w))
     (fun w => (eU_eval hD.env hs w).2) (by omega) ?_
-  exact expandList2_singleton_ok (colGen_expand hD (stg_of hN hs) hs hFu)
+  exact expandList2_singleton_ok (colGen_expand hD hN (stg_of hN hs) hs hFu)
 
 /-! ## 5. The partial products and the final adder -/
 
-theorem ppGuard {k i : Nat} (hk : k < 2 * N) :
+theorem ppGuard (h30 : N < 2 ^ 30) {k i : Nat} (hk : k < 2 * N) (hi32 : i < 2147483648) :
     evalGenGuard (pEnv E k i) (eSlt (gv "i") eH0) = .ok (if i < H0F N k then 1 else 0) := by
-  have hN := hD.env.hN; have hS := hD.env.hS; have hNP := hD.env.hNP
+  apply guard_of_frag
+  case hf => dadda_frag hD.env
+  have hN := hD.env.hN; have hS := hD.env.hS; have hNP := hD.env.hNP; have hNv := hD.env.hNv; have hSv := hD.env.hSv; have hNPv := hD.env.hNPv
   ev_simpE
   unfold H0F
   all_goals (repeat (any_goals (first
@@ -2174,7 +2216,7 @@ theorem ppGuard {k i : Nat} (hk : k < 2 * N) :
     | split)))
   all_goals omega
 
-theorem ppGen_expand (hFu : 2 * N + 60 < F) :
+theorem ppGen_expand (h30 : N < 2 ^ 30) (hFu : 2 * N + 60 < F) :
     ppGen.expand2 E elems F = .ok (ppProcs N) := by
   refine expand_count (n := 2 * N) (fun w => isInt_2N (hD.env.bind "k" (by decide) (by decide) (by decide) w))
     (fun w => ev_2N (hD.env.bind "k" (by decide) (by decide) (by decide) w)) (by omega) (fun k hk => ?_)
@@ -2186,12 +2228,13 @@ theorem ppGen_expand (hFu : 2 * N + 60 < F) :
   apply expandList2_singleton_ok
   have hH : H0F N k ≤ N := by unfold H0F; omega
   have hPN := NPn_ge N
+  have hi32 : i < 2147483648 := by unfold NPn at hi; split at hi <;> omega
   by_cases h2 : i < H0F N k
-  · rw [GenItem.expand2_genIf_of_ne (ppGuard hD hk) (by rw [if_pos h2]; decide)]
+  · rw [GenItem.expand2_genIf_of_ne (ppGuard hD h30 hk hi32) (by rw [if_pos h2]; decide)]
     rw [show [proc ppAndT] = [ppAndT].map GenItem.process from rfl, expand_procs]
     simp only [List.map_cons, List.map_nil, ppCell, if_pos h2]
     rw [ppAnd_inst hD hk h2]
-  · rw [GenItem.expand2_genIf_of_eq (by rw [ppGuard hD hk, if_neg h2])]
+  · rw [GenItem.expand2_genIf_of_eq (by rw [ppGuard hD h30 hk hi32, if_neg h2])]
     rw [show [proc ppZeroT] = [ppZeroT].map GenItem.process from rfl, expand_procs]
     simp only [List.map_cons, List.map_nil, ppCell, if_neg h2]
     rw [ppZero_inst hD hk hi]
@@ -2206,7 +2249,7 @@ theorem finGen_expand (hFu : 2 * N + 60 < F) :
 
 theorem gens_expand (hN : N < 2 ^ 30) (hFu : 2 * N + 60 < F) :
     expandList2 E elems F [ppGen, stGen, finGen] = .ok (ppProcs N ++ (stProcs N ++ finProcs N)) :=
-  expandList2_cons_ok (ppGen_expand hD hFu)
+  expandList2_cons_ok (ppGen_expand hD hN hFu)
     (expandList2_cons_ok (stGen_expand hD hN hFu) (expandList2_singleton_ok (finGen_expand hD hFu)))
 
 end cells
@@ -2284,53 +2327,135 @@ theorem sumE_eval {env : IEnv} {N : Nat} (hN : env.vals.lookup "N" = some (N : I
 
 /-! ## 2. The parameter environment -/
 
-def env0 (N : Nat) : IEnv := { vals := [("N", (N : Int))] }
+def env0 (N : Nat) : IEnv := { nvals := [("N", ((N : Int), 32, true))], int32 := true }
 
 def dScope (N : Nat) : IEnv :=
-  { vals := [("NP", (NPn N : Int)), ("S", (nst N : Int)), ("N", (N : Int))],
-    pwidths := [("N", 32), ("S", 32), ("NP", 32)] }
+  { nvals := [("NP", ((NPn N : Int), 32, true)), ("S", ((nst N : Int), 32, true)), ("N", ((N : Int), 32, true))],
+    pwidths := [("N", 32), ("S", 32), ("NP", 32)], int32 := true }
 
 def dEnv (N : Nat) : IEnv := { dScope N with dims := dimTable (dScope N) design.pdesign.decls }
 
-/-- An `int` localparam over an INT-class expression binds its mathematical value. -/
-theorem bindLocal_int (env : IEnv) (nm : String) (e : PExpr) (r : Option Int) (v : Int)
-    (hi : e.isInt env = true) (he : evalInt env e = .ok v) (h32 : env.int32 = false) :
+/-- (port) Every height of the table is below `2 ^ 31`. -/
+theorem dd_lt32 : ∀ r, r < 52 → dd r < 2147483648 := by decide
+
+/-- (port) An indicator sum counts at most its terms. -/
+theorem nsum_ind_le (N : Nat) : ∀ n, nsum (fun r => if dd r < N then 1 else 0) n ≤ n
+  | 0 => Nat.le_refl 0
+  | n + 1 => by
+    have := nsum_ind_le N n
+    rw [nsum_succ]
+    by_cases h' : dd n < N <;> simp [h'] <;> omega
+
+/-- (port) `(N > d(r)) ? 1 : 0` is in the in-range INT fragment, with its value. -/
+theorem gtE_frag {env : IEnv} {N : Nat} (hN : env.intVal? "N" = some (N : Int)) (h30 : N < 2 ^ 30) {r : Nat}
+    (hr : r < 52) : SvGolf.ConstEval.Frag env (gtE r) (if dd r < N then 1 else 0) false := by
+  have hd := dd_lt32 r hr
+  have h := SvGolf.ConstEval.Frag.ternary
+    (SvGolf.ConstEval.Frag.cmp (op := .sgt) (by simp [SvGolf.ConstEval.cmpOps])
+      (SvGolf.ConstEval.Frag.param hN ⟨by omega, by omega⟩)
+      (SvGolf.ConstEval.Frag.int (env := env) (v := ((dd r : Nat) : Int)) ⟨by omega, by omega⟩))
+    (SvGolf.ConstEval.Frag.int (env := env) (v := 1) ⟨by decide, by decide⟩)
+    (SvGolf.ConstEval.Frag.int (env := env) (v := 0) ⟨by decide, by decide⟩)
+  have e : (if SvGolf.ConstEval.cmpVal .sgt (N : Int) ((dd r : Nat) : Int) = 0 then (0 : Int) else 1) =
+      if dd r < N then 1 else 0 := by
+    by_cases h' : dd r < N
+    · have h'' : (N : Int) > ((dd r : Nat) : Int) := by omega
+      simp [SvGolf.ConstEval.cmpVal, h', h'']
+    · have h'' : ¬ (N : Int) > ((dd r : Nat) : Int) := by omega
+      simp [SvGolf.ConstEval.cmpVal, h', h'']
+  rw [e] at h
+  exact h
+
+/-- (port) `S`'s expression is in the in-range INT fragment, with the record's value. -/
+theorem sumE_frag {env : IEnv} {N : Nat} (hN : env.intVal? "N" = some (N : Int)) (h30 : N < 2 ^ 30) :
+    ∀ n, n < 51 → SvGolf.ConstEval.Frag env (sumE n)
+      ((nsum (fun r => if dd r < N then 1 else 0) (n + 1) : Nat) : Int) false
+  | 0, _ => by
+    have h := gtE_frag hN h30 (r := 0) (by omega)
+    have e : (if dd 0 < N then (1 : Int) else 0) =
+        ((nsum (fun r => if dd r < N then 1 else 0) (0 + 1) : Nat) : Int) := by
+      by_cases h' : dd 0 < N <;> simp [nsum, h']
+    rw [e] at h
+    exact h
+  | n + 1, hn => by
+    have ih := sumE_frag hN h30 n (by omega)
+    have hg := gtE_frag hN h30 (r := n + 1) (by omega)
+    have hle := nsum_ind_le N (n + 1)
+    have hb : SvGolf.ConstEval.InInt32 (((nsum (fun r => if dd r < N then 1 else 0) (n + 1) : Nat) : Int) +
+        (if dd (n + 1) < N then 1 else 0)) := by
+      unfold SvGolf.ConstEval.InInt32
+      split <;> omega
+    have h := SvGolf.ConstEval.Frag.add ih hg hb
+    have e : ((nsum (fun r => if dd r < N then 1 else 0) (n + 1) : Nat) : Int) + (if dd (n + 1) < N then 1 else 0) =
+        ((nsum (fun r => if dd r < N then 1 else 0) (n + 1 + 1) : Nat) : Int) := by
+      rw [nsum_succ (n := n + 1)]
+      by_cases h' : dd (n + 1) < N <;> simp [h']
+    rw [e] at h
+    rw [sumE]
+    exact h
+
+/-- (port) An `int` localparam of the in-range INT fragment, in the exact 32-bit instantiation, binds its value
+(`evalIntTarget` is `evalIntExact` there, `canonInt 32 true` the identity on it). -/
+theorem bindLocal_int32 (env : IEnv) (nm : String) (e : PExpr) (r : Option Int) (v : Int)
+    (hf : SvGolf.ConstEval.Frag env e v false) (h32 : env.int32 = true) :
     bindLocal env { name := nm, expr := e, resolved? := r, type? := some intTy, signed? := none } =
-      .ok (env.bindVal nm v) := by
+      .ok (env.bindNVal nm v 32 true) := by
   have hd : declConstType env (some intTy) none = .ok none := rfl
-  unfold bindLocal
-  simp only [hd, evalIntTarget, hi, he, h32, Gen2.except_ok_bind, if_true, if_false, Bool.false_eq_true]
+  obtain ⟨hii, -, hv⟩ := hf.eval.2.2.2 rfl
+  have hx : evalIntTarget env e = .ok v := by
+    simp only [evalIntTarget, hii, h32, if_true, hf.evalIntExact_eq]
+  have hc := SvGolf.ConstEval.canonInt32_of hv
+  cases hf <;>
+    (unfold bindLocal
+     simp only [hd, hx, h32, hc, Gen2.except_ok_bind, if_true])
 
-theorem bindLocal_S (N : Nat) :
-    bindLocal (env0 N) lpS = .ok ((env0 N).bindVal "S" (nst N : Int)) :=
-  bindLocal_int _ _ _ _ _ (sumE_isInt _ 50) (sumE_eval (N := N) rfl 50) rfl
+theorem intVal_env0 (N : Nat) : (env0 N).intVal? "N" = some (N : Int) := by
+  first | rfl | simp [IEnv.intVal?, env0]
 
-theorem npE_eval (N : Nat) : evalInt ((env0 N).bindVal "S" (nst N : Int)) npE = .ok (NPn N : Int) := by
-  rw [npE, eTer, ev_ternary rfl rfl, eSlt, ev_slt rfl rfl]
-  show (Except.ok (if (N : Int) < 2 then (1 : Int) else 0) >>= fun cv =>
-    if cv = 0 then evalInt _ (pr "N") else evalInt _ (ii 2)) = _
-  unfold NPn
-  by_cases h2 : N < 2
-  · rw [if_pos (by omega : (N : Int) < 2), if_pos h2]
-    rfl
-  · rw [if_neg (by omega : ¬ ((N : Int) < 2)), if_neg h2]
-    rfl
+theorem bindLocal_S (N : Nat) (h30 : N < 2 ^ 30) :
+    bindLocal (env0 N) lpS = .ok ((env0 N).bindNVal "S" (nst N : Int) 32 true) :=
+  bindLocal_int32 _ _ _ _ _ (sumE_frag (intVal_env0 N) h30 50 (by omega)) rfl
 
-theorem bindLocal_NP (N : Nat) :
-    bindLocal ((env0 N).bindVal "S" (nst N : Int)) lpNP =
-      .ok (((env0 N).bindVal "S" (nst N : Int)).bindVal "NP" (NPn N : Int)) :=
-  bindLocal_int _ _ _ _ _ rfl (npE_eval N) rfl
+/-- (port) `NP`'s expression is in the in-range INT fragment, with the record's value. -/
+theorem npE_frag (N : Nat) (h30 : N < 2 ^ 30) :
+    SvGolf.ConstEval.Frag ((env0 N).bindNVal "S" (nst N : Int) 32 true) npE (NPn N : Int) false := by
+  have hN : ((env0 N).bindNVal "S" (nst N : Int) 32 true).intVal? "N" = some (N : Int) := by
+    first | rfl | simp [IEnv.intVal?, IEnv.bindNVal, env0]
+  have fN := SvGolf.ConstEval.Frag.param hN ⟨by omega, by omega⟩
+  have h := SvGolf.ConstEval.Frag.ternary
+    (SvGolf.ConstEval.Frag.cmp (op := .slt) (by simp [SvGolf.ConstEval.cmpOps]) fN
+      (SvGolf.ConstEval.Frag.int (v := 2) ⟨by decide, by decide⟩))
+    (SvGolf.ConstEval.Frag.int (v := 2) ⟨by decide, by decide⟩) fN
+  have e : (if SvGolf.ConstEval.cmpVal .slt (N : Int) 2 = 0 then (N : Int) else 2) = (NPn N : Int) := by
+    unfold NPn
+    by_cases h2 : N < 2
+    · have h2' : (N : Int) < 2 := by omega
+      simp [SvGolf.ConstEval.cmpVal, h2, h2']
+    · have h2' : ¬ (N : Int) < 2 := by omega
+      simp [SvGolf.ConstEval.cmpVal, h2, h2']
+  rw [e] at h
+  exact h
 
-theorem d_paramEnv (N : Nat) : design.pdesign.paramEnv2 [(N : Int)] = .ok (dEnv N) := by
+theorem bindLocal_NP (N : Nat) (h30 : N < 2 ^ 30) :
+    bindLocal ((env0 N).bindNVal "S" (nst N : Int) 32 true) lpNP =
+      .ok (((env0 N).bindNVal "S" (nst N : Int) 32 true).bindNVal "NP" (NPn N : Int) 32 true) :=
+  bindLocal_int32 _ _ _ _ _ (npE_frag N h30) rfl
+
+theorem d_paramEnv (N : Nat) (h30 : N < 2 ^ 30) : design.pdesign.paramEnv2 [(N : Int)] = .ok (dEnv N) := by
   have hL : bindLocals (env0 N) design.pdesign.localParams =
-      .ok (((env0 N).bindVal "S" (nst N : Int)).bindVal "NP" (NPn N : Int)) := by
+      .ok (((env0 N).bindNVal "S" (nst N : Int) 32 true).bindNVal "NP" (NPn N : Int) 32 true) := by
     rw [d_locals]
-    simp only [bindLocals, bindLocal_S, bindLocal_NP]
-  have hP : bindParamsRes {} design.pdesign.params [(N : Int)] = .ok (env0 N) := rfl
+    simp only [bindLocals, bindLocal_S N h30, bindLocal_NP N h30]
+  have hP0 : bindParamsRes { int32 := true } design.pdesign.params [(N : Int)] =
+      .ok { nvals := [("N", (canonInt 32 true (N : Int), 32, true))], int32 := true } := rfl
+  have hc : canonInt 32 true (N : Int) = (N : Int) := SvGolf.ConstEval.canonInt32_of ⟨by omega, by omega⟩
+  have hP : bindParamsRes { int32 := true } design.pdesign.params [(N : Int)] = .ok (env0 N) := by
+    rw [hP0, hc]
+    rfl
   unfold PDesign.paramEnv2
-  rw [show bindPackageParams {} design.pdesign.packageParams = .ok {} from rfl, Res.ok_bind,
-    show bindPackageEnums {} design.pdesign.enums = .ok {} from rfl, Res.ok_bind, hP, Res.ok_bind, hL,
-    Res.ok_bind]
+  rw [show bindPackageParams { int32 := true } design.pdesign.packageParams = .ok { int32 := true } from rfl,
+    Res.ok_bind, show bindPackageEnums { int32 := true } design.pdesign.enums = .ok { int32 := true } from rfl,
+    Res.ok_bind, hP, Res.ok_bind, hL, Res.ok_bind]
   rfl
 
 /-! ## 3. Declarations, element widths, geometry -/
@@ -2373,7 +2498,7 @@ theorem dims3 (N : Nat) (n : String)
   simp [evalDims, evalInt, List.lookup, dScope, Gen2.except_ok_bind]
 
 theorem dEnvOk {N : Nat} (decls : List Decl) : DIn ((dEnv N).withDecls decls) (dElemsL N) N where
-  env := ⟨rfl, rfl, rfl⟩
+  env := ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
   hT := by simpa using dims3 N "T" rfl
   hSM := by simpa using dims3 N "SM" rfl
   hCY := by simpa using dims3 N "CY" rfl
@@ -2405,7 +2530,7 @@ theorem d_instantiate2 {N : Nat} (hN : 1 ≤ N) (h30 : N < 2 ^ 30) :
       simp [PDesign.surfaceFuel]
     rw [e]
     omega
-  exact PDesign.instantiate2_of_ok rfl (d_paramEnv N) (d_decls hN) (d_elems hN)
+  exact PDesign.instantiate2_of_ok rfl (d_paramEnv N h30) (d_decls hN) (d_elems hN)
     (by rw [d_generates]; exact gens_expand (dEnvOk (dDecls N)) h30 hF)
 
 theorem dM_processes {N : Nat} (hN : 1 ≤ N) : (dM N).processes.toList = dProcs N := by
@@ -3490,10 +3615,18 @@ theorem dM_pos (hN1 : 1 ≤ N) (h30 : N < 2 ^ 30) : ∀ i n lo w, (dM N).Writes 
   rw [← hw] at this
   exact this
 
+/-- (port) No process of the instantiated design is an `always_comb` (the alias guard of `design.sem` leaves it). -/
+theorem dProcs_notComb {N : Nat} : ∀ p ∈ dProcs N, ∀ b, p ≠ .alwaysComb b := by
+  refine dProcs_forall ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_
+  all_goals (intros; first | exact fun h => Process2.noConfusion h | exact Process2.noConfusion ‹_›)
+
 /-- **`design.sem N` is `dM N`** for every `N` in range (the one-driver guard passes: the comb profile). -/
 theorem sem_eq (hN1 : 1 ≤ N) (h30 : N < 2 ^ 30) : design.sem N = dM N := by
-  show design.pdesign.instantiateGD2 [(N : Int)] = _
-  exact PDesign.instantiateGD2_of_combDesign (d_instantiate2 hN1 h30) (dM_comb hN1 h30) (dM_pos hN1 h30)
+  show (design.pdesign.instantiateGD2 [(N : Int)]).aliasGuard = _
+  rw [PDesign.instantiateGD2_of_combDesign (d_instantiate2 hN1 h30) (dM_comb hN1 h30) (dM_pos hN1 h30)]
+  refine Design2.aliasGuard_of_noComb fun p hp b => ?_
+  rw [dM_processes hN1] at hp
+  exact dProcs_notComb p hp b
 
 end fam
 
@@ -3922,7 +4055,7 @@ end top
 theorem solution : Goal := by
   intro N hN
   have hN1 : 1 ≤ N := hN.1
-  have h30 : N < 2 ^ 30 := hN.2
+  have h30 : N < 2 ^ 30 := by have := hN.2; omega
   show SvGolf.Tasks.Mul.task.SatisfiedAt N (design.sem N)
   rw [sem_eq hN1 h30]
   refine CombTask.satisfiedAt_of_comb dadda_interface (dM_comb hN1 h30) (dM_acyclic hN1 h30) ?_

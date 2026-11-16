@@ -399,10 +399,13 @@ PACKAGE_ROOTS = ["Mathlib", "Batteries", "Aesop", "Qq", "ProofWidgets", "Plausib
                  "LeanSearchClient"]
 
 # Modules a solution may import. Everything else (Examples.*, LeanModels.Python.*, another
-# submission, a lookalike such as `Mathlib2`) is rejected.
+# submission, a lookalike such as `Mathlib2`) is rejected. `LeanModels.SoftFloat.Binary` is Proglib's IEEE 754
+# library (core Lean only), the one the fdivp statement names its function from.
 IMPORT_ALLOW = [
     r"Init(\..+)?", r"Std(\..+)?", r"Lean(\..+)?",
     r"LeanModels\.Sv(\..+)?", r"SvGolf(\..+)?", r"tasks(\..+)?",
+    # Proglib's IEEE 754 library, which the fdivp statement is written in (decided 2026-11-14)
+    r"LeanModels\.SoftFloat\.Binary(\..+)?",
     r"Submission\.Design",
 ] + [re.escape(r) + r"(\..+)?" for r in PACKAGE_ROOTS]
 
@@ -1978,6 +1981,8 @@ def check(task_dir, sv_path, lean_path, stage, wrap, time_limit=None, do_score=T
         sol = os.path.join(stage, "Submission", "Solution.lean")
         if not unproved:
             shutil.copyfile(lean_path, sol)
+            # the exact bytes the solution stage compiles (a record re-made from this result names them)
+            st["solution"] = {"sha256": sha256_file(sol)}
 
         # extract (pinned extractor; never a player .json)
         env_path = os.path.join(stage, "design.sv.json")
@@ -2110,7 +2115,7 @@ def check(task_dir, sv_path, lean_path, stage, wrap, time_limit=None, do_score=T
                         "repository root (README, Building) and fix its first error.")
                 raise RuntimeError("`lake build SvGolf tasks svgolf-eval` failed "
                                    f"(infrastructure):\n{tail(out)}{hint}")
-            mods_to_build = sorted({m for m in imports if m.startswith("LeanModels.Sv")})
+            mods_to_build = sorted({m for m in imports if m.startswith(("LeanModels.Sv", "LeanModels.SoftFloat.Binary"))})
             if mods_to_build:
                 rc, out, el = lean.run(["build"] + mods_to_build, lake_env=False)
                 if rc != 0:

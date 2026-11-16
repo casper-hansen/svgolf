@@ -4,6 +4,7 @@ import LeanModels.Sv.CombKnownBits
 import LeanModels.Sv.XorSum
 import LeanModels.Sv.Known2
 import LeanModels.Sv.Comb2
+import LeanModels.Sv.Param
 
 /-!
 # Lemmas for combinational proofs (untrusted, kernel-checked)
@@ -37,6 +38,11 @@ to 5) it serves.
   `evalPure2_or_bool`, `evalPure2_xor_bool`), an assign read back on a state solving the
   equations (`CombEqs.readback`, `CombEqs.readback1`), and a window known bit by bit
   (`LVec.extract_eq_ofBitVec_of_bits`).
+* **Constant evaluation on the INT fragment** (the parameter stage of a by-hand proof at the exact 32-bit `int`
+  instantiation): `ConstEval.Frag` (literals, genvars, INT parameters, `+ - *`, `>>`, the signed comparisons, `==`,
+  `!=`, `?:`, every node a 32-bit signed value) and the bridge `ConstEval.Frag.eval`: there `ctype` and the
+  width-exact `evalAt` agree with the unbounded `evalInt`, hence a generate condition (`Frag.evalGenGuard_eq`) and an
+  `int` localparam (`Frag.evalIntExact_eq`) take `evalInt`'s value.
 
 The names sit in sub-namespaces of `SvGolf` named after the library's own (`SvGolf.CombLib`, `SvGolf.XorSum`,
 `SvGolf.Lib`, `SvGolf.SvState`, `SvGolf.CombEqs`, `SvGolf.LVec`), so that after
@@ -844,6 +850,400 @@ theorem LVec.extract_eq_ofBitVec_of_bits {v : LVec} {lo k : Nat} {x : BitVec k}
     rw [LVec.extract_extract _ (by omega)]
     exact h j hj
 
+/-! ## 7. Constant evaluation on the INT fragment
+
+At the exact 32-bit `int` instantiation (`IEnv.int32`: INT parameters and `int` localparams in `nvals` at
+`(32, signed)`), a generate condition is evaluated by `evalGenGuard` (`ctype`, then the width-exact `evalAt`), an
+`int` localparam by `evalIntExact` (wrapping at every node), a generate header by the unbounded `evalInt`. On the
+INT fragment whose every node holds a 32-bit signed value (`ConstEval.Frag`) the three agree (`Frag.eval`,
+`Frag.evalGenGuard_eq`, `Frag.evalIntExact_eq`, `Frag.evalSized_eq`), so a by-hand proof computes them all with
+`evalInt`'s lemmas. The range premise is the content: `N + 1` at `N = 2^31 - 1` is `-2^31` under `evalIntExact`
+(tests/comb/Lemmas.lean, section 8). The evaluators' helpers are private in `LeanModels/Sv/Param.lean`;
+`lssv_private%` names them (a private name is hidden from name resolution only; the definitions are ordinary ones,
+and every proof here is kernel-checked). -/
+
+namespace ConstEval
+
+open Lean Elab Term in
+/-- `lssv_private% n`: the private declaration `n` of `LeanModels/Sv/Param.lean` (ls-sv's constant evaluator keeps
+its helpers private; a private name is hidden from name resolution only, the definition is an ordinary one). -/
+elab "lssv_private% " id:ident : term => do
+  let n := mkPrivateNameCore `LeanModels.Sv.Param id.getId
+  unless (← getEnv).contains n do
+    throwError "lssv_private%: no private declaration {id.getId} in LeanModels.Sv.Param"
+  mkConstWithLevelParams n
+
+/-! ### The private helpers' equations (the definitions, restated by `rfl`) -/
+
+theorem b2i_eq (b : Bool) : (lssv_private% LeanModels.Sv.b2i) b = if b then 1 else 0 := rfl
+
+theorem constArith_add (w : Nat) (s : Bool) (a b : Int) :
+    (lssv_private% LeanModels.Sv.constArith) (.m0 .add) w s a b = Except.ok (canonInt w s (a + b)) := rfl
+theorem constArith_sub (w : Nat) (s : Bool) (a b : Int) :
+    (lssv_private% LeanModels.Sv.constArith) (.m0 .sub) w s a b = Except.ok (canonInt w s (a - b)) := rfl
+theorem constArith_mul (w : Nat) (s : Bool) (a b : Int) :
+    (lssv_private% LeanModels.Sv.constArith) .mul w s a b = Except.ok (canonInt w s (a * b)) := rfl
+theorem constArith_m0mul (w : Nat) (s : Bool) (a b : Int) :
+    (lssv_private% LeanModels.Sv.constArith) (.m0 .mul) w s a b = Except.ok (canonInt w s (a * b)) := rfl
+
+theorem constShift_shr (w : Nat) (s : Bool) (a b : Int) :
+    (lssv_private% LeanModels.Sv.constShift) .shr w s a b =
+      if b < 0 then Except.error s!"negative right operand of '{SymBinOp.shr.sym}' in a constant context"
+      else if (w : Int) ≤ b then .ok 0
+      else .ok (canonInt w s (a.emod ((2 : Int) ^ w) / (2 : Int) ^ b.toNat)) := rfl
+
+
+
+theorem constCompare_eq (op : SymBinOp) (a b : Int) : (lssv_private% LeanModels.Sv.constCompare) op a b =
+    match op with
+    | .m0 .ne | .m0 .caseNe | .m0 .wildNe | .cne => (lssv_private% LeanModels.Sv.b2i) (a != b)
+    | .m0 .lt | .m0 .slt | .slt => (lssv_private% LeanModels.Sv.b2i) (decide (a < b))
+    | .m0 .le | .m0 .sle | .sle => (lssv_private% LeanModels.Sv.b2i) (decide (a ≤ b))
+    | .m0 .gt | .m0 .sgt | .sgt => (lssv_private% LeanModels.Sv.b2i) (decide (a > b))
+    | .m0 .ge | .m0 .sge | .sge => (lssv_private% LeanModels.Sv.b2i) (decide (a ≥ b))
+    | _ => (lssv_private% LeanModels.Sv.b2i) (a == b) := rfl
+
+/-! ### 32-bit values -/
+
+/-- `v` is a 32-bit signed integer. -/
+def InInt32 (v : Int) : Prop := -2147483648 ≤ v ∧ v < 2147483648
+
+theorem canonInt32_eq (v : Int) :
+    canonInt 32 true v = if 2147483648 ≤ v % 4294967296 then v % 4294967296 - 4294967296 else v % 4294967296 := by
+  unfold canonInt
+  have h31 : ((2 : Int) ^ (32 - 1)) = 2147483648 := rfl
+  have h32 : ((2 : Int) ^ 32) = 4294967296 := rfl
+  have he : v % 4294967296 = v.emod 4294967296 := rfl
+  rw [he]
+  simp only [h31, h32]
+  by_cases h : 2147483648 ≤ v.emod 4294967296 <;> simp [h]
+
+/-- `canonInt 32 true` keeps a 32-bit signed value. -/
+theorem canonInt32_of {v : Int} (h : InInt32 v) : canonInt 32 true v = v := by
+  obtain ⟨h1, h2⟩ := h
+  rw [canonInt32_eq]
+  split <;> omega
+
+/-- A 32-bit signed value read at `(32, signed)` is itself. -/
+theorem convertConst32_of {v : Int} (h : InInt32 v) : convertConst 32 32 true v = v := by
+  have e : convertConst 32 32 true v = canonInt 32 true (canonInt 32 true (v % 4294967296)) := rfl
+  have i : canonInt 32 true (v % 4294967296) = v := by
+    obtain ⟨h1, h2⟩ := h
+    rw [canonInt32_eq]
+    split <;> omega
+  rw [e, i, canonInt32_of h]
+
+/-- A bit read at `(1, unsigned)` is itself. -/
+theorem convertConst1_bit (p : Prop) [Decidable p] :
+    convertConst 1 1 false (if p then 1 else 0) = if p then 1 else 0 := by
+  by_cases hp : p <;> simp only [hp, ite_true, ite_false] <;> decide
+
+/-- `Except`'s bind on a value. -/
+theorem ok_bind {ε α β : Type} (x : α) (f : α → Except ε β) : (Except.ok x >>= f) = f x := rfl
+
+/-! ### The fragment -/
+
+/-- The comparisons the bridge covers: the signed orders, `==` and `!=`. (An order spelled unsigned between two
+`int` operands is refused by `evalAt`: the operands are signed.) -/
+def cmpOps : List SymBinOp :=
+  [.slt, .sle, .sgt, .sge, .m0 .slt, .m0 .sle, .m0 .sgt, .m0 .sge, .m0 .eq, .m0 .ne]
+
+/-- The value of a covered comparison. -/
+def cmpVal (op : SymBinOp) (a b : Int) : Int :=
+  match op with
+  | .slt | .m0 .slt => if a < b then 1 else 0
+  | .sle | .m0 .sle => if a ≤ b then 1 else 0
+  | .sgt | .m0 .sgt => if a > b then 1 else 0
+  | .sge | .m0 .sge => if a ≥ b then 1 else 0
+  | .m0 .ne => if a = b then 0 else 1
+  | _ => if a = b then 1 else 0
+
+/-- The type a node of the fragment is evaluated at: an `int` `(32, signed)`, a comparison `(1, unsigned)`. -/
+def fragTy : Bool → Nat × Bool
+  | false => (32, true)
+  | true => (1, false)
+
+/-- **The INT fragment, with its values.** `Frag env e v c`: `e` is built from unsized integer literals, genvars
+(bound in `IEnv.vals`) and INT parameters (`IEnv.intVal?`: in `vals`, or in `nvals` at `(32, signed)`, as the exact
+32-bit instantiation binds them) by `+`, `-`, `*`, `>>` of a nonnegative value by `0 … 31`, the signed comparisons,
+`==`, `!=`, and `?:` with `int` arms; `v` is its value (the unbounded one, `evalInt`'s), every `int` node's value is
+a 32-bit signed integer, and `c` says whether `e` is a comparison (`c = true`, 1 bit unsigned) or an `int`. -/
+inductive Frag (env : IEnv) : PExpr → Int → Bool → Prop where
+  | int {v : Int} : InInt32 v → Frag env (.int v) v false
+  | genvar {n : String} {v : Int} : env.vals.lookup n = some v → InInt32 v → Frag env (.genvarRef n) v false
+  | param {n : String} {v : Int} : env.intVal? n = some v → InInt32 v → Frag env (.paramRef n none) v false
+  | add {l r : PExpr} {a b : Int} : Frag env l a false → Frag env r b false → InInt32 (a + b) →
+      Frag env (.binary (.m0 .add) l r) (a + b) false
+  | sub {l r : PExpr} {a b : Int} : Frag env l a false → Frag env r b false → InInt32 (a - b) →
+      Frag env (.binary (.m0 .sub) l r) (a - b) false
+  | mul {op : SymBinOp} {l r : PExpr} {a b : Int} : op = .mul ∨ op = .m0 .mul → Frag env l a false →
+      Frag env r b false → InInt32 (a * b) → Frag env (.binary op l r) (a * b) false
+  | shr {l r : PExpr} {a b : Int} : Frag env l a false → Frag env r b false → 0 ≤ a → 0 ≤ b → b < 32 →
+      Frag env (.binary .shr l r) (a.tdiv ((2 : Int) ^ b.toNat)) false
+  | cmp {op : SymBinOp} {l r : PExpr} {a b : Int} : op ∈ cmpOps → Frag env l a false → Frag env r b false →
+      Frag env (.binary op l r) (cmpVal op a b) true
+  | ternary {c t e : PExpr} {x y z : Int} {k : Bool} : Frag env c x k → Frag env t y false →
+      Frag env e z false → Frag env (.ternary c t e) (if x = 0 then z else y) false
+
+/-- `evalAt`'s logical right shift of a nonnegative 32-bit value is the unbounded quotient. -/
+theorem shr_val {a b : Int} (ha : InInt32 a) (h0 : 0 ≤ a) :
+    canonInt 32 true (a.emod ((2 : Int) ^ 32) / (2 : Int) ^ b.toNat) = a.tdiv ((2 : Int) ^ b.toNat) := by
+  have e1 : a.emod ((2 : Int) ^ 32) = a := Int.emod_eq_of_lt h0 (by have := ha.2; show a < 4294967296; omega)
+  rw [e1, ← Int.tdiv_eq_ediv_of_nonneg h0]
+  apply canonInt32_of
+  have hq0 : 0 ≤ a.tdiv ((2 : Int) ^ b.toNat) := by
+    rw [Int.tdiv_eq_ediv_of_nonneg h0]; exact Int.ediv_nonneg h0 (Int.pow_nonneg (by decide))
+  have hq1 : a.tdiv ((2 : Int) ^ b.toNat) ≤ a := by
+    rw [Int.tdiv_eq_ediv_of_nonneg h0]; exact Int.ediv_le_self _ h0
+  exact ⟨by omega, by have := ha.2; omega⟩
+
+/-- A covered comparison at its operands' type `(32, signed)`: its value, and no signedness refusal. -/
+theorem cmp_eval {op : SymBinOp} (hop : op ∈ cmpOps) (a b : Int) :
+    convertConst 1 1 false ((lssv_private% LeanModels.Sv.constCompare) op a b) = cmpVal op a b ∧
+      ((lssv_private% LeanModels.Sv.SymBinOp.signedOrder) op && !true ||
+        (lssv_private% LeanModels.Sv.SymBinOp.unsignedOrder) op && true) = false := by
+  simp only [cmpOps, List.mem_cons, List.mem_nil_iff, or_false] at hop
+  rcases hop with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+    refine ⟨?_, rfl⟩ <;> simp only [constCompare_eq, b2i_eq, convertConst1_bit, cmpVal] <;> simp
+
+/-- **The bridge.** On the fragment, `ctype` gives `fragTy c`, the width-exact evaluation at that type
+(`evalAt`) is the unbounded one (`evalInt`), and an `int` node is INT-class (`isInt`, `isIntExact`). -/
+theorem Frag.eval {env : IEnv} {e : PExpr} {v : Int} {k : Bool} (h : Frag env e v k) :
+    ctype env e = .ok (fragTy k) ∧ evalAt env (fragTy k) e = .ok v ∧ evalInt env e = .ok v ∧
+      (k = false → e.isInt env = true ∧ e.isIntExact env = true ∧ InInt32 v) := by
+  induction h with
+  | int hv =>
+      refine ⟨rfl, ?_, rfl, fun _ => ⟨rfl, rfl, hv⟩⟩
+      simp only [evalAt, fragTy]
+      rw [convertConst32_of hv]
+  | genvar hl hv =>
+      refine ⟨rfl, ?_, ?_, fun _ => ⟨rfl, rfl, hv⟩⟩
+      · simp only [evalAt, fragTy, hl]; rw [convertConst32_of hv]
+      · simp only [evalInt, hl]
+  | @param n v hi hv =>
+      rcases hl : env.vals.lookup n with _ | x
+      · have hn : env.nvals.lookup n = some (v, 32, true) ∧ n ∉ env.stale := by
+          unfold IEnv.intVal? at hi
+          rw [hl] at hi
+          by_cases hs : n ∈ env.stale
+          · simp [hs] at hi
+          · simp only [hs, ite_false] at hi
+            split at hi
+            · rename_i x hx; cases hi; exact ⟨hx, hs⟩
+            · cases hi
+        refine ⟨?_, ?_, ?_, fun _ => ⟨?_, ?_, hv⟩⟩
+        · simp only [ctype, hl, hn.1, fragTy]
+        · simp only [evalAt, fragTy, hl, hn.1]; rw [convertConst32_of hv]
+        · simp only [evalInt, hl, hn.1]
+        · simp [PExpr.isInt, hl, hn.1]
+        · simp [PExpr.isIntExact, hl, hn.1]
+      · have hx : x = v := by
+          unfold IEnv.intVal? at hi; rw [hl] at hi; cases hi; rfl
+        subst hx
+        refine ⟨?_, ?_, ?_, fun _ => ⟨?_, ?_, hv⟩⟩
+        · simp only [ctype, hl, fragTy]
+        · simp only [evalAt, fragTy, hl]; rw [convertConst32_of hv]
+        · simp only [evalInt, hl]
+        · simp [PExpr.isInt, hl]
+        · simp [PExpr.isIntExact, hl]
+  | add _ _ hab ihl ihr =>
+      obtain ⟨hlc, hla, hli, hlk⟩ := ihl
+      obtain ⟨hrc, hra, hri, hrk⟩ := ihr
+      obtain ⟨hlI, hlE, hl32⟩ := hlk rfl
+      obtain ⟨hrI, hrE, hr32⟩ := hrk rfl
+      simp only [fragTy] at hlc hla hrc hra
+      refine ⟨?_, ?_, ?_, fun _ => ⟨?_, ?_, hab⟩⟩
+      · simp only [ctype, SymBinOp.constClass, hlc, hrc, ok_bind, fragTy, Nat.max_self, Bool.and_self]
+      · simp only [evalAt, SymBinOp.constClass, fragTy, hla, hra, ok_bind, constArith_add]
+        rw [canonInt32_of hab]
+      · simp only [evalInt, hlI, hrI, hli, hri, ok_bind, Bool.and_self, ite_true]
+      · simp [PExpr.isInt, hlI, hrI]
+      · simp [PExpr.isIntExact, hlE, hrE]
+  | sub _ _ hab ihl ihr =>
+      obtain ⟨hlc, hla, hli, hlk⟩ := ihl
+      obtain ⟨hrc, hra, hri, hrk⟩ := ihr
+      obtain ⟨hlI, hlE, hl32⟩ := hlk rfl
+      obtain ⟨hrI, hrE, hr32⟩ := hrk rfl
+      simp only [fragTy] at hlc hla hrc hra
+      refine ⟨?_, ?_, ?_, fun _ => ⟨?_, ?_, hab⟩⟩
+      · simp only [ctype, SymBinOp.constClass, hlc, hrc, ok_bind, fragTy, Nat.max_self, Bool.and_self]
+      · simp only [evalAt, SymBinOp.constClass, fragTy, hla, hra, ok_bind, constArith_sub]
+        rw [canonInt32_of hab]
+      · simp only [evalInt, hlI, hrI, hli, hri, ok_bind, Bool.and_self, ite_true]
+      · simp [PExpr.isInt, hlI, hrI]
+      · simp [PExpr.isIntExact, hlE, hrE]
+  | mul hop _ _ hab ihl ihr =>
+      obtain ⟨hlc, hla, hli, hlk⟩ := ihl
+      obtain ⟨hrc, hra, hri, hrk⟩ := ihr
+      obtain ⟨hlI, hlE, hl32⟩ := hlk rfl
+      obtain ⟨hrI, hrE, hr32⟩ := hrk rfl
+      simp only [fragTy] at hlc hla hrc hra
+      rcases hop with rfl | rfl
+      · refine ⟨?_, ?_, ?_, fun _ => ⟨?_, ?_, hab⟩⟩
+        · simp only [ctype, SymBinOp.constClass, hlc, hrc, ok_bind, fragTy, Nat.max_self, Bool.and_self]
+        · simp only [evalAt, SymBinOp.constClass, fragTy, hla, hra, ok_bind, constArith_mul]
+          rw [canonInt32_of hab]
+        · simp only [evalInt, hlI, hrI, hli, hri, ok_bind, Bool.and_self, ite_true]
+        · simp [PExpr.isInt, hlI, hrI]
+        · simp [PExpr.isIntExact, hlE, hrE]
+      · refine ⟨?_, ?_, ?_, fun _ => ⟨?_, ?_, hab⟩⟩
+        · simp only [ctype, SymBinOp.constClass, hlc, hrc, ok_bind, fragTy, Nat.max_self, Bool.and_self]
+        · simp only [evalAt, SymBinOp.constClass, fragTy, hla, hra, ok_bind, constArith_m0mul]
+          rw [canonInt32_of hab]
+        · simp only [evalInt, hlI, hrI, hli, hri, ok_bind, Bool.and_self, ite_true]
+        · simp [PExpr.isInt, hlI, hrI]
+        · simp [PExpr.isIntExact, hlE, hrE]
+  | @shr l r a b _ _ ha0 hb0 hb32 ihl ihr =>
+      obtain ⟨hlc, hla, hli, hlk⟩ := ihl
+      obtain ⟨hrc, hra, hri, hrk⟩ := ihr
+      obtain ⟨hlI, hlE, hl32⟩ := hlk rfl
+      obtain ⟨hrI, hrE, hr32⟩ := hrk rfl
+      simp only [fragTy] at hlc hla hrc hra
+      have ha : InInt32 a := hl32
+      have hq0 : 0 ≤ a.tdiv ((2 : Int) ^ b.toNat) := by
+        rw [Int.tdiv_eq_ediv_of_nonneg ha0]; exact Int.ediv_nonneg ha0 (Int.pow_nonneg (by decide))
+      have hq1 : a.tdiv ((2 : Int) ^ b.toNat) ≤ a := by
+        rw [Int.tdiv_eq_ediv_of_nonneg ha0]; exact Int.ediv_le_self _ ha0
+      refine ⟨?_, ?_, ?_, fun _ => ⟨?_, ?_, ⟨by omega, by have := ha.2; omega⟩⟩⟩
+      · simp only [ctype, SymBinOp.constClass, hlc, fragTy]
+      · have hb1 : ¬ b < 0 := by omega
+        have hb2 : ¬ ((32 : Nat) : Int) ≤ b := by omega
+        simp only [evalAt, SymBinOp.constClass, fragTy, hla, hra, hrc, ok_bind, constShift_shr, hb1, hb2,
+          ite_false]
+        rw [shr_val ha ha0]
+      · have ha1 : ¬ a < 0 := by omega
+        have hb1 : ¬ b < 0 := by omega
+        have hb2 : ¬ (32 : Int) ≤ b := by omega
+        simp only [evalInt, hlI, hrI, hli, hri, ok_bind, Bool.and_self, ite_true, ha1, hb1, hb2, ite_false]
+      · simp [PExpr.isInt, hlI, hrI]
+      · simp [PExpr.isIntExact, hlE, hrE]
+  | @cmp op l r a b hop _ _ ihl ihr =>
+      obtain ⟨hlc, hla, hli, hlk⟩ := ihl
+      obtain ⟨hrc, hra, hri, hrk⟩ := ihr
+      obtain ⟨hlI, hlE, hl32⟩ := hlk rfl
+      obtain ⟨hrI, hrE, hr32⟩ := hrk rfl
+      simp only [fragTy] at hlc hla hrc hra
+      obtain ⟨hv, hsig⟩ := cmp_eval hop a b
+      have hcls : op.constClass = .compare := by
+        simp only [cmpOps, List.mem_cons, List.mem_nil_iff, or_false] at hop
+        rcases hop with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+      refine ⟨?_, ?_, ?_, fun h => absurd h (by decide)⟩
+      · simp only [ctype, hcls, fragTy]
+      · simp only [evalAt, hcls, fragTy, hlc, hrc, ok_bind, Nat.max_self, Bool.and_self, hsig, Bool.false_eq_true,
+          ite_false, hla, hra]
+        rw [hv]
+      · simp only [cmpOps, List.mem_cons, List.mem_nil_iff, or_false] at hop
+        rcases hop with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
+          simp only [evalInt, hlI, hrI, hli, hri, ok_bind, Bool.and_self, ite_true, cmpVal, b2i_eq] <;>
+          first
+          | (by_cases h : a = b <;> simp [h])
+          | simp
+  | @ternary c t e x y z kc _ _ _ ihc iht ihe =>
+      obtain ⟨hcc, hca, hci, -⟩ := ihc
+      obtain ⟨htc, hta, hti, htk⟩ := iht
+      obtain ⟨hec, hea, hei, hek⟩ := ihe
+      obtain ⟨htI, htE, ht32⟩ := htk rfl
+      obtain ⟨heI, heE, he32⟩ := hek rfl
+      simp only [fragTy] at htc hta hec hea
+      refine ⟨?_, ?_, ?_, fun _ => ⟨?_, ?_, by split <;> assumption⟩⟩
+      · simp only [ctype, htc, hec, ok_bind, fragTy, Nat.max_self, Bool.and_self]
+      · show evalAt env (32, true) (.ternary c t e) = _
+        simp only [evalAt, hcc, ok_bind]
+        rw [hca, ok_bind]
+        by_cases hx : x = 0
+        · simp [hx, hea]
+        · simp [hx, hta]
+      · simp only [evalInt, htI, heI, hci, ok_bind, Bool.and_self, ite_true]
+        by_cases hx : x = 0
+        · simp [hx, hei]
+        · simp [hx, hti]
+      · simp [PExpr.isInt, htI, heI]
+      · simp [PExpr.isIntExact, htE, heE]
+
+
+namespace Frag
+
+variable {env : IEnv} {e : PExpr} {v : Int} {k : Bool}
+
+theorem ctype_eq (h : Frag env e v k) : ctype env e = .ok (fragTy k) := h.eval.1
+theorem evalAt_eq (h : Frag env e v k) : evalAt env (fragTy k) e = .ok v := h.eval.2.1
+theorem evalInt_eq (h : Frag env e v k) : evalInt env e = .ok v := h.eval.2.2.1
+
+/-- A generate condition (`evalGenGuard`: `ctype`, then `evalAt`) of the fragment is its unbounded value. -/
+theorem evalGenGuard_eq (h : Frag env e v k) : evalGenGuard env e = .ok v := by
+  unfold evalGenGuard
+  rw [h.ctype_eq]
+  simp only [h.evalAt_eq]
+
+/-- No node of the fragment is a conversion (`evalSized` reads no assignment target off it). -/
+theorem pushedTarget_eq (h : Frag env e v k) : e.pushedTarget = none := by
+  cases h <;> rfl
+
+/-- The width-exact evaluation at the node's own type (`evalSized`) is the unbounded value. -/
+theorem evalSized_eq (h : Frag env e v k) : evalSized env e = .ok v := by
+  unfold evalSized
+  rw [h.ctype_eq, ok_bind]
+  simp only [h.evalAt_eq, ok_bind, h.pushedTarget_eq]
+
+/-- The exact 32-bit `int` evaluator (`evalIntExactRec`, wrapping at every node) is the unbounded value. -/
+theorem evalIntExactRec_eq (h : Frag env e v k) : evalIntExactRec env e = .ok v := by
+  induction h with
+  | int hv => simp only [evalIntExactRec, canonInt32_of hv]
+  | @genvar n v hl hv =>
+      have hi : env.intVal? n = some v := by simp [IEnv.intVal?, hl]
+      simp only [evalIntExactRec, hi, canonInt32_of hv]
+  | param hi hv => simp only [evalIntExactRec, hi, canonInt32_of hv]
+  | add hl hr hab ihl ihr =>
+      have hlE := (hl.eval.2.2.2 rfl).2.1
+      have hrE := (hr.eval.2.2.2 rfl).2.1
+      simp only [evalIntExactRec, hlE, hrE, SymBinOp.intArith, Bool.and_self, ite_true, ihl, ihr, ok_bind,
+        canonInt32_of hab]
+  | sub hl hr hab ihl ihr =>
+      have hlE := (hl.eval.2.2.2 rfl).2.1
+      have hrE := (hr.eval.2.2.2 rfl).2.1
+      simp only [evalIntExactRec, hlE, hrE, SymBinOp.intArith, Bool.and_self, ite_true, ihl, ihr, ok_bind,
+        canonInt32_of hab]
+  | mul hop hl hr hab ihl ihr =>
+      have hlE := (hl.eval.2.2.2 rfl).2.1
+      have hrE := (hr.eval.2.2.2 rfl).2.1
+      rcases hop with rfl | rfl <;>
+        simp only [evalIntExactRec, hlE, hrE, SymBinOp.intArith, Bool.and_self, ite_true, ihl, ihr, ok_bind,
+          canonInt32_of hab]
+  | @shr l r a b hl hr ha0 hb0 hb32 ihl ihr =>
+      have hlE := (hl.eval.2.2.2 rfl).2.1
+      have hrE := (hr.eval.2.2.2 rfl).2.1
+      have ha := (hl.eval.2.2.2 rfl).2.2
+      have hb1 : ¬ b < 0 := by omega
+      have hb2 : ¬ (32 : Int) ≤ b := by omega
+      have ha1 : ¬ a < 0 := by omega
+      have hq0 : 0 ≤ a.tdiv ((2 : Int) ^ b.toNat) := by
+        rw [Int.tdiv_eq_ediv_of_nonneg ha0]; exact Int.ediv_nonneg ha0 (Int.pow_nonneg (by decide))
+      have hq1 : a.tdiv ((2 : Int) ^ b.toNat) ≤ a := by
+        rw [Int.tdiv_eq_ediv_of_nonneg ha0]; exact Int.ediv_le_self _ ha0
+      have hq : InInt32 (a.tdiv ((2 : Int) ^ b.toNat)) := ⟨by omega, by have := ha.2; omega⟩
+      simp only [evalIntExactRec, hlE, hrE, SymBinOp.intArith, Bool.and_self, ite_true, ihl, ihr, ok_bind,
+        hb1, hb2, ha1, ite_false, canonInt32_of hq]
+  | @cmp op l r a b hop hl hr =>
+      have hia : op.intArith = false := by
+        simp only [cmpOps, List.mem_cons, List.mem_nil_iff, or_false] at hop
+        rcases hop with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
+      simp only [evalIntExactRec, hia, Bool.and_false, Bool.false_eq_true, ite_false]
+      exact (Frag.cmp hop hl hr).evalSized_eq
+  | ternary hc ht he =>
+      simp only [evalIntExactRec]
+      exact (Frag.ternary hc ht he).evalSized_eq
+
+/-- **The exact 32-bit `int` evaluation (`evalIntExact`, both modes) of the fragment is its unbounded value.** -/
+theorem evalIntExact_eq (h : Frag env e v k) : evalIntExact env e = .ok v := by
+  unfold evalIntExact
+  split
+  · exact h.evalInt_eq
+  · exact h.evalIntExactRec_eq
+
+end Frag
+
+end ConstEval
+
 #print axioms CombLib.bfVal_eq_val
 #print axioms CombLib.tape_sum
 #print axioms CombLib.ripple_mod
@@ -857,5 +1257,8 @@ theorem LVec.extract_eq_ofBitVec_of_bits {v : LVec} {lo k : Nat} {x : BitVec k}
 #print axioms LeafProcs.acyclic
 #print axioms CombEqs.readback1
 #print axioms LVec.extract_eq_ofBitVec_of_bits
+#print axioms ConstEval.Frag.eval
+#print axioms ConstEval.Frag.evalGenGuard_eq
+#print axioms ConstEval.Frag.evalIntExact_eq
 
 end SvGolf

@@ -1,10 +1,10 @@
 import SvGolf.CombLemmas
-import SvGolf.SpecFacts
+import tasks.clmul.Facts
 
 /-!
-# Tests of `SvGolf.CombLemmas` and `SvGolf.SpecFacts`: every lemma at two sizes
+# Tests of `SvGolf.CombLemmas` and `tasks.clmul.Facts`: every lemma at two sizes
 
-Each lemma of `SvGolf/CombLemmas.lean` and `SvGolf/SpecFacts.lean` applied at two instances of different size
+Each lemma of `SvGolf/CombLemmas.lean` and `tasks/clmul/Facts.lean` applied at two instances of different size
 (widths 3 and 8, rows of 4 and 8 columns, tapes of 3 and 5 rows, products of 2 and 4 bits, designs of 2 and 3
 processes, …), and where the instance is closed, checked against the definitions by `decide`. Built with the
 `tests` library (`tests.lean`).
@@ -499,5 +499,87 @@ open SvGolf.Tasks.Clmul in
 example (f : Nat → Bool) : (ofBits 8 f).getLsbD 6 = f 6 := getLsbD_ofBits_lt (by decide)
 open SvGolf.Tasks.Clmul in
 example : (ofBits 3 fun k => decide (k = 1)).getLsbD 1 = true := by rw [getLsbD_ofBits_lt (by decide)]; rfl
+
+/-! ## 8. Constant evaluation on the INT fragment (`SvGolf.ConstEval`)
+
+The exact 32-bit instantiation binds `N` in `nvals` at `(32, signed)`, a genvar in `vals`. A generate condition and
+an `int` localparam, at two sizes of the range, symbolic in the parameter; then closed instances by `rfl`, and the
+wrap the range premise excludes. -/
+
+section consteval
+
+open SvGolf.ConstEval
+
+/-- The environment of a generate body: `N` exact, the genvar `k`. -/
+private def cE (N k : Int) : IEnv := { vals := [("k", k)], nvals := [("N", (N, 32, true))], int32 := true }
+
+/-- `k < (k > N ? 2*N - k : k + 1)`. -/
+private def cG : PExpr :=
+  .binary .slt (.genvarRef "k")
+    (.ternary (.binary .sgt (.genvarRef "k") (.paramRef "N" none))
+      (.binary (.m0 .sub) (.binary .mul (.int 2) (.paramRef "N" none)) (.genvarRef "k"))
+      (.binary (.m0 .add) (.genvarRef "k") (.int 1)))
+
+/-- `(N > 2 ? 1 : 0) + (N > 3 ? 1 : 0)`, an `int` localparam. -/
+private def cS : PExpr :=
+  .binary (.m0 .add) (.ternary (.binary .sgt (.paramRef "N" none) (.int 2)) (.int 1) (.int 0))
+    (.ternary (.binary .sgt (.paramRef "N" none) (.int 3)) (.int 1) (.int 0))
+
+/-- The derivation of `cG` (its value is the one the constructors compute). -/
+private theorem cG_frag (N k : Nat) (hN : N < 2 ^ 20) (hk : k < 2 * N) : ∃ v, Frag (cE N k) cG v true := by
+  have fk : Frag (cE N k) (.genvarRef "k") k false := Frag.genvar rfl ⟨by omega, by omega⟩
+  have fN : Frag (cE N k) (.paramRef "N" none) N false := Frag.param rfl ⟨by omega, by omega⟩
+  have f1 : Frag (cE N k) (.int 1) 1 false := Frag.int ⟨by decide, by decide⟩
+  have f2 : Frag (cE N k) (.int 2) 2 false := Frag.int ⟨by decide, by decide⟩
+  exact ⟨_, Frag.cmp (op := .slt) (by simp [cmpOps]) fk
+    (Frag.ternary (Frag.cmp (op := .sgt) (by simp [cmpOps]) fk fN)
+      (Frag.sub (Frag.mul (Or.inl rfl) f2 fN ⟨by omega, by omega⟩) fk ⟨by omega, by omega⟩)
+      (Frag.add fk f1 ⟨by omega, by omega⟩))⟩
+
+example (N k : Nat) (hN : N < 2 ^ 20) (hk : k < 2 * N) : evalGenGuard (cE N k) cG = evalInt (cE N k) cG := by
+  obtain ⟨v, h⟩ := cG_frag N k hN hk
+  rw [h.evalGenGuard_eq, h.evalInt_eq]
+example (N k : Nat) (hN : N < 2 ^ 20) (hk : k < 2 * N) (hkN : k ≤ N) : evalGenGuard (cE N k) cG = .ok 1 := by
+  obtain ⟨v, h⟩ := cG_frag N k hN hk
+  rw [h.evalGenGuard_eq, ← h.evalInt_eq]
+  have hk' : ¬ (k : Int) > N := by omega
+  simp [cG, cE, evalInt, List.lookup, ok_bind, b2i_eq, hk']
+  omega
+
+/-- The derivation of `cS`. -/
+private theorem cS_frag (N : Nat) (hN : N < 2 ^ 20) : ∃ v, Frag (cE N 0) cS v false := by
+  have fN : Frag (cE N 0) (.paramRef "N" none) N false := Frag.param rfl ⟨by omega, by omega⟩
+  have fi : ∀ v : Int, -2147483648 ≤ v → v < 2147483648 → Frag (cE N 0) (.int v) v false :=
+    fun v h1 h2 => Frag.int ⟨h1, h2⟩
+  have t2 := Frag.ternary (Frag.cmp (op := .sgt) (by simp [cmpOps]) fN (fi 2 (by decide) (by decide)))
+    (fi 1 (by decide) (by decide)) (fi 0 (by decide) (by decide))
+  have t3 := Frag.ternary (Frag.cmp (op := .sgt) (by simp [cmpOps]) fN (fi 3 (by decide) (by decide)))
+    (fi 1 (by decide) (by decide)) (fi 0 (by decide) (by decide))
+  have b : ∀ x : Int, 0 ≤ (if x = 0 then (0 : Int) else 1) ∧ (if x = 0 then (0 : Int) else 1) ≤ 1 := by
+    intro x; split <;> omega
+  have b2 := b (cmpVal .sgt N 2)
+  have b3 := b (cmpVal .sgt N 3)
+  exact ⟨_, Frag.add t2 t3 ⟨by omega, by omega⟩⟩
+
+example (N : Nat) (hN : N < 2 ^ 20) : evalIntExact (cE N 0) cS = evalInt (cE N 0) cS := by
+  obtain ⟨v, h⟩ := cS_frag N hN
+  rw [h.evalIntExact_eq, h.evalInt_eq]
+example (N : Nat) (hN : N < 2 ^ 20) (h4 : 4 ≤ N) : evalIntExact (cE N 0) cS = .ok 2 := by
+  obtain ⟨v, h⟩ := cS_frag N hN
+  rw [h.evalIntExact_eq, ← h.evalInt_eq]
+  have h2 : (N : Int) > 2 := by omega
+  have h3 : (N : Int) > 3 := by omega
+  simp [cS, cE, evalInt, List.lookup, ok_bind, b2i_eq, h2, h3]
+
+/-- Closed instances, by evaluation. -/
+example : evalGenGuard (cE 16 5) cG = .ok 1 ∧ evalGenGuard (cE 16 20) cG = .ok 0 ∧ evalIntExact (cE 16 0) cS = .ok 2 ∧
+    evalIntExact (cE 3 0) cS = .ok 1 := ⟨rfl, rfl, rfl, rfl⟩
+
+/-- The range premise is the content: at `N = 2^31 - 1`, `N + 1` wraps under the exact evaluator, and the unbounded
+one does not. -/
+example : evalIntExact (cE 2147483647 0) (.binary (.m0 .add) (.paramRef "N" none) (.int 1)) = .ok (-2147483648) ∧
+    evalInt (cE 2147483647 0) (.binary (.m0 .add) (.paramRef "N" none) (.int 1)) = .ok 2147483648 := ⟨rfl, rfl⟩
+
+end consteval
 
 end SvGolfTests.Comb

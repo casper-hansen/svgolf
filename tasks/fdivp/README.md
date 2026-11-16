@@ -2,7 +2,8 @@
 
 IEEE 754 division for all binary formats at once: a combinational divider **generic in the exponent width `W` and
 the precision `P`**, **round to nearest, ties to even**, every NaN result the **canonical quiet NaN**, and **full
-subnormals** (no flush to zero), proved correct against the trusted IEEE 754 spec **for every format**. The task is
+subnormals** (no flush to zero), proved correct against IEEE 754 division as Proglib's IEEE 754 library defines it,
+**for every format**. The task is
 **ready** (`task.json` `"status": "ready"`): the statement, a validated reference circuit (`reference/fdivp.sv`, a
 word-level netlist of 34 sites with two generate families) and its **proof for every `W`, `P` and every pair of operands**
 (`reference/fdivp.lean`, accepted by `check.py` through every stage, axioms `propext`, `Classical.choice`, `Quot.sound`
@@ -16,13 +17,15 @@ folded into this one on 2026-11-03: its function is this task's at `(5, 11)`, it
 is kept as test material (`tests/fdivp/unproved/flat_binary16.sv`: right at `(5, 11)` only, so it has no proof of
 this task's statement and is not on the site), and its tests were ported to `(5, 11)`.
 
-The task directory holds: `Spec.lean` and `IEEE754.lean` (TRUSTED: the statement and the IEEE 754 spec it uses),
-`task.json`, `README.md`, `REVIEW.md` (the review of the trusted files), `oracle.py` (the advisory oracle),
+The task directory holds: `Spec.lean` (TRUSTED: the statement; its function is IEEE 754 division from Proglib's library
+`LeanModels.SoftFloat.Binary`, section "IEEE 754 division" below),
+`task.json`, `README.md`, `REVIEW.md` (the review of the trusted statement), `oracle.py` (the advisory oracle),
 `spec_validate/` (the spec's differential validation, untrusted tooling) and `reference/` (`fdivp.sv` and `fdivp.lean`,
 D3; `fdivp_newton.sv` and `fdivp_newton.lean`, the Newton divider; `fdivp_srt.sv` and `fdivp_srt.lean`, the SRT
-divider, with `LICENSES/`, the licence texts its Apache-2.0 WITH SHL-2.1 part needs). There is no proof library: each
-reference proof is one self-contained file over the general ls-sv library `LeanModels.Sv.Lib` (the Newton and SRT proofs
-copy the sections they share with D3's verbatim, and `tests/fdivp/shared_sections.py` checks that they stay
+divider, with `LICENSES/`, the licence texts its Apache-2.0 WITH SHL-2.1 part needs). There is no per-task proof library: each
+reference proof is one file over the general ls-sv library `LeanModels.Sv.Lib` and Proglib's IEEE 754 binary-format
+library `LeanModels.SoftFloat.Binary`, the library the statement is written in (the Newton and
+SRT proofs copy the sections they share with D3's verbatim, and `tests/fdivp/shared_sections.py` checks that they stay
 byte-identical).
 
 ## Proving a new design
@@ -55,7 +58,8 @@ built):
 4. The arithmetic: a model of your datapath on `Nat` that the printed equations imply (the reference's glue,
    `Glue.chain`: the equations in, the output's value out), then that model against the task's function
    (`OutN_fdivBits`). The facts about IEEE 754 rounding do not depend on the datapath: the rounding certificate
-   `certF_bridge` (section `CertF`), for every format, is where a proof of any other divider starts.
+   `certF_bridge` (Proglib's `LeanModels.SoftFloat.Binary`, `import LeanModels.SoftFloat.Binary`), for every format,
+   is where a proof of any other divider starts.
 
 **Lay the design out so the tactics take it** (what they refuse, with the messages: [PROVING.md, section
 4](../../PROVING.md#4-what-the-tactics-accept-and-what-they-refuse)):
@@ -121,9 +125,10 @@ end Submission
   windows, concatenations, extensions, constants, shifts, `addBits` / `subBits`, multiplexers, reductions),
   `NatArith` (scaled comparisons, products of powers, modular subtraction, the bands of a remainder),
   `BitVecArith`, `RowMajor`;
-* in no library yet: the IEEE 754 facts and the rounding certificate (copy them from the reference):
-  `reference/fdivp.lean`'s sections `IEEE754Proofs`, `ScaleInvariance`, `RneInterval`, `RoundingBounds` and
-  `CertF` hold for every divider; `DpN` .. `DpU` and `DpG1` .. `DpG5` are the restoring datapath's;
+* Proglib's `LeanModels.SoftFloat.Binary` (`import LeanModels.SoftFloat.Binary`): the IEEE 754 facts, the rounding
+  certificate (`certNF_iff`, `certF_bridge`) and the rounding stage of a datapath (`fin_cert_abs`, `ovf_cert_abs`),
+  for every format and every divider; `reference/fdivp.lean`'s `DpN` .. `DpU` and `DpG1` .. `DpG5` are the restoring
+  datapath's;
 * the port bridges `SvState.lookup_eq_ofBitVec_bv`, `SvState.boolAt_ofBitVec`, `inKnown_ofBitVec`; `sv_bridge`.
 
 ## The circuit
@@ -142,7 +147,8 @@ module fdiv #(parameter int W = 5, parameter int P = 11) (
 `W` is the width of the biased exponent field and `P` the precision (significand digits including the implicit bit), so a
 pattern is `1 + W + (P - 1) = W + P` bits: binary16 is `(5, 11)`, bfloat16 `(8, 8)`, binary32 `(8, 24)`, binary64
 `(11, 53)`, the smallest format `(2, 2)`. It must compute, combinationally, `q = a / b` exactly as the trusted function
-`SvGolf.IEEE754.divide <W, P> .roundTiesToEven` (`IEEE754.lean`, `fdivBits W P a b` in `Spec.lean`), for
+`LeanModels.SoftFloat.Binary.divide <W, P> .nearestTiesToEven` (IEEE 754 division under roundTiesToEven, from Proglib's
+library; `fdivBits W P a b` in `Spec.lean`), for
 every `W >= 2` and `P >= 2` (no upper bound):
 
 | operands | `q` |
@@ -165,7 +171,7 @@ def task (W P : Nat) : CombTask where
   outputs _ := [("q", W + P)]
   fn _ := fun (a, b, ()) => (fdivBits W P a b, ())
 
-def inRange (W P : Nat) : Prop := 2 ≤ W ∧ 2 ≤ P ∧ W + P + 1 < 2 ^ 31
+def inRange (W P : Nat) : Prop := 2 ≤ W ∧ 2 ≤ P ∧ W + P < 2 ^ 20
 
 abbrev Statement (sem : Nat → Nat → LeanModels.Sv.Design2) : Prop :=
   ∀ W P, inRange W P → (task W P).StatementFixed (sem W P)
@@ -179,37 +185,40 @@ whose stimulus drives `a` and `b` with known values ends with `q = fdivBits W P 
 division and at `(8, 24)` binary32. The choices of the statement (range, NaN, rounding, one fixed-size task per
 format) are listed in `REVIEW.md`.
 
-The range requires `W + P + 1 < 2^31` (decided 2026-11-06): the port widths are `int` expressions of the
-parameters (`[W+P-1:0]`), a design computes its exponent in `W + P + 1` bits (`localparam integer EW = W + P + 1`
-in the references), and an `int` holds no value of `2^31` or more, so beyond that bound the elaborated widths wrap.
-Every task's range keeps every width it implies below `2^31`.
+The range requires `W + P < 2^20` (decided 2026-11-14; from 2026-11-06 it required `W + P + 1 < 2^31`): the port
+widths are `int` expressions of the parameters (`[W+P-1:0]`), a design computes its exponent in `W + P + 1` bits
+(`localparam integer EW = W + P + 1` in the references), and the Newton and SRT dividers compute more from `P`
+(`localparam integer F = P + 4`, `RW = P + 6`), which wrapped at the top of the former range. Every family task's range keeps the `int` arithmetic a design does on its parameters (its widths, and the
+indices and localparams it computes from them, such as a `localparam int P = 2*N + 4`) below `2^31`, where an
+`int` wraps.
 
-## The trusted spec (`IEEE754.lean`)
+## IEEE 754 division: Proglib's library (`LeanModels.SoftFloat.Binary`)
 
-`IEEE754.lean` is the **trusted challenge material** of the task, beside `Spec.lean` (it was `spec/IEEE754.lean`
-until 2026-11-03; moved with its content unchanged). It defines IEEE 754-2019 `division` as a function on bit patterns,
-generic over the binary format:
+The statement names its function from **Proglib's IEEE 754 library**, `LeanModels.SoftFloat.Binary` (the file
+`LeanModels/SoftFloat/Binary/Defs.lean` of the pinned Proglib revision), and defines nothing about floating point
+itself (decided 2026-11-14; until then the task had its own trusted copy of the same definitions, `IEEE754.lean`).
+The library defines IEEE 754-2019 `division` as a function on bit patterns, generic over the binary format:
 
 ```lean
-SvGolf.IEEE754.divide (f : Format) (mode : RoundingMode) : BitVec f.k → BitVec f.k → BitVec f.k
-SvGolf.IEEE754.divBinary16 (a b : BitVec 16) : BitVec 16   -- binary16, roundTiesToEven
-SvGolf.IEEE754.divBinary32 (a b : BitVec 32) : BitVec 32   -- binary32, roundTiesToEven
+LeanModels.SoftFloat.Binary.divide (f : Format) (mode : RoundingMode) : BitVec f.k → BitVec f.k → BitVec f.k
+LeanModels.SoftFloat.Binary.divBinary16 (a b : BitVec 16) : BitVec 16   -- binary16, roundTiesToEven
+LeanModels.SoftFloat.Binary.divBinary32 (a b : BitVec 32) : BitVec 32   -- binary32, roundTiesToEven
 ```
 
-`Spec.lean`'s `fdivBits W P` is `divide ⟨W, P⟩ .roundTiesToEven`: at `(5, 11)` that is IEEE binary16 division, at `(8, 24)`
-binary32.
+`Spec.lean`'s `fdivBits W P` is `divide ⟨W, P⟩ .nearestTiesToEven` (the library's rounding-direction attribute is
+SoftFloat's `RoundingMode`, which spells IEEE's roundTiesToEven `nearestTiesToEven`): at `(5, 11)` that is IEEE
+binary16 division, at `(8, 24)` binary32.
 
-The spec uses core Lean only: no Mathlib, no `Float`, no `Rat`, no `extern` or
-`implemented_by`, no `sorry`/`native_decide`/axioms. It computes with `Nat` arithmetic and
-`BitVec.toNat`/`BitVec.ofNat`, and everything is executable (`#eval`, `#guard`, kernel
-`decide`). The operation takes about 300 lines and the characterization statements about
-140 more; every docstring cites its IEEE 754-2019 clause. It was validated differentially
-against three independent implementations (`spec_validate/`, its README has the evidence and
-the commands to re-run it).
+The library uses core Lean only: no Mathlib, no `Float`, no `Rat`, no `extern` or `implemented_by`, no
+`sorry`/`native_decide`/axioms. It computes with `Nat` arithmetic and `BitVec.toNat`/`BitVec.ofNat`, and everything is
+executable (`#eval`, `#guard`, kernel `decide`). Every definition's docstring cites its IEEE 754-2019 clause. The
+library's `divide` is validated differentially against three independent implementations (`spec_validate/`: 13,623,416
+evaluations, 0 mismatches, every mutant caught; its README has the evidence and the commands to re-run it), and the
+library adds 1,361 differential rows of its own (`LeanModels/SoftFloat/Binary/Tests.lean`).
 
-### What the spec says
+### What the library says
 
-Reading order in `IEEE754.lean`:
+Reading order in `LeanModels/SoftFloat/Binary/Defs.lean`:
 
 1. **`Format`** (§3.3, §3.4, Table 3.5) is given by `w` (exponent-field width) and `p` (precision,
    including the hidden bit), with `2 ≤ w` and `2 ≤ p`. The derived quantities are
@@ -246,18 +255,19 @@ Every NaN result is the single **canonical quiet NaN**: sign 0, exponent field a
 trailing significand `10…0` (only the quiet bit set). That is **`0x7E00`** in binary16 and
 **`0x7FC00000`** in binary32. NaN operands of either sign, signaling NaNs, and NaNs with
 payloads all produce it. IEEE §6.2.3 says a quiet-NaN result *should*, not *shall*, carry an
-input payload, so this choice conforms. RISC-V F/Zfh and SMT-LIB (one NaN per sort) use the
-same policy, and Lean core's float model produces the same pattern. The policy makes the
-result a function of the operand bits, which a circuit spec needs.
+input payload, so this choice conforms; the library states what the standard itself allows as
+`DivisionResult` (any quiet NaN where the result is a NaN), and `divide` is one resolution of it. RISC-V F/Zfh
+and SMT-LIB (one NaN per sort) use the same policy, and Lean core's float model produces the same pattern. The
+policy makes the result a function of the operand bits, which a circuit statement needs. NaN payloads are not
+propagated.
 
 #### Rounding modes and flags
 
 All five rounding-direction attributes of §4.3 are a parameter (`RoundingMode`). The
-binary16 and binary32 instances `divBinary16`/`divBinary32`, like the task, fix `roundTiesToEven`, the default (§4.3.3). The
-proofs cover roundTiesToEven only; the other modes are covered by differential testing
-(below).
+binary16 and binary32 instances `divBinary16`/`divBinary32`, like the task, fix roundTiesToEven, the default (§4.3.3).
+The library proves the declarative rounding properties for all five attributes; the task uses roundTiesToEven only.
 
-Exception flags (§7) are **not modelled**. The reasons:
+Exception flags (§7) are **not modelled**, by the library or by the task. The reasons:
 
 * Under default exception handling (§7.1) the delivered result bits do not depend on the flags.
 * The challenge scores a circuit on its result bits. Flags would add five outputs that players
@@ -273,47 +283,44 @@ parameter, `inexact`) would be a natural "hard mode" later.
 * Exception flags, traps, and alternate exception handling (§7, §8).
 * NaN payload propagation (by policy, see above).
 * Decimal formats.
-* Other operations: `round` is generic and could be reused for `×`, `+` and `√`, but only
-  division is specified and validated.
 
-### What is proved (`reference/fdivp.lean`, section `IEEE754Proofs`)
+### What is proved (`LeanModels/SoftFloat/Binary/Characterization.lean`)
 
-Five statements are defined as `Prop`s in the trusted file and proved **for every format**
-in the reference proof (`reference/fdivp.lean`, section `IEEE754Proofs`; until 2026-11-03 the module
-`spec/IEEE754Proofs.lean`, which the docstrings of `IEEE754.lean` still name). They are stated with bit patterns, `decode`, `Datum.value?`, `BitVec.msb`
-and integer inequalities only. None of them mentions `round`.
+Five properties of the library's `divide` are proved **for every format** in the library itself, stated with bit
+patterns, `decode`, `Datum.value?`, `BitVec.msb` and integer inequalities only. None of them mentions `round`.
 
-In `DivideIsNearestTiesToEven`, `DivideOverflowsAtThreshold` and `DivideOfNumbersIsNotNaN`,
+In `divide_isNearestTiesToEven`, `divide_overflowsAtThreshold` and `divide_ofNumbersIsNotNaN`,
 `a` and `b` are bit patterns with exact values `x` and `y` (zero or finite operands) and
-`y ≠ 0`. `DivideSignIsXor` covers all bit patterns.
+`y ≠ 0`. `divide_signIsXor` covers all bit patterns.
 
-* **`DivideIsNearestTiesToEven f`**. Suppose the roundTiesToEven quotient has an exact value
+* **`divide_isNearestTiesToEven`**. Suppose the roundTiesToEven quotient has an exact value
   `r` (it is zero or finite). Then:
   * no finite number `v` of the format is strictly closer to `x / y` than `r`:
     `NoFarther r v (fracDiv x y)`, i.e. `|r − x/y| ≤ |v − x/y|` by cross-multiplication;
   * if some `v ≠ r` is equally close, the delivered pattern's last bit is 0 (ties to even).
-* **`DivideOverflowsAtThreshold f`**. The roundTiesToEven quotient is an infinity exactly when
+* **`divide_overflowsAtThreshold`**. The roundTiesToEven quotient is an infinity exactly when
   `|x/y| ≥ 2^emax × (2 − 2^(−p))`, the §4.3.1 threshold. As integers:
   `d · 2^emax · (2^(p+1) − 1) ≤ |n| · 2^p` for `x/y = n/d`.
-* **`DivideOfNumbersIsNotNaN f`**. Under every rounding mode, the quotient is an infinity or
+* **`divide_ofNumbersIsNotNaN`**. Under every rounding mode, the quotient is an infinity or
   has an exact value; it is never a NaN (§7.2). This closes a gap the first two leave open on
   their own: the first applies only to results with a value and the second only says "not an
   infinity" below the threshold, so a divider that returned a NaN for every quotient below the
   threshold would satisfy both. This statement rules that divider out.
-* **`DivideSignIsXor f`**. For **all** bit patterns and every rounding mode, a non-NaN result
+* **`divide_signIsXor`**. For **all** bit patterns and every rounding mode, a non-NaN result
   has sign bit `a.msb ^^ b.msb` (§6.3). This includes zeros, infinities, overflowed results
   and the special-case table.
-* **`DivideIsUniquelyCharacterized f`**. Any bit pattern `R` with the four properties above
-  (stated for `R`, at roundTiesToEven) equals `divide f .roundTiesToEven a b`.
+* **`divide_isUniquelyCharacterized`**. Any bit pattern `R` with the four properties above
+  (stated for `R`, at roundTiesToEven) equals `divide f .nearestTiesToEven a b`.
 
 So, for operands that are numbers with a nonzero divisor, the four properties are a complete
 specification of the binary16 and binary32 instances `divBinary16`/`divBinary32`. A reader who trusts the statements need not read `round`.
 The remaining operand pairs are a NaN or infinite operand, or a zero divisor. Their results are
 the explicit special-case table in `divide`, meant to be read directly. The signs of its
-non-NaN results are also covered by `DivideSignIsXor`; its NaN results are the canonical NaN
-by inspection and by the golden vectors. Axioms: `propext`, `Classical.choice`, `Quot.sound`.
+non-NaN results are also covered by `divide_signIsXor`; its NaN results are the canonical NaN
+by inspection and by the golden vectors. Axioms: `propext`, `Classical.choice`, `Quot.sound`. (Until 2026-11-13 these
+five were proved in the reference proofs' section `IEEE754Proofs`, about the task's own definitions.)
 
-Proof outline: in units of `2^qmin`, `roundUnits` writes `N = c·(D·2^j) + r`. A gap lemma
+Proof outline (the library's): in units of `2^qmin`, `roundUnits` writes `N = c·(D·2^j) + r`. A gap lemma
 shows that no magnitude `c'·2^i` with `c' < 2^p` lies strictly between `c·2^j` and
 `(c+1)·2^j`, which gives the nearest and tie properties. The overflow threshold follows from
 them: the threshold is the midpoint between `maxFinite`, whose significand `2^p − 1` is odd,
@@ -434,12 +441,11 @@ the task function for every format. The five `cover` obligations of the generate
 sv_cover` closes them. The limits assume the `sv_comb` tactics with the grouped obligations of 2026-11-02 (without them the
 structure costs 895 thousand heartbeats and the whole solution 2.38 million).
 
-The file is self-contained: it imports the generated design, the framework, the `sv_comb` tactics and the general ls-sv
-proof library `LeanModels.Sv.Lib` (`Nat` arithmetic, the `Nat` values of the word-level bit helpers `XF.*`, row-major
-offsets, restoring division; task-independent, Mathlib-free, prebuilt in the checker's trusted stage), and proves the rest
-in sections: `IEEE754Proofs` (facts about the spec, its five characterization theorems included), `ScaleInvariance`,
-`RneInterval`, `RoundingBounds` and `CertF` (the rounding certificate `certF_bridge`, for every format: a proof for ANY
-other divider starts here), `DpN` .. `DpU` (the arithmetic of THIS datapath on `Nat`, the model `OutN` and
+It imports the generated design, the framework, the `sv_comb` tactics, the general ls-sv proof library
+`LeanModels.Sv.Lib` (`Nat` arithmetic, the `Nat` values of the word-level bit helpers `XF.*`, row-major offsets,
+restoring division) and Proglib's IEEE 754 library `LeanModels.SoftFloat.Binary` (the statement's own, with the
+rounding certificate `certF_bridge` for every format: a proof for ANY other divider starts here; all task-independent,
+Mathlib-free, prebuilt in the checker's trusted stage), and proves the rest in sections: `DpN` .. `DpU` (the arithmetic of THIS datapath on `Nat`, the model `OutN` and
 `OutN_fdivBits`), `DpG1` .. `DpG5` (the glue: one lemma per shape of equation of THIS netlist, and `chain`). So: **copy
 the reference's netlist and you inherit the proof**; **change a signal of the netlist and the corresponding hypothesis of
 `chain` no longer matches** (a type mismatch at the `chain` application, which is how the attacks fail); a different
@@ -481,8 +487,9 @@ the multipliers of each Newton step are about as deep as the restoring chain the
 with `W + P <= 14`, on all 2^32 pairs at `(5, 11)`, `(8, 8)` and `(2, 14)`, and 200,000 corner-rich vectors at 14
 formats up to `(11, 53)` and `(2, 62)`: 0 mismatches.
 
-**The proof** (`reference/fdivp_newton.lean`, 5,801 lines, `check.py` accepts it, the cold `solution` stage takes about
-50 s; 45 s while the core's mathematics was prebuilt in the library). The sections `IEEE754Proofs` .. `DpG4` are D3's, copied verbatim (`tests/fdivp/shared_sections.py`). Section
+**The proof** (`reference/fdivp_newton.lean`, 2,981 lines (5,804 before the IEEE 754 sections became Proglib's library,
+2026-11-13), `check.py` accepts it, the cold `solution` stage takes about
+50 s; 45 s while the core's mathematics was prebuilt in the library). The sections `DpN` .. `DpG4` are D3's, copied verbatim (`tests/fdivp/shared_sections.py`). Section
 `NwG1` is the glue of the core: `newton_rows` (the family, an induction over the steps on the value lemma of `*`,
 `XF.val_mulBits`), one lemma per core site, and `core`: for `N >= 1` steps with `P + 2 <= 2^(N+2)`, the printed equations
 of the core give restoring division's quotient and sticky bit. The mathematics of the core is section `NwCore`: the
@@ -525,7 +532,7 @@ pair of the 66 formats with `W + P <= 14`, on all 2^32 pairs at `(5, 11)`, `(8, 
 corner-rich vectors and 432,400 sampled pairs at 14 formats up to `(11, 53)` and `(2, 62)`: 0 mismatches. The selection
 table is checked exactly over every one of its cells (section 4.1 there, and in the proof).
 
-**The proof** (`reference/fdivp_srt.lean`, 6,090 lines, `check.py` accepts it, the cold `solution` stage takes 160 to 182 CPU s, 64 to 78 s of wall clock (2026-11-06, `score/time_limits.json`; 70 to 79 s of wall clock at a load average below 8 on 2026-11-05). The sections `IEEE754Proofs` ..
+**The proof** (`reference/fdivp_srt.lean`, 3,266 lines (6,090 before the IEEE 754 sections became Proglib's library, 2026-11-13), `check.py` accepts it, the cold `solution` stage takes 160 to 182 CPU s, 64 to 78 s of wall clock (2026-11-06, `score/time_limits.json`; 70 to 79 s of wall clock at a load average below 8 on 2026-11-05). The sections `DpN` ..
 `DpG4` are D3's, copied verbatim (`tests/fdivp/shared_sections.py`). Section `SrCore` is the mathematics of the core:
 the selection table checked cell by cell by one kernel `decide` (`srt_tbl`: the constants are a thermometer, and in every
 cell of estimate and divisor bits the selected digit keeps `|3R| <= 8·dv`), the estimate, containment, the carry-save

@@ -6,14 +6,14 @@
     "decl": "SvGolf.Tasks.Add.Statement",
     "file": "svgolf/tasks/add/Spec.lean"
   },
-  "summary": "A design meets the trusted statement exactly when, for every width N with 1 ≤ N < 2^31, it has all of the properties below. Lean checks that, together, they say exactly what the statement says, nothing less and nothing more (the theorem statement_iff_properties).",
+  "summary": "A design meets the trusted statement exactly when, for every width N with 1 ≤ N < 2^20, it has all of the properties below. Lean checks that, together, they say exactly what the statement says, nothing less and nothing more (the theorem statement_iff_properties).",
   "properties": [
     {
       "name": "PARAMS_IN_RANGE",
       "decl": "SvGolf.Tasks.Add.Properties.ParamsInRange",
       "file": "svgolf/tasks/add/Properties.lean",
       "kind": "range",
-      "text": "The statement covers every width N with 1 ≤ N < 2^31 at once (the module's parameter is an int, which holds no larger value): one proof works for all of them, not just for the width the design is scored at (N = 16). Every property below must hold at each width."
+      "text": "The statement covers every width N with 1 ≤ N < 2^20 at once (the module's parameter is an int, and the range keeps the int arithmetic a design does on N below 2^31, where an int wraps): one proof works for all of them, not just for the width the design is scored at (N = 16). Every property below must hold at each width."
     },
     {
       "name": "INTERFACE",
@@ -115,7 +115,7 @@
     {
       "name": "Process2.isEdgePhase",
       "decl": "LeanModels.Sv.Process2.isEdgePhase",
-      "file": "LeanModels/Sv/Sem2.lean",
+      "file": "LeanModels/Sv/Sem2Ast.lean",
       "text": "True for the processes that run at the clock edge: always_ff, always @(posedge …) and asynchronous-reset blocks."
     }
   ]

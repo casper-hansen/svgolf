@@ -1,5 +1,6 @@
 -- svgolf-latency: 4
 import Submission.Design
+import SvGolf.Cycle
 import LeanModels.Sv.Gen2
 import LeanModels.Sv.Hier2Gen
 import LeanModels.Sv.SeqProfile
@@ -96,143 +97,6 @@ def mmD (N W AccW : Nat) : Design2 where
 
 /-! ### The stages of `instantiate2` -/
 
-def mmScope (N W AccW : Int) : IEnv :=
-  { vals := [("N", N), ("W", W), ("AccW", AccW)], pwidths := [("N", 32), ("W", 32), ("AccW", 32)] }
-
-def mmEnv (N W AccW : Int) : IEnv :=
-  { mmScope N W AccW with dims := dimTable (mmScope N W AccW) design.pdesign.decls }
-
-theorem mm_paramEnv (N W AccW : Int) :
-    design.pdesign.paramEnv2 [N, W, AccW] = .ok (mmEnv N W AccW) := rfl
-
-def mmElems : List (String × Nat) :=
-  ["clk", "rst", "start", "A", "B", "done", "C", "k", "busy", "a_sh", "b_sh"].map (·, 1)
-
-theorem mm_decls (N W AccW : Int) :
-    buildDecls (mmEnv N W AccW) design.pdesign.decls =
-      .ok (mmDecls ((N * N * W - 1).natAbs + 1) ((N * N * AccW - 1).natAbs + 1)) := by
-  simp [design.pdesign, buildDecls, instDecl, PType.width_packed_cons, PDim.width, evalInt,
-    mmEnv, mmScope, List.lookup, mmDecls, Gen2.except_ok_bind]
-
-theorem mm_elems (N W AccW : Int) : buildElems (mmEnv N W AccW) design.pdesign.decls = .ok mmElems := by
-  simp [design.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, mmEnv,
-    mmScope, List.lookup, mmElems, Gen2.except_ok_bind]
-
-/-- The instantiation environment. -/
-abbrev mmE (N W AccW : Nat) : IEnv :=
-  (mmEnv N W AccW).withDecls (mmDecls (N * N * W) (N * N * AccW))
-
-theorem mm_ctrl (N W AccW : Nat) :
-    design.pdesign.processes.map (instProcess2 (mmE N W AccW) mmElems) = [mmCtrl N W] := by
-  sv2_inst_simp [instStmt2, instStmts2, design.pdesign, mmEnv, mmScope, mmDecls, mmElems, mmCtrl,
-    dimTable, dimTableStep, PType.width_packed_cons, PDim.width, ctxOpWidth2, rigidMax2,
-    PExpr.ctxPropagates, PExpr.constLeaf, PExpr.negGenvarWidened, LVec.width, divOperandWidth2,
-    instDivOperand2, fitDivOperand2]
-  try and_intros
-  all_goals first | rfl | decide
-
-/-- The PE template (the process inside `g_row`/`g_col`). -/
-def peT : PProcess :=
-  match design.pdesign.generates with
-  | [.genFor _ _ _ _ _ _ [.genFor _ _ _ _ _ _ [.process p]]] => p
-  | _ => .alwaysFF "" (.block [])
-
-/-- The `sv2_inst_simp` set of the PE template (with the window facts in scope). `instExpr2` tries
-to constant-fold the `*` of the two sign-extending concatenations, and the fold must reduce to its
-error; `sv2_inst_simp`'s default set carries the constant folder (`ctype`/`evalAt` and their
-workers), so of the evaluators only `evalSized`, which is outside that set, is named here. -/
-macro "pe_simp" : tactic => `(tactic| sv2_inst_simp [peT, evalSized, Gen2.except_pure,
-  Lib.min_add_sub_one_self, Lib.max_add_sub_one_self, Lib.add_sub_one_sub_add_one, instStmt2, design.pdesign,
-  mmEnv, mmScope, mmDecls, mmElems, mmPE, sext,
-  dimTable, dimTableStep, PType.width_packed_cons, PDim.width, ctxOpWidth2, rigidMax2,
-  PExpr.constLeaf, PExpr.negGenvarWidened, LVec.width, *])
-
-theorem pe_inst (N W AccW i j : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hi : i < N)
-    (hj : j < N) :
-    instProcess2 (((mmE N W AccW).bindVal "i" i).bindVal "j" j) mmElems peT =
-      mmPE N W AccW i j := by
-  have pW := Nat.mul_pos (Nat.mul_pos hN hN) hW
-  have pA := Nat.mul_pos (Nat.mul_pos hN hN) hA
-  have hW0 : (0 : Int) < W := by omega
-  have hA0 : (0 : Int) < AccW := by omega
-  have hNW : (1 : Int) ≤ N * N * W := by rw [← Int.natCast_mul, ← Int.natCast_mul]; omega
-  have hNA : (1 : Int) ≤ N * N * AccW := by rw [← Int.natCast_mul, ← Int.natCast_mul]; omega
-  have hcA : ((N : Int) * N * W - 1).natAbs + 1 = N * N * W := by
-    rw [← Int.natCast_mul, ← Int.natCast_mul]; exact Lib.natAbs_sub_one_add_one pW
-  have hcC : ((N : Int) * N * AccW - 1).natAbs + 1 = N * N * AccW := by
-    rw [← Int.natCast_mul, ← Int.natCast_mul]; exact Lib.natAbs_sub_one_add_one pA
-  have hC := Lib.window_bounds_of_natCast (((i : Int) * N + j) * AccW) (N * N * AccW)
-    (Lib.rowMajor_window_le (w := AccW) hi hj) hA (by simp) (by simp)
-  have ha := Lib.window_bounds_of_natCast ((i : Int) * N * W) (N * N * W)
-    (Lib.rowMajor_window_le (N := N) (w := W) (j := 0) hi (by omega)) hW (by simp) (by simp)
-  have hb := Lib.window_bounds_of_natCast ((j : Int) * W) (N * N * W)
-    (Lib.rowMajor_window_le (M := N) (w := W) (i := 0) (by omega) hj) hW (by simp) (by simp)
-  have hA1 : 0 < AccW := hA
-  have hW1 : 0 < W := hW
-  have hWne : ¬ W = 0 := by omega
-  have hmode : (PartMode.up == PartMode.range) = false := rfl
-  have hlt1 : ¬ AccW + W < AccW := by omega
-  have hle1 : ¬ AccW + W ≤ AccW := by omega
-  pe_simp
-  -- `simp` cannot use `instExpr2`'s `resize` equation (measured): unfold it by hand.
-  repeat (unfold instExpr2; pe_simp)
-
-/-- `for (g = 0; g < N; g++) body`. -/
-def genN (lbl g : String) (body : List GenItem) : GenItem :=
-  .genFor (some lbl) g (.int 0) (.binary .slt (.genvarRef g) (.paramRef "N" none))
-    (.unary .inc (.genvarRef g)) (some 4) body
-
-theorem mm_gens_src : design.pdesign.generates = [genN "g_row" "i" [genN "g_col" "j" ([peT].map .process)]] :=
-  rfl
-
-/-- **The nested generate expands to the row-major PEs** (`mul2d_pp_expand`'s route). -/
-theorem mm_gens (N W AccW F : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hF : N < F) :
-    expandList2 (mmE N W AccW) mmElems F design.pdesign.generates = .ok (mmPEs N W AccW) := by
-  have hNv : (mmE N W AccW).vals.lookup "N" = some (N : Int) := rfl
-  rw [mm_gens_src]
-  apply expandList2_singleton_ok
-  rw [genN, GenItem.expand2_genFor_ascending_flatMap (N := (N : Int))
-      (f := fun v => (intRange 0 N).flatMap fun w =>
-        [peT].map (instProcess2 (((mmE N W AccW).bindVal "i" v).bindVal "j" w) mmElems))
-      (evalInt_int 0) (fun _ => isInt_paramRef_of (by rw [vals_lookup_bindVal_ne _ (by decide), hNv]))
-      (fun _ => evalInt_paramRef_of (by rw [vals_lookup_bindVal_ne _ (by decide), hNv])) (by simpa using hF)]
-  · simp only [intRange_zero, List.flatMap_map, Int.sub_zero, Int.toNat_natCast, List.map_cons,
-      List.map_nil, Gen2.flatMap_singleton_map, mmPEs]
-    congr 1
-    simp only [List.flatMap_def]
-    congr 1
-    refine List.map_congr_left fun i hi => List.map_congr_left fun j hj => ?_
-    exact pe_inst N W AccW i j hN hW hA (List.mem_range.mp hi) (List.mem_range.mp hj)
-  · intro v _ _
-    apply expandList2_singleton_ok
-    have hv : ((mmE N W AccW).bindVal "i" v).vals.lookup "N" = some (N : Int) := by
-      simp [IEnv.bindVal, List.lookup, hNv]
-    rw [genN, GenItem.expand2_genFor_ascending_processes (N := (N : Int)) (evalInt_int 0)
-      (fun _ => isInt_paramRef_of (by rw [vals_lookup_bindVal_ne _ (by decide), hv]))
-      (fun _ => evalInt_paramRef_of (by rw [vals_lookup_bindVal_ne _ (by decide), hv]))
-      (by simpa using hF)]
-    simp
-
-theorem mm_instantiate2 (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) :
-    design.pdesign.instantiate2 [(N : Int), W, AccW] (PDesign.surfaceFuel [(N : Int), W, AccW]) =
-      .ok (design.pdesign.assemble2 (mmEnv N W AccW) (mmDecls (N * N * W) (N * N * AccW)) mmElems
-        (mmPEs N W AccW)) := by
-  have hd := mm_decls N W AccW
-  rw [← Int.natCast_mul N N, ← Int.natCast_mul (N * N) W,
-    Lib.natAbs_sub_one_add_one (Nat.mul_pos (Nat.mul_pos hN hN) hW), ← Int.natCast_mul (N * N) AccW,
-    Lib.natAbs_sub_one_add_one (Nat.mul_pos (Nat.mul_pos hN hN) hA)] at hd
-  refine PDesign.instantiate2_of_ok rfl (mm_paramEnv _ _ _) hd (mm_elems _ _ _)
-    (mm_gens N W AccW _ hN hW hA ?_)
-  simp only [PDesign.surfaceFuel, List.map, List.sum_cons, List.sum_nil, Int.natAbs_natCast]
-  exact Nat.lt_of_lt_of_le (Nat.lt_of_lt_of_le (by omega) (Nat.le_mul_self _)) (Nat.le_add_right _ _)
-
-theorem mm_processes (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) :
-    (design.pdesign.instantiateD2 [(N : Int), W, AccW]).processes.toList =
-      mmCtrl N W :: mmPEs N W AccW := by
-  rw [PDesign.instantiateD2_of_ok (mm_instantiate2 N W AccW hN hW hA), PDesign.assemble2_processes,
-    mm_ctrl]
-  simp [design.pdesign]
-
 /-- Two PEs write disjoint windows of `C`. -/
 theorem pe_disj {N W AccW i j i' j' : Nat} (h : i * N + j < i' * N + j') :
     ∀ a ∈ (mmPE N W AccW i j).procWins, ∀ b ∈ (mmPE N W AccW i' j').procWins,
@@ -274,15 +138,36 @@ theorem mm_driversOk (N W AccW : Nat) :
     all_goals revert n; simp [mmCtrl, mmPE, Process2.procWrites, Process2.procWins, Stmt2.drvWins,
       Stmt2.drvWinsOpt, Stmt2.drvWinsList, Lhs2.drvWins]; all_goals decide
 
-/-- **The loaded family is `mmD`**, at every `(N, W, AccW)` with positive parameters. -/
-theorem mm_sem_eq (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) :
-    design.sem N W AccW = mmD N W AccW := by
-  have h1 : design.sem N W AccW = design.pdesign.instantiateD2 [(N : Int), W, AccW] := by
-    show design.pdesign.instantiateGD2 [(N : Int), W, AccW] = _
-    exact PDesign.instantiateGD2_of_driversOk (by rw [mm_processes N W AccW hN hW hA]; exact mm_driversOk N W AccW)
-  rw [h1, PDesign.instantiateD2_of_ok (mm_instantiate2 N W AccW hN hW hA)]
-  simp only [PDesign.assemble2, mm_ctrl, mmD]
-  simp [design.pdesign]
+/-- (port) The exact 32-bit `int` instantiation: every parameter below `2^31`. -/
+abbrev Rng32 (N W AccW : Nat) : Prop := N < 2147483648 ∧ W < 2147483648 ∧ AccW < 2147483648
+
+/-- (port) The statement's range gives it. -/
+theorem rng32_of {N W AccW : Nat} (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hNW : N * N * W < 2 ^ 31)
+    (hNA : N * N * AccW < 2 ^ 31) : Rng32 N W AccW := by
+  have h1 := Nat.le_mul_of_pos_right N hN
+  have h2 := Nat.le_mul_of_pos_right (N * N) hW
+  have h3 := Nat.le_mul_of_pos_left W (Nat.mul_pos hN hN)
+  have h4 := Nat.le_mul_of_pos_left AccW (Nat.mul_pos hN hN)
+  refine ⟨by omega, by omega, by omega⟩
+
+-- (port) The instantiation, generated.
+sv_mirror mmG := design (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hN32 : N < 2147483648)
+  (hW32 : W < 2147483648) (hA32 : AccW < 2147483648)
+
+/-- (port) The generated mirror is the hand-built one. -/
+theorem mmG_D (N W AccW : Nat) : mmG.D N W AccW = mmD N W AccW := by
+  have hg : mmG.g_col N W AccW = fun i j => mmPE N W AccW i j := by
+    funext i j; simp [mmG.g_col, mmPE, sext, LVec.ofInt_eq_ofBitVec]
+  simp [mmG.D, mmD, mmG.decls, mmDecls, mmG.procs, mmPEs, mmG.p0, mmCtrl, nb, c32, LVec.ofInt_eq_ofBitVec, hg]
+
+/-- **The loaded family is `mmD`**, at every `(N, W, AccW)` with positive parameters below `2^31`. -/
+theorem mm_sem_eq (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) :
+    design.sem N W AccW = mmD N W AccW :=
+  SvGolf.Cycle.sem_eq_of_mirror (mmG.instantiate N W AccW hN hW hA hR32.1 hR32.2.1 hR32.2.2) (mmG_D N W AccW)
+    (by simpa [mmD] using mm_driversOk N W AccW)
+    (SvGolf.Cycle.aliasGuard_of_allNotComb (by simp [mmD, mmCtrl, mmPEs, mmPE, List.all_flatMap, List.all_map,
+      SvGolf.Cycle.notComb]))
+
 
 /-! ## 2. G0's clock step for the loaded family, at every `(N, W, AccW)` -/
 
@@ -370,7 +255,7 @@ def mmNext (N W AccW : Nat) (ck r s a b dn c k bz ash bsh : LVec) : SvState :=
 
 /-- **One cycle of the loaded design is G0's clock step**, evaluated (any schedule, any stimulus
 entry, any state of the design's shape, every fuel from 30). -/
-theorem mm_cycle (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (σ : ScheduleOracle)
+theorem mm_cycle (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) (σ : ScheduleOracle)
     (e : SvState) (ck r s a b dn c k bz ash bsh : LVec) (kk F : Nat) (hF : 30 ≤ F) :
     cycleStep2 (design.sem N W AccW) σ F e (MS ck r s a b dn c k bz ash bsh) kk =
       .ok (mmNext N W AccW (appIn e "clk" ck) (appIn e "rst" r) (appIn e "start" s) (appIn e "A" a)
@@ -381,7 +266,7 @@ theorem mm_cycle (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW
     rcases List.mem_cons.mp hm with rfl | hm
     · rfl
     · obtain ⟨i, j, rfl⟩ := mm_pe_mem hm; rfl
-  rw [mm_sem_eq N W AccW hN hW hA, cycleStep2_profile (mm_profile N W AccW) σ e _ kk ?_ ?_ (by omega),
+  rw [mm_sem_eq N W AccW hN hW hA hR32, cycleStep2_profile (mm_profile N W AccW) σ e _ kk ?_ ?_ (by omega),
     apply_mm, clockStep, flatMap_ffUpd F _ hedge]
   · simp only [mmD, List.toList_toArray, List.flatMap_cons, ctrl_run N W F hF, mmPEs, List.flatMap_assoc,
       List.flatMap_map, pe_run N W AccW _ _ F hF, mmNext]
@@ -577,20 +462,21 @@ theorem mm_noq (N W AccW : Nat) : (mmD N W AccW).processes.toList.any Process2.h
   simp [mmD, mmCtrl, mmPEs, mmPE, nb, Process2.hasQualifiedCase, Stmt2.hasQualifiedCase,
     Stmt2.listHasQualifiedCase]
 
-theorem mm_init (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) :
+theorem mm_init (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) :
     I N W AccW (initState2 (design.sem N W AccW)) := by
-  rw [mm_sem_eq N W AccW hN hW hA]
+  rw [mm_sem_eq N W AccW hN hW hA hR32]
   refine ⟨.xVec 1, .xVec 1, .xVec 1, .xVec (N * N * W), .xVec (N * N * W), .xVec 1, .xVec (N * N * AccW),
     .xVec 32, .xVec 1, .xVec (N * N * W), .xVec (N * N * W), ?_, by simp [Wd]⟩
   simp [initState2, mmD, mmDecls, MS]
 
 /-- **Termination**: every schedule and every stimulus completes. -/
-theorem mm_terminates (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) :
+theorem mm_terminates (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) :
     Terminates2 (design.sem N W AccW) := by
-  refine Terminates2.of_invariant (I N W AccW) (mm_init N W AccW hN hW hA) (fun σ => ⟨30, ?_⟩)
-    (by rw [mm_sem_eq N W AccW hN hW hA]; exact mm_noq N W AccW)
+  refine Terminates2.of_invariant (I N W AccW) (mm_init N W AccW hN hW hA hR32) (fun σ => ⟨30, ?_⟩)
+    (by rw [mm_sem_eq N W AccW hN hW hA hR32]; exact mm_noq N W AccW)
+    (run2ClockGuard_ok_of_profile (by rw [mm_sem_eq N W AccW hN hW hA hR32]; exact mm_profile N W AccW))
   rintro e _ kk ⟨ck, r, s, a, b, dn, c, k, bz, ash, bsh, rfl, hw⟩
-  exact ⟨_, _, mm_cycle N W AccW hN hW hA σ e ck r s a b dn c k bz ash bsh kk 30 (Nat.le_refl _),
+  exact ⟨_, _, mm_cycle N W AccW hN hW hA hR32 σ e ck r s a b dn c k bz ash bsh kk 30 (Nat.le_refl _),
     mmNext_I N W AccW _ _ _ _ _ dn c k bz ash bsh hw⟩
 
 /-! ## 7. The protocol: the phases of `TxTask.satisfiedAt_of_phases`, and the statement -/
@@ -663,15 +549,15 @@ theorem ops_appIn {N W AccW : Nat} {e : SvState} {x : Tasks.Matmul.task.Ops (N, 
 
 /-- **The phase model** at `(N, W, AccW)`, latency `N`: `Ready` after a reset, `Busy x m` the state
 `t = N - 1 - m` busy cycles after a start, `Fin x` the product shown. -/
-def model (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hNW : N * N * W < 2 ^ 31) :
+def model (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) (hNW : N * N * W < 2 ^ 31) :
     Tasks.Matmul.task.PhaseModel (N, W, AccW) N (design.sem N W AccW) where
   Shape := I N W AccW
   Step := Stp N W AccW
-  init := mm_init N W AccW hN hW hA
+  init := mm_init N W AccW hN hW hA hR32
   cycle := by
     rintro σ F e prev k st k' ⟨ck, r, s, a, b, dn, c, kk, bz, ash, bsh, rfl, hw⟩ hc
     exact ⟨ck, r, s, a, b, dn, c, kk, bz, ash, bsh, rfl, hw, (Prod.mk.inj (cycleStep2_det hc
-      (mm_cycle N W AccW hN hW hA σ e ck r s a b dn c kk bz ash bsh k 30 (Nat.le_refl _)))).1⟩
+      (mm_cycle N W AccW hN hW hA hR32 σ e ck r s a b dn c kk bz ash bsh k 30 (Nat.le_refl _)))).1⟩
   shape := by
     rintro e prev st - ⟨ck, r, s, a, b, dn, c, k, bz, ash, bsh, -, hw, rfl⟩
     exact mmNext_I N W AccW _ _ _ _ _ dn c k bz ash bsh hw
@@ -727,16 +613,16 @@ def model (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hNW 
       show appIn e "start" s = knownBit false from BitIs.appIn_eq hs s, next_idle]
     exact ⟨_, _, _, _, _, _, _, _, rfl⟩
 
-theorem mm_interface (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) :
+theorem mm_interface (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) :
     Tasks.Matmul.task.Interface (N, W, AccW) (design.sem N W AccW) := by
-  rw [mm_sem_eq N W AccW hN hW hA]
+  rw [mm_sem_eq N W AccW hN hW hA hR32]
   exact ⟨rfl, rfl, by
     show (["clk", "rst", "start", "A", "B", "done", "C", "k", "busy", "a_sh", "b_sh"] : List String).Nodup
     decide⟩
 
-theorem mm_disciplined (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) :
+theorem mm_disciplined (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) :
     Tasks.Matmul.task.Disciplined (design.sem N W AccW) := by
-  rw [mm_sem_eq N W AccW hN hW hA]
+  rw [mm_sem_eq N W AccW hN hW hA hR32]
   refine ⟨by simp [Tasks.Matmul.task, mmD, mmDecls, Design2.inputNames], fun p hp => ?_⟩
   have hm : p ∈ mmCtrl N W :: mmPEs N W AccW := by simpa [mmD] using hp
   rcases List.mem_cons.mp hm with rfl | hm
@@ -758,16 +644,16 @@ termination from every power-up (`mm_terminatesPU`). Rule 1: every process is an
 `*`, `>>`, `==` on operands of matching widths. -/
 
 /-- **Rule 1.** -/
-theorem mm_moore (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) :
+theorem mm_moore (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) :
     MooreOutDep (design.sem N W AccW) [] := by
-  rw [mm_sem_eq N W AccW hN hW hA]
+  rw [mm_sem_eq N W AccW hN hW hA hR32]
   exact MooreOutDep.of_noComb (combDeps_of_ffOnly (FFOnly.ofProfile (mm_profile N W AccW)))
     (by simp [mmD, mmDecls, Design2.outputNames, Design2.inputNames])
 
 /-- Every power-up state of the design has its shape. -/
-theorem mm_powerUp (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (st : SvState)
+theorem mm_powerUp (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) (st : SvState)
     (h : PowerUp (design.sem N W AccW) st) : I N W AccW st := by
-  rw [mm_sem_eq N W AccW hN hW hA] at h
+  rw [mm_sem_eq N W AccW hN hW hA hR32] at h
   obtain ⟨ck, r1, rfl, -, -, h1⟩ := powerUp_cons.mp h
   obtain ⟨r, r2, rfl, -, -, h2⟩ := powerUp_cons.mp h1
   obtain ⟨s, r3, rfl, -, -, h3⟩ := powerUp_cons.mp h2
@@ -783,12 +669,12 @@ theorem mm_powerUp (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ Ac
   exact ⟨ck, r, s, a, b, dn, c, k, bz, ash, bsh, rfl, w6, w7, w8, w9, w10, w11⟩
 
 /-- **Termination from every power-up** (the cycle of `mm_terminates`). -/
-theorem mm_terminatesPU (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) :
+theorem mm_terminatesPU (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) :
     TerminatesPU (design.sem N W AccW) := by
-  refine TerminatesPU.of_invariant (I N W AccW) (mm_powerUp N W AccW hN hW hA) (fun σ => ⟨30, ?_⟩)
-    (by rw [mm_sem_eq N W AccW hN hW hA]; exact mm_noq N W AccW)
+  refine TerminatesPU.of_invariant (I N W AccW) (mm_powerUp N W AccW hN hW hA hR32) (fun σ => ⟨30, ?_⟩)
+    (by rw [mm_sem_eq N W AccW hN hW hA hR32]; exact mm_noq N W AccW)
   rintro e _ kk ⟨ck, r, s, a, b, dn, c, k, bz, ash, bsh, rfl, hw⟩
-  exact ⟨_, _, mm_cycle N W AccW hN hW hA σ e ck r s a b dn c k bz ash bsh kk 30 (Nat.le_refl _),
+  exact ⟨_, _, mm_cycle N W AccW hN hW hA hR32 σ e ck r s a b dn c k bz ash bsh kk 30 (Nat.le_refl _),
     mmNext_I N W AccW _ _ _ _ _ dn c k bz ash bsh hw⟩
 
 theorem lvec_l0_known : (⟨#[.l0]⟩ : LVec).allKnown = true := by
@@ -827,9 +713,9 @@ theorem mm_pe_mem' {N W AccW : Nat} {p : Process2} (hp : p ∈ mmPEs N W AccW) :
   exact ⟨i, j, hi, hj, rfl⟩
 
 /-- **Rule 3.** -/
-theorem mm_xsafe (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) :
+theorem mm_xsafe (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW) (hR32 : Rng32 N W AccW) :
     XSafe (design.sem N W AccW) := by
-  rw [mm_sem_eq N W AccW hN hW hA]
+  rw [mm_sem_eq N W AccW hN hW hA hR32]
   refine List.all_eq_true.mpr fun p hp => ?_
   have hm : p ∈ mmCtrl N W :: mmPEs N W AccW := by simpa [mmD] using hp
   rcases List.mem_cons.mp hm with rfl | hm
@@ -842,10 +728,16 @@ point). -/
 theorem solution : Goal lat := by
   refine ⟨fun p hp => ?_, rfl⟩
   obtain ⟨N, W, AccW⟩ := p
-  obtain ⟨hN, hW, hA, hNW, -⟩ := hp
-  exact Tasks.Matmul.task.satisfiedAtV2_of_phases (mm_interface N W AccW hN hW hA)
-    (mm_disciplined N W AccW hN hW hA) (mm_terminatesPU N W AccW hN hW hA) hN
-    (model N W AccW hN hW hA hNW) (mm_powerUp N W AccW hN hW hA) (mm_moore N W AccW hN hW hA)
-    (mm_xsafe N W AccW hN hW hA)
+  obtain ⟨hN, hN5, hW, hW10, hA, hA12⟩ :
+    1 ≤ N ∧ N < 2 ^ 5 ∧ 1 ≤ W ∧ W < 2 ^ 10 ∧ 1 ≤ AccW ∧ AccW < 2 ^ 12 := hp
+  have hNW : N * N * W < 2 ^ 31 := Nat.lt_of_le_of_lt
+    (Nat.mul_le_mul (Nat.mul_le_mul (by omega : N ≤ 31) (by omega : N ≤ 31)) (by omega : W ≤ 1023)) (by decide)
+  have hNA : N * N * AccW < 2 ^ 31 := Nat.lt_of_le_of_lt
+    (Nat.mul_le_mul (Nat.mul_le_mul (by omega : N ≤ 31) (by omega : N ≤ 31)) (by omega : AccW ≤ 4095)) (by decide)
+  have hR32 : Rng32 N W AccW := rng32_of hN hW hA hNW hNA
+  exact Tasks.Matmul.task.satisfiedAtV2_of_phases (mm_interface N W AccW hN hW hA hR32)
+    (mm_disciplined N W AccW hN hW hA hR32) (mm_terminatesPU N W AccW hN hW hA hR32) hN
+    (model N W AccW hN hW hA hR32 hNW) (mm_powerUp N W AccW hN hW hA hR32) (mm_moore N W AccW hN hW hA hR32)
+    (mm_xsafe N W AccW hN hW hA hR32)
 
 end Submission

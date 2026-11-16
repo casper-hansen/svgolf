@@ -25,7 +25,7 @@ repository svGolf requires as the Lake package `lean-models` (in a clone of svGo
 * **Python 3.12** (`python3.12`; the extractor needs `pyslang`), **Yosys 0.53** (the scores are comparable only
   when the pinned flow's hashes agree: `tests/expected.json`, key `flow`), **Verilator 5** (the post-synthesis
   check), a C++ compiler and `make`.
-* **Lean** through elan, toolchain `leanprover/lean4:v4.33.0-rc1` (`lean-toolchain`). Build the trusted part
+* **Lean** through elan, toolchain `leanprover/lean4:v4.35.0` (`lean-toolchain`). Build the trusted part
   once: `lake build SvGolf tasks svgolf-eval` (`check.py` does this itself in its `trusted` stage unless
   you pass `--no-trusted-build`). No Mathlib is built; a solution that imports it needs the Mathlib build
   (`.lake/packages/*/.lake/build`, from `lake exe cache get`; README.md "Mathlib in submissions") to be present.
@@ -47,7 +47,7 @@ repository svGolf requires as the Lake package `lean-models` (in a clone of svGo
 | `clmul` | ready | every `N` | `+ - * / % **`, run-time `< <= > >=` | 300 CPU s | `clmul_n` (the array without carries) |
 | `fdivp` | ready | every `W, P` (two parameters; binary16 is `(5, 11)`) | `/ % **` | 300 CPU s | `fdivp` (restoring division, a word-level netlist of 34 sites) |
 | `arbiter` | ready | clocked, reactive: every `N` (`N*N < 2^31`) | `/ % **` | 300 CPU s | `rr_mask` (a registered mask round-robin) |
-| `matmul` | ready | clocked, transaction, a declared latency: every `N, W, AccW` (`N*N*W < 2^31`, `N*N*AccW < 2^31`) | `/ % **` | 300 CPU s | `matmul_g1` (`N*N` multiply-accumulate units, latency `N`) |
+| `matmul` | ready | clocked, transaction, a declared latency: every `N < 2^5, W < 2^10, AccW < 2^12` | `/ % **` | 300 CPU s | `matmul_g1` (`N*N` multiply-accumulate units, latency `N`) |
 | `sorter` | ready | clocked, stream, a declared latency: every `N, W` (`N*W < 2^31`) | `/ % **` | 300 CPU s | `sorter_ins` (an insertion-cell array, latency `2N`) |
 
 (from each `tasks/<name>/task.json`, and par's design from `leaderboard/par.json`: one design per task, the simplest
@@ -292,7 +292,7 @@ subjects are short and imperative, one logical change per commit; the PR says wh
 
 | part | status | where |
 |---|---|---|
-| the task statements | **trusted** | `tasks/<name>/Spec.lean`, the statement helpers `SvGolf/Task.lean`, the IEEE 754 spec `tasks/fdivp/IEEE754.lean` |
+| the task statements | **trusted** | `tasks/<name>/Spec.lean`, the statement helpers `SvGolf/Task.lean` (and `SvGolf/TaskSeq.lean`, `SvGolf/TaskReact.lean` for the clocked kinds); `fdivp`'s statement names IEEE 754 division from Proglib's library (`LeanModels/SoftFloat/Binary/Defs.lean`), covered like the ls-sv semantics by the pinned revision |
 | the checker and the scoring flow | **trusted** (a tripwire protects it during a check; its file hashes are in every record) | `check.py`, `check/` (including the sandbox, `check/sandbox/`), `score/` (`ge.json`, `canon.ys`, `svgolf.ys`) |
 | the ls-sv semantics and extractor | **trusted by construction** (they define the meaning of a design; the backstops are the differential harness and the post-synthesis check) | `LeanModels/Sv/`, `extractors/sv/` |
 | proof helpers, the `sv_comb` tactics, `CombLib`, the proof library `LeanModels.Sv.Lib` | untrusted; they only produce terms the kernel re-checks | `SvGolf/Comb.lean`, `LeanModels/Sv/Comb*`, `LeanModels/Sv/Lib/` |
@@ -389,6 +389,13 @@ git commit -m "leaderboard: TASK: PLAYER's record re-made on the rating build"
 ```
 
 One `--assisted-by` per entry of the record's `assisted_by` (none for an empty list). The old record goes (the git
-history keeps it), so a record is on the board once. With the first record of a player outside the maintainers,
+history keeps it), so a record is on the board once.
+
+After a change of the checker, the library pin or a task's statement that leaves the scoring flow as it is, the
+records are re-made without measuring them again (decided 2026-11-16): check each record's stored design with its
+proof (or, where that no longer compiles, a maintainers' port of it, marked as such in its first line) with
+`check.py ... --json RESULT.json`, then `leaderboard.py remake --task TASK --record HASH --check RESULT.json [--lean
+PORT.lean] --reason "..."`, which carries the scores, says so in the record (`remade`), removes the old record and
+re-points its writeup and the derived tables (leaderboard/README.md, "Re-making a record"). With the first record of a player outside the maintainers,
 update the line on who made the records so far: `FIRST_ENTRIES_MD` in `site/build.py` and the same sentence in
 README.md, "Leaderboard".

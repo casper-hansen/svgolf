@@ -93,6 +93,34 @@ against that point's latency, `Submission.lat` evaluated by the kernel (decided 
 executes (an ls-sv bug; the source gate refuses the qualifiers); and ls-sv and the netlist can still differ on
 defined values (a Yosys or ls-sv bug), which only the sampled post-synthesis check looks for.
 
+## Changes to the trusted statement since the review (to review)
+
+* **2026-11-16: the range is capped, `1 ≤ N < 2^5`, `1 ≤ W < 2^10`, `1 ≤ AccW < 2^12`** (decided 2026-11-16: "Yes,
+  please cap N at a reasonable size. Just like the other tasks."). `inRange` was `1 ≤ N ∧ 1 ≤ W ∧ 1 ≤ AccW ∧
+  N·N·W < 2^31 ∧ N·N·AccW < 2^31 ∧ W < 2^20 ∧ AccW < 2^20`; it is
+  `1 ≤ N ∧ N < 2^5 ∧ 1 ≤ W ∧ W < 2^10 ∧ 1 ≤ AccW ∧ AccW < 2^12`. Every point of the new range is in the former
+  one (`31·31·1023 < 2^31`, `31·31·4095 < 2^31`), so the statement quantifies over a subset of the former range and
+  says the same thing at each remaining point (`task`'s ports, `product`, `Statement` and the golden vectors are
+  unchanged); every design that met the former statement meets this one. Why: under the former range three board
+  designs declared vectors wider than `2^31` bits (`N·N·N·W` bits in the two core-mesh records, `N·N·(2N-1)·AccW`
+  in the multiplier cube; their own comments said so), and a real 32-bit elaboration computes those widths as
+  `int`s and wraps. In the new range the largest constant any board design or the reference computes is
+  240,052,994 (the cube at `N = 31, AccW = 4095`), about 0.11 of `2^31`; the port widths are below `2^20` and
+  `2^22`. The first cap considered, `N < 2^8`, left the cube's width 63 times `2^31` and the two meshes' 7.9 times;
+  `N < 2^6` would keep every width below `2^31` but the cube's within 6 % of it. The probe, scoring and
+  post-synthesis points, and every size the board measures (`N` up to 16), are inside. The sanity check of the
+  range's ends replaces the one of 2026-11-14.
+
+* **2026-11-14: `W, AccW < 2^20`** (decided 2026-11-14, the maintainers' principle of 2026-11-10 for every
+  family task whose designs compute `int` values from the parameters: the range is reduced so that this
+  arithmetic never wraps). `inRange` gains the conjuncts `p.2.1 < 2 ^ 20 ∧ p.2.2 < 2 ^ 20` after the two
+  port-width bounds. Under the exact 32-bit `int` instantiation of the pinned ls-sv a board design's
+  `localparam int WS = W + 1` wrapped at `N = 1, W = 2^31 - 1`, inside the former range, so that design was not
+  provable for the whole range by any proof. The statement now quantifies over a subset of the former range,
+  so every design that met the former statement meets this one; the probe, scoring and post-synthesis points
+  are inside. `task`, `product`, `Statement` and the other sanity checks are unchanged; a sanity check of the
+  new bounds' end is added.
+
 ## History: the txtask-v1 review (11/03 to 11/04)
 
 **Frozen 11/03 as the git tag `txtask-v1`** (commit 0473d4d1): C1 to C10 stood as defaults delegated by the
@@ -171,6 +199,8 @@ at a later cycle cannot void an earlier claim.
 - Parameter range (C10, added 11/04): `N·N·W < 2^31 ∧ N·N·AccW < 2^31` keeps every width and index
   expression in the 32-bit `int` range, where a real elaboration and ls-sv's unbounded constant tier
   agree. Above it, a design's ports and part-select bases wrap in every simulator but not in the model.
+  (Since 2026-11-14 also `W, AccW < 2^20`, and since 2026-11-16 the range is `1 ≤ N < 2^5`, `1 ≤ W < 2^10`,
+  `1 ≤ AccW < 2^12`: "Changes" above.)
 - The latency count. By the contract's reading (CONTRACT.md, point 4), the reference
   `reference/matmul_g1.sv` shows `done` exactly `N` snapshots after the start edge (MEASURED in
   iverilog at five points, README.md "The reference"). An earlier plan's `lat N = N + 1` is a valid bound

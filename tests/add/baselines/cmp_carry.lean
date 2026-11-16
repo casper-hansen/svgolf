@@ -29,13 +29,13 @@ open LeanModels.Sv LeanModels.Sv.CombView LeanModels.Sv.CombLib LeanModels.Sv.Co
 
 /-- `CombDesign` and `Acyclic` for every `N ≥ 1`. The carries `c[i]`, `i ≥ 1`, read only inputs, so
 they share rank 0 with `c[0]`; the sum bits and `cout` read carries and get rank 1. -/
-theorem cmp_struct (N : Nat) (hN : 1 ≤ N) :
+theorem cmp_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) ∧ SharedObl design.pdesign [N] := by
   sv_structure (rank := rippleRank (fun p => if p = 0 then 0 else 1)
     (fun l _ _ => if l = "g_c" then 0 else 1))
   all_goals (intros; omega)
 
-theorem cmp_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
+theorem cmp_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) (hc : CombDesign (design.sem N)) :
     SvGolf.Tasks.Add.task.Interface N (design.sem N) := by
   sv_interface
 
@@ -173,8 +173,9 @@ theorem cmp_final {N : Nat} {st : SvState} {x y : BitVec N} {c0 : Bool}
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha, hso⟩ := cmp_struct N hN'
-  refine CombTask.satisfiedAt_of_comb (cmp_interface N hN' hc) hc ha ?_
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨hc, ha, hso⟩ := cmp_struct N hN' hR
+  refine CombTask.satisfiedAt_of_comb (cmp_interface N hN' hR hc) hc ha ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ci, ⟨⟩⟩ := v
   obtain ⟨c0, rfl⟩ : ∃ c0, ci = BitVec.ofBool c0 := ⟨_, bv1_eq_ofBool ci⟩

@@ -311,6 +311,63 @@ example (a b : BitVec 8) : (a.signExtend 16 * b.signExtend 16).setWidth 16 = Bit
 example : ((5#3).signExtend 8 * (6#3).signExtend 8).setWidth 6 = BitVec.ofInt 6 ((5#3).toInt * (6#3).toInt) := by
   decide
 
+/-! ## 7. The one-clock guard of `run2` -/
+
+/-- A register file of `n` one-bit registers, one `always_ff` each on `clk` (the size is symbolic). -/
+def regFile (n : Nat) : Design2 where
+  name := "regs"
+  decls := #[{ name := "clk", width := 1, isInput := true }, { name := "r", width := n }]
+  processes := ((List.range n).map fun i =>
+    Process2.alwaysFF "clk" (.nbaAssign (.slice "r" i 1) (.lit ⟨#[.l1]⟩))).toArray
+
+/-- The same with a continuous assignment beside the registers. -/
+def regFileA (n : Nat) : Design2 :=
+  { regFile n with processes := (regFile n).processes.push (.assign (.ident "o") (.ident "r")) }
+
+/-- Two clocks: refused by the guard. -/
+def twoClocks : Design2 where
+  name := "two"
+  decls := #[{ name := "c1", width := 1, isInput := true }, { name := "c2", width := 1, isInput := true },
+    { name := "r", width := 2 }]
+  processes := #[.alwaysFF "c1" (.nbaAssign (.slice "r" 0 1) (.lit ⟨#[.l1]⟩)),
+    .alwaysFF "c2" (.nbaAssign (.slice "r" 1 1) (.lit ⟨#[.l0]⟩))]
+
+/-- One clock at every size, by `run2ClockGuard_ok_of_clock`. -/
+theorem regFile_guard (n : Nat) : run2ClockGuard (regFile n) = .ok () := by
+  refine run2ClockGuard_ok_of_clock "clk" (fun p hp => ?_) (fun p hp k t hpk => ?_)
+  · simp only [regFile, List.toList_toArray, List.mem_map, List.mem_range] at hp
+    obtain ⟨i, -, rfl⟩ := hp
+    exact Or.inr rfl
+  · simp only [regFile, List.toList_toArray, List.mem_map, List.mem_range] at hp
+    obtain ⟨i, -, rfl⟩ := hp
+    cases hpk
+
+/-- A comb process beside the registers has no clock: the guard still holds. -/
+theorem regFileA_guard (n : Nat) : run2ClockGuard (regFileA n) = .ok () := by
+  refine run2ClockGuard_ok_of_clock "clk" (fun p hp => ?_) (fun p hp k t hpk => ?_)
+  · simp only [regFileA, regFile, Array.toList_push, List.toList_toArray, List.mem_append, List.mem_map,
+      List.mem_range, List.mem_singleton] at hp
+    rcases hp with ⟨i, -, rfl⟩ | rfl
+    · exact Or.inr rfl
+    · exact Or.inl rfl
+  · simp only [regFileA, regFile, Array.toList_push, List.toList_toArray, List.mem_append, List.mem_map,
+      List.mem_range, List.mem_singleton] at hp
+    rcases hp with ⟨i, -, rfl⟩ | rfl <;> cases hpk
+
+/-- The register file is in the FF-only profile at size 3 (decided), and the profile gives the guard. -/
+example : (regFile 3).ffOnlyProfileB = true := by decide
+example : run2ClockGuard (regFile 3) = .ok () := run2ClockGuard_ok_of_profile (by decide)
+
+/-- The lemmas agree with the guard itself on closed instances: one clock passes, two clocks do not. -/
+example : run2ClockGuard (regFile 2) = .ok () := rfl
+example : run2ClockGuard (regFileA 2) = .ok () := rfl
+example : run2ClockGuard twoClocks ≠ .ok () := by
+  simp [run2ClockGuard, run2ClockNames, twoClocks, run2Clock?, List.eraseDups, List.eraseDupsBy,
+    List.eraseDupsBy.loop]
+
+#print axioms regFile_guard
+#print axioms regFileA_guard
+
 #print axioms loopM_expand
 
 end SvGolfTests.Clocked

@@ -3,6 +3,8 @@ import SvGolf.Comb
 import LeanModels.Sv.Gen2
 import LeanModels.Sv.Hier2Gen
 import LeanModels.Sv.Known2
+import LeanModels.Sv.CombView
+import SvGolf.Cycle
 
 /-!
 # Task `clmul`: the level-generate Karatsuba design `kara_lv.sv`, proved by hand
@@ -185,30 +187,33 @@ theorem node_fits {L l t : Nat} (hl : l ≤ L) (ht : t < 3 ^ l) : (t + 1) * KW L
 /-! ## 1c. What the templates read from an environment -/
 
 structure KEnv (E : IEnv) (N L : Nat) : Prop where
-  hN : E.vals.lookup "N" = some (N : Int)
-  hL : E.vals.lookup "L" = some (L : Int)
-  hP : E.vals.lookup "P" = some ((4 * 2 ^ L : Nat) : Int)
-  hT : E.vals.lookup "T" = some ((3 ^ L : Nat) : Int)
+  hN : E.intVal? "N" = some (N : Int)
+  hL : E.intVal? "L" = some (L : Int)
+  hP : E.intVal? "P" = some ((4 * 2 ^ L : Nat) : Int)
+  hT : E.intVal? "T" = some ((3 ^ L : Nat) : Int)
+  hLs : L ≤ 30
   hav : E.dims.lookup "av" = some [((L : Int), 0), ((KR L : Int) - 1, 0)]
   hbv : E.dims.lookup "bv" = some [((L : Int), 0), ((KR L : Int) - 1, 0)]
   hrv : E.dims.lookup "rv" = some [((L : Int), 0), ((KS L : Int) - 1, 0)]
 
 theorem KEnv.bind {E : IEnv} {N L : Nat} (h : KEnv E N L) (g : String) (h1 : g ≠ "N")
     (h2 : g ≠ "L") (h3 : g ≠ "P") (h4 : g ≠ "T") (v : Int) : KEnv (E.bindVal g v) N L where
-  hN := by rw [vals_lookup_bindVal_ne v (Ne.symm h1)]; exact h.hN
-  hL := by rw [vals_lookup_bindVal_ne v (Ne.symm h2)]; exact h.hL
-  hP := by rw [vals_lookup_bindVal_ne v (Ne.symm h3)]; exact h.hP
-  hT := by rw [vals_lookup_bindVal_ne v (Ne.symm h4)]; exact h.hT
+  hN := by rw [IEnv.intVal?_bindVal_ne v (Ne.symm h1)]; exact h.hN
+  hL := by rw [IEnv.intVal?_bindVal_ne v (Ne.symm h2)]; exact h.hL
+  hP := by rw [IEnv.intVal?_bindVal_ne v (Ne.symm h3)]; exact h.hP
+  hT := by rw [IEnv.intVal?_bindVal_ne v (Ne.symm h4)]; exact h.hT
+  hLs := h.hLs
   hav := by simpa using h.hav
   hbv := by simpa using h.hbv
   hrv := by simpa using h.hrv
 
 theorem KEnv.withDecls {E : IEnv} {N L : Nat} (h : KEnv E N L) (decls : List Decl) :
     KEnv (E.withDecls decls) N L where
-  hN := by simpa using h.hN
-  hL := by simpa using h.hL
-  hP := by simpa using h.hP
-  hT := by simpa using h.hT
+  hN := h.hN
+  hL := h.hL
+  hP := h.hP
+  hT := h.hT
+  hLs := h.hLs
   hav := by simpa using h.hav
   hbv := by simpa using h.hbv
   hrv := by simpa using h.hrv
@@ -217,11 +222,12 @@ theorem KEnv.withDecls {E : IEnv} {N L : Nat} (h : KEnv E N L) (decls : List Dec
 
 theorem evalInt_shr_of {env : IEnv} {l r : PExpr} {a b : Int}
     (hil : l.isInt env = true) (hir : r.isInt env = true)
-    (hl : evalInt env l = .ok a) (hr : evalInt env r = .ok b) (ha : 0 ≤ a) (hb : 0 ≤ b) :
+    (hl : evalInt env l = .ok a) (hr : evalInt env r = .ok b) (ha : 0 ≤ a) (hb : 0 ≤ b) (hb32 : b < 32) :
     evalInt env (.binary .shr l r) = .ok (a.tdiv (2 ^ b.toNat)) := by
   have ha' : ¬ a < 0 := Int.not_lt.mpr ha
   have hb' : ¬ b < 0 := Int.not_lt.mpr hb
-  simp [evalInt, hil, hir, hl, hr, ha', hb', Gen2.except_ok_bind]
+  have hb'' : ¬ 32 ≤ b := Int.not_le.mpr hb32
+  simp [evalInt, hil, hir, hl, hr, ha', hb', hb'', Gen2.except_ok_bind]
 
 theorem evalInt_pow_of {env : IEnv} {l r : PExpr} {a b : Int}
     (hil : l.isInt env = true) (hir : r.isInt env = true)
@@ -265,16 +271,17 @@ theorem nd_env (l t : Nat) : KEnv (nodeEnv E l t) N L :=
   (hE.bind "l" (by decide) (by decide) (by decide) (by decide) _).bind "t" (by decide) (by decide)
     (by decide) (by decide) _
 
-theorem nd_int_P (l t : Nat) : prP.isInt (nodeEnv E l t) = true := isInt_paramRef_of (nd_env hE l t).hP
+theorem nd_int_P (l t : Nat) : prP.isInt (nodeEnv E l t) = true :=
+  CombView.isInt_paramRef_of_intVal (nd_env hE l t).hP
 
 theorem nd_W {l t : Nat} (hl : l ≤ L) : evalInt (nodeEnv E l t) hWT = .ok ((KW L l : Nat) : Int) := by
-  rw [hWT, eShr, evalInt_shr_of (nd_int_P hE l t) rfl (evalInt_paramRef_of (nd_env hE l t).hP)
-    (nd_l E l t) (by omega) (by omega), tdiv_KW hl]
+  rw [hWT, eShr, evalInt_shr_of (nd_int_P hE l t) rfl (CombView.evalInt_paramRef_of_intVal (nd_env hE l t).hP)
+    (nd_l E l t) (by omega) (by omega) (by have := hE.hLs; omega), tdiv_KW hl]
 
 theorem nd_M {l t : Nat} (hl : l < L) :
     evalInt (nodeEnv E l t) hMT = .ok ((KW L (l + 1) : Nat) : Int) := by
-  rw [hMT, eShr, evalInt_shr_of (nd_int_P hE l t) rfl (evalInt_paramRef_of (nd_env hE l t).hP)
-    (nd_l1 E l t) (by omega) (by omega), tdiv_KW (by omega)]
+  rw [hMT, eShr, evalInt_shr_of (nd_int_P hE l t) rfl (CombView.evalInt_paramRef_of_intVal (nd_env hE l t).hP)
+    (nd_l1 E l t) (by omega) (by omega) (by have := hE.hLs; omega), tdiv_KW (by omega)]
 
 theorem nd_int_W (l t : Nat) : hWT.isInt (nodeEnv E l t) = true :=
   isInt_binary_of rfl (nd_int_P hE l t) rfl
@@ -511,7 +518,7 @@ theorem split_expand {E : IEnv} {elems : List (String × Nat)} {N L F : Nat} (hE
   simp only [splitGen, gvl, prL]
   rw [GenItem.expand2_genFor_ascending_flatMap (N := (L : Int))
     (f := fun v => (List.range (3 ^ v.toNat)).flatMap fun t => splitP L v.toNat t) (evalInt_int 0)
-    (fun v => isInt_paramRef_of (hb v).hL) (fun v => evalInt_paramRef_of (hb v).hL) (by simpa using hLF)]
+    (fun v => CombView.isInt_paramRef_of_intVal (hb v).hL) (fun v => CombView.evalInt_paramRef_of_intVal (hb v).hL) (by simpa using hLF)]
   · simp only [intRange_zero, List.flatMap_map, Int.sub_zero, Int.toNat_natCast]
   · intro v hv0 hvL
     obtain ⟨l, rfl⟩ : ∃ l : Nat, v = (l : Int) := ⟨v.toNat, by omega⟩
@@ -574,8 +581,8 @@ theorem EvN.int (env : IEnv) (k : Nat) : EvN env (.int (k : Int)) k := ⟨rfl, r
 theorem EvN.gv {env : IEnv} {g : String} {v : Nat} (h : env.vals.lookup g = some (v : Int)) :
     EvN env (.genvarRef g) v := ⟨rfl, evalInt_genvarRef_of h⟩
 
-theorem EvN.par {env : IEnv} {n : String} {v : Nat} (h : env.vals.lookup n = some (v : Int)) :
-    EvN env (.paramRef n none) v := ⟨isInt_paramRef_of h, evalInt_paramRef_of h⟩
+theorem EvN.par {env : IEnv} {n : String} {v : Nat} (h : env.intVal? n = some (v : Int)) :
+    EvN env (.paramRef n none) v := ⟨CombView.isInt_paramRef_of_intVal h, CombView.evalInt_paramRef_of_intVal h⟩
 
 /-! ## 1i. The base family: a 4 x 4 schoolbook product per node `t` of level `L` -/
 
@@ -630,7 +637,7 @@ theorem base_inst {E : IEnv} {elems : List (String × Nat)} {N L : Nat} (hE : KE
     unfold KW at this
     simp only [Nat.sub_self, Nat.pow_zero, Nat.mul_one] at this
     omega
-  have hL : evalInt (E.bindVal "t" (t : Int)) prL = .ok (L : Int) := evalInt_paramRef_of hE'.hL
+  have hL : evalInt (E.bindVal "t" (t : Int)) prL = .ok (L : Int) := CombView.evalInt_paramRef_of_intVal hE'.hL
   have ra : ∀ k, k ≤ 3 → fitExpr2 (E.bindVal "t" (t : Int)) elems (some 1) (aE k) = aSl L t k :=
     fun k hk => elem2_read hE'.hav hR hL (Nat.le_refl L) (bs_f4 E t k).ev (by omega)
   have rb : ∀ k, k ≤ 3 → fitExpr2 (E.bindVal "t" (t : Int)) elems (some 1) (bE k) = bSl L t k :=
@@ -654,7 +661,7 @@ theorem base_expand {E : IEnv} {elems : List (String × Nat)} {N L F : Nat} (hE 
     fun v => hE.bind "t" (by decide) (by decide) (by decide) (by decide) v
   simp only [baseGen, gvt, prT]
   rw [GenItem.expand2_genFor_ascending_processes (N := ((3 ^ L : Nat) : Int)) (evalInt_int 0)
-    (fun v => isInt_paramRef_of (hb v).hT) (fun v => evalInt_paramRef_of (hb v).hT)
+    (fun v => CombView.isInt_paramRef_of_intVal (hb v).hT) (fun v => CombView.evalInt_paramRef_of_intVal (hb v).hT)
     (by rw [Int.sub_zero, Int.toNat_natCast]; omega)]
   simp only [intRange_zero, List.flatMap_map, Int.sub_zero, Int.toNat_natCast]
   congr 1
@@ -754,7 +761,7 @@ theorem comb_expand {E : IEnv} {elems : List (String × Nat)} {N L F : Nat} (hE 
   simp only [combGen, gvl, prL]
   rw [GenItem.expand2_genFor_ascending_flatMap (N := (L : Int))
     (f := fun v => (List.range (3 ^ v.toNat)).flatMap fun t => combP L v.toNat t) (evalInt_int 0)
-    (fun v => isInt_paramRef_of (hb v).hL) (fun v => evalInt_paramRef_of (hb v).hL) (by simpa using hLF)]
+    (fun v => CombView.isInt_paramRef_of_intVal (hb v).hL) (fun v => CombView.evalInt_paramRef_of_intVal (hb v).hL) (by simpa using hLF)]
   · simp only [intRange_zero, List.flatMap_map, Int.sub_zero, Int.toNat_natCast]
   · intro v hv0 hvL
     obtain ⟨l, rfl⟩ : ∃ l : Nat, v = (l : Int) := ⟨v.toNat, by omega⟩
@@ -832,12 +839,105 @@ end statics
 /-! ## 1l. The parameter stage, the declarations, the element widths -/
 
 def kScope (N : Nat) : IEnv :=
-  { vals := [("T", (3 : Int) ^ KL N), ("P", 4 * (2 : Int) ^ KL N), ("L", (KL N : Int)), ("N", (N : Int))],
-    pwidths := [("N", 32), ("L", 32), ("P", 32), ("T", 32)] }
+  { nvals := [("T", ((3 : Int) ^ KL N, 32, true)), ("P", (4 * (2 : Int) ^ KL N, 32, true)),
+      ("L", ((KL N : Int), 32, true)), ("N", ((N : Int), 32, true))],
+    pwidths := [("N", 32), ("L", 32), ("P", 32), ("T", 32)], int32 := true }
 
 def kEnv (N : Nat) : IEnv := { kScope N with dims := dimTable (kScope N) design.pdesign.decls }
 
-theorem kara_paramEnv (N : Nat) : design.pdesign.paramEnv2 [(N : Int)] = .ok (kEnv N) := rfl
+/-- (port) The localparam `L = $clog2((N + 3) / 4)` as the envelope holds it. -/
+def lExprK : PExpr :=
+  .sysCall .clog2 (.binary .div (.binary (.m0 .add) (.paramRef "N" none) (.int 3)) (.int 4))
+
+/-- (port) Cases of the constant evaluator, as written in `evalAt` (`$clog2`, `+`, `/`). -/
+theorem evalAt_clog2_eq (env : IEnv) (ty : Nat × Bool) (e : PExpr) :
+    evalAt env ty (.sysCall .clog2 e) = (do
+      let ety ← ctype env e
+      let v ← evalAt env ety e
+      .ok (convertConst 32 ty.1 ty.2 (clog2 (v.emod ((2 : Int) ^ ety.1)).toNat : Int))) := rfl
+
+theorem evalAt_add_eq (env : IEnv) (ty : Nat × Bool) (l r : PExpr) :
+    evalAt env ty (.binary (.m0 .add) l r) =
+      (do let a ← evalAt env ty l; let b ← evalAt env ty r; .ok (canonInt ty.1 ty.2 (a + b))) := rfl
+
+theorem evalAt_div_eq (env : IEnv) (ty : Nat × Bool) (l r : PExpr) :
+    evalAt env ty (.binary .div l r) = (do
+      let a ← evalAt env ty l
+      let b ← evalAt env ty r
+      if (b == 0) = true then .error "division by zero in a constant context (reads x)"
+      else .ok (canonInt ty.1 ty.2 (a.tdiv b))) := rfl
+
+/-- (port) At most 18 levels below `2^20`. -/
+theorem KL_le18 {N : Nat} (h : N < 2 ^ 20) : KL N ≤ 18 := by
+  unfold KL clog2
+  split
+  · omega
+  · have := (Nat.log2_lt (n := (N + 3) / 4 - 1) (k := 18) (by omega)).mpr (by omega)
+    omega
+
+/-- (port) `L`'s initializer below `2^20`: `clog2 ((N + 3) / 4)`. -/
+theorem lE_eval (N : Nat) (h20 : N < 2 ^ 20) :
+    evalIntTarget { nvals := [("N", (canonInt 32 true (N : Int), 32, true))], int32 := true } lExprK =
+      .ok (KL N : Int) := by
+  have hc : canonInt 32 true (N : Int) = N := SvGolf.Cycle.canonInt32_natCast (by omega)
+  have hc1 : convertConst 32 32 true (N : Int) = N := SvGolf.Cycle.convertConst32_natCast (by omega)
+  have c3 : convertConst 32 32 true 3 = 3 := by decide
+  have c4 : convertConst 32 32 true 4 = 4 := by decide
+  have h2 : canonInt 32 true ((N : Int) + 3) = (N : Int) + 3 :=
+    SvGolf.Cycle.canonInt32_of_range' (by omega) (by omega)
+  have htd : ((N : Int) + 3).tdiv 4 = ((N : Int) + 3) / 4 := Int.tdiv_eq_ediv_of_nonneg (by omega)
+  have hdv : canonInt 32 true (((N : Int) + 3) / 4) = ((N : Int) + 3) / 4 :=
+    SvGolf.Cycle.canonInt32_of_range' (by omega) (by omega)
+  have hneg : ¬ (((N : Int) + 3) / 4 < 0) := by omega
+  have hm1 : (((N : Int) + 3) / 4).emod ((2 : Int) ^ 32) = ((N : Int) + 3) / 4 := Int.emod_eq_of_lt (by omega) (by omega)
+  have hm2 : (((N : Int) + 3) / 4).emod 4294967296 = ((N : Int) + 3) / 4 := Int.emod_eq_of_lt (by omega) (by omega)
+  have hm3 : (((N : Int) + 3) / 4) % 4294967296 = ((N : Int) + 3) / 4 := Int.emod_eq_of_lt (by omega) (by omega)
+  have htn : (((N : Int) + 3) / 4).toNat = (N + 3) / 4 := by
+    rw [show ((N : Int) + 3) / 4 = (((N + 3) / 4 : Nat) : Int) by push_cast; rfl, Int.toNat_natCast]
+  have hl : convertConst 32 32 true ((clog2 ((N + 3) / 4) : Nat) : Int) = (clog2 ((N + 3) / 4) : Nat) :=
+    SvGolf.Cycle.convertConst32_natCast (by have := CombView.clog2_le ((N + 3) / 4); omega)
+  simp only [lExprK, evalIntTarget, PExpr.isInt, ↓reduceIte, evalIntExact, evalIntExactRec, evalSized,
+    Bool.not_true, Bool.false_eq_true, ctype, Gen2.except_ok_bind, PExpr.pushedTarget]
+  rw [evalAt_clog2_eq]
+  simp only [ctype, SymBinOp.constClass, Gen2.except_ok_bind, List.lookup, beq_self_eq_true, Bool.and_true,
+    Nat.max_self]
+  rw [evalAt_div_eq, evalAt_add_eq]
+  simp [evalAt, List.lookup, hc, hc1, c3, c4, h2, htd, hdv, hneg, hm1, hm2, hm3, htn, Gen2.except_ok_bind, hl, KL]
+
+/-- The parameter stage at the exact 32-bit `int` instantiation, below `2^20` (`L`, then `P` and `T` from it). -/
+theorem kara_paramEnv (N : Nat) (h20 : N < 2 ^ 20) : design.pdesign.paramEnv2 [(N : Int)] = .ok (kEnv N) := by
+  have hv := lE_eval N h20
+  have hk := KL_le18 h20
+  have hp2 : 2 ^ KL N ≤ 2 ^ 18 := Nat.pow_le_pow_right (by decide) hk
+  have hp3 : 3 ^ KL N ≤ 3 ^ 18 := Nat.pow_le_pow_right (by decide) hk
+  have hcN : canonInt 32 true (N : Int) = N := SvGolf.Cycle.canonInt32_natCast (by omega)
+  have hcL : canonInt 32 true (KL N : Int) = KL N := SvGolf.Cycle.canonInt32_natCast (by omega)
+  have c2 : canonInt 32 true 2 = 2 := by decide
+  have c3 : canonInt 32 true 3 = 3 := by decide
+  have c4 : canonInt 32 true 4 = 4 := by decide
+  have cp2 : canonInt 32 true ((2 : Int) ^ KL N) = (2 : Int) ^ KL N := by
+    have := SvGolf.Cycle.canonInt32_natCast (n := 2 ^ KL N) (by omega); push_cast at this; exact this
+  have cp4 : canonInt 32 true (4 * (2 : Int) ^ KL N) = 4 * (2 : Int) ^ KL N := by
+    have := SvGolf.Cycle.canonInt32_natCast (n := 4 * 2 ^ KL N) (by omega); push_cast at this; exact this
+  have cp3 : canonInt 32 true ((3 : Int) ^ KL N) = (3 : Int) ^ KL N := by
+    have := SvGolf.Cycle.canonInt32_natCast (n := 3 ^ KL N) (by omega); push_cast at this; exact this
+  have hneg : ¬ ((KL N : Int) < 0) := by omega
+  have sLN : ("L" == "N") = false := by decide
+  have sLP : ("L" == "P") = false := by decide
+  simp only [lExprK] at hv
+  rw [hcN] at hv
+  simp (config := { decide := true }) only [PDesign.paramEnv2, design.pdesign, bindPackageParams,
+    bindPackageEnums, bindParamsRes, bindParams, bindLocals, bindLocal, bindEnums, IEnv.bindNVal, Except.mapError,
+    SvGolf.Cycle.int_declConstType, SvGolf.Cycle.int_width, List.filterMapM, List.filterMapM.loop,
+    Gen2.except_ok_bind, hcN, hv, ↓reduceIte, List.map, List.cons_append, List.nil_append,
+    Res.ok_bind, Res.pure_eq, List.reverse_cons, List.reverse_nil]
+  simp (config := { decide := true }) only [evalIntTarget, evalIntExact, evalIntExactRec, PExpr.isInt,
+    PExpr.isIntExact, SymBinOp.intArith, IEnv.intVal?, List.lookup, Gen2.except_ok_bind, hcL, c2, c3, c4, cp2, cp4,
+    cp3, hneg, ↓reduceIte, Int.toNat_natCast, Bool.not_true, Bool.false_eq_true, Bool.and_true, Bool.true_and,
+    Option.isSome_some, Option.isSome_none, Bool.true_or, Bool.false_or, List.not_mem_nil, Res.ok_bind,
+    beq_self_eq_true, sLN, sLP]
+  rfl
+
 
 theorem le_two_pow_clog2' (n : Nat) : n ≤ 2 ^ clog2 n := by
   unfold clog2
@@ -934,30 +1034,31 @@ theorem kara_elems (N : Nat) : buildElems (kEnv N) design.pdesign.decls = .ok (k
 theorem dim_ev (N : Nat) (ws : List (String × Nat)) (c : Nat) :
     evalInt { kScope N with widths := ws } (eSub (eMul (.int (c : Int)) prT) (.int 1)) =
       .ok (((c * 3 ^ KL N : Nat) : Int) - 1) := by
-  have hT : ({ kScope N with widths := ws } : IEnv).vals.lookup "T" = some ((3 ^ KL N : Nat) : Int) := by
-    simp [kScope, List.lookup]
-  rw [eSub, evalInt_sub_of (isInt_binary_of rfl rfl (isInt_paramRef_of hT)) rfl
+  have hT : ({ kScope N with widths := ws } : IEnv).intVal? "T" = some ((3 ^ KL N : Nat) : Int) := by
+    simp [kScope, IEnv.intVal?, List.lookup]
+  rw [eSub, evalInt_sub_of (isInt_binary_of rfl rfl (CombView.isInt_paramRef_of_intVal hT)) rfl
     ((EvN.int _ c).mul (EvN.par hT)).ev (evalInt_int 1)]
 
-theorem kEnvOk (N : Nat) : KEnv (kEnv N) N (KL N) where
-  hN := by simp [kEnv, kScope, List.lookup]
-  hL := by simp [kEnv, kScope, List.lookup]
-  hP := by simp [kEnv, kScope, List.lookup]
-  hT := by simp [kEnv, kScope, List.lookup]
+theorem kEnvOk (N : Nat) (h20 : N < 2 ^ 20) : KEnv (kEnv N) N (KL N) where
+  hN := by simp [kEnv, kScope, IEnv.intVal?, List.lookup]
+  hL := by simp [kEnv, kScope, IEnv.intVal?, List.lookup]
+  hP := by simp [kEnv, kScope, IEnv.intVal?, List.lookup]
+  hT := by simp [kEnv, kScope, IEnv.intVal?, List.lookup]
+  hLs := by have := KL_le18 h20; omega
   hav := PDesign.dimTable_lookup_of (env := kScope N)
     (rfl : design.pdesign.packedDims.lookup "av" =
       some [{ msb := prL, lsb := .int 0 }, { msb := eSub (eMul (.int 4) prT) (.int 1), lsb := .int 0 }])
-    (fun ws => evalDims_cons_of (evalInt_paramRef_of (by simp [kScope, List.lookup])) (evalInt_int 0)
+    (fun ws => evalDims_cons_of (CombView.evalInt_paramRef_of_intVal (by simp [kScope, IEnv.intVal?, List.lookup])) (evalInt_int 0)
       (evalDims_cons_of (dim_ev N ws 4) (evalInt_int 0) evalDims_nil))
   hbv := PDesign.dimTable_lookup_of (env := kScope N)
     (rfl : design.pdesign.packedDims.lookup "bv" =
       some [{ msb := prL, lsb := .int 0 }, { msb := eSub (eMul (.int 4) prT) (.int 1), lsb := .int 0 }])
-    (fun ws => evalDims_cons_of (evalInt_paramRef_of (by simp [kScope, List.lookup])) (evalInt_int 0)
+    (fun ws => evalDims_cons_of (CombView.evalInt_paramRef_of_intVal (by simp [kScope, IEnv.intVal?, List.lookup])) (evalInt_int 0)
       (evalDims_cons_of (dim_ev N ws 4) (evalInt_int 0) evalDims_nil))
   hrv := PDesign.dimTable_lookup_of (env := kScope N)
     (rfl : design.pdesign.packedDims.lookup "rv" =
       some [{ msb := prL, lsb := .int 0 }, { msb := eSub (eMul (.int 8) prT) (.int 1), lsb := .int 0 }])
-    (fun ws => evalDims_cons_of (evalInt_paramRef_of (by simp [kScope, List.lookup])) (evalInt_int 0)
+    (fun ws => evalDims_cons_of (CombView.evalInt_paramRef_of_intVal (by simp [kScope, IEnv.intVal?, List.lookup])) (evalInt_int 0)
       (evalDims_cons_of (dim_ev N ws 8) (evalInt_int 0) evalDims_nil))
 
 /-! ## 1m. `instantiate2` at symbolic `N` -/
@@ -970,11 +1071,11 @@ def kGens (L : Nat) : List Process2 :=
 
 def kM (N : Nat) : Design2 := design.pdesign.assemble2 (kEnv N) (kDecls N) (kElemsL N) (kGens (KL N))
 
-theorem kara_instantiate2 {N : Nat} (hN : 1 ≤ N) :
+theorem kara_instantiate2 {N : Nat} (hN : 1 ≤ N) (h20 : N < 2 ^ 20) :
     design.pdesign.instantiate2 [(N : Int)] (PDesign.surfaceFuel [(N : Int)]) = .ok (kM N) := by
   obtain ⟨hF1, hF2⟩ := fuel_ok hN
-  have hE := (kEnvOk N).withDecls (kDecls N)
-  exact PDesign.instantiate2_of_ok rfl (kara_paramEnv N) (kara_decls hN) (kara_elems N)
+  have hE := (kEnvOk N h20).withDecls (kDecls N)
+  exact PDesign.instantiate2_of_ok rfl (kara_paramEnv N h20) (kara_decls hN) (kara_elems N)
     (by
       rw [kara_generates]
       exact expandList2_cons_ok (split_expand hE hF1 hF2)
@@ -987,8 +1088,9 @@ def kStatics (N : Nat) : List Process2 :=
    .assign (.ident "p") (.slice (.ident "rv") 0 (2 * N - 1))]
 
 /-- **The instantiated process list, for every `N ≥ 1`.** -/
-theorem kM_processes {N : Nat} (hN : 1 ≤ N) : (kM N).processes.toList = kStatics N ++ kGens (KL N) := by
-  have hE := (kEnvOk N).withDecls (kDecls N)
+theorem kM_processes {N : Nat} (hN : 1 ≤ N) (h20 : N < 2 ^ 20) :
+    (kM N).processes.toList = kStatics N ++ kGens (KL N) := by
+  have hE := (kEnvOk N h20).withDecls (kDecls N)
   have hNS : 2 * N - 1 ≤ KS (KL N) := by have := N_le_KR N; rw [KS_eq]; omega
   rw [kM, PDesign.assemble2_processes, kara_static_source, kara_others]
   simp only [List.map_cons, List.map_nil, List.append_nil]
@@ -1399,28 +1501,28 @@ theorem winOf_mem {N : Nat} {p : Process2} (hp : p ∈ kProcs N) : winOf N p ∈
 
 section comb
 
-variable {N : Nat} (hN : 1 ≤ N)
-include hN
+variable {N : Nat} (hN : 1 ≤ N) (h20 : N < 2 ^ 20)
+include hN h20
 
 theorem kM_getElem?_of_mem {p : Process2} (h : p ∈ kProcs N) : ∃ k : Nat, (kM N).processes[k]? = some p := by
-  rw [kProcs, ← kM_processes hN, List.mem_iff_getElem?] at h
+  rw [kProcs, ← kM_processes hN h20, List.mem_iff_getElem?] at h
   obtain ⟨k, hk⟩ := h
   rw [Array.getElem?_toList] at hk
   exact ⟨k, hk⟩
 
 theorem kM_mem_of_getElem? {k : Nat} {p : Process2} (h : (kM N).processes[k]? = some p) : p ∈ kProcs N := by
-  rw [kProcs, ← kM_processes hN, List.mem_iff_getElem?]
+  rw [kProcs, ← kM_processes hN h20, List.mem_iff_getElem?]
   exact ⟨k, by rw [Array.getElem?_toList]; exact h⟩
 
 theorem kM_writes {j : Nat} {w : Win} (h : (kM N).Writes j w) :
     ∃ p, (kM N).processes[j]? = some p ∧ p ∈ kProcs N ∧ w = winOf N p := by
   obtain ⟨t, e, hp, hw⟩ := h
-  have hm := kM_mem_of_getElem? hN hp
+  have hm := kM_mem_of_getElem? hN h20 hp
   obtain ⟨-, hws⟩ := kProcs_wins hN _ hm t e rfl
   rw [hws, List.mem_singleton] at hw
   exact ⟨_, hp, hm, hw⟩
 
-omit hN in
+omit hN h20 in
 theorem kProcs_pairwise : (kProcs N).Pairwise fun p q => Win.overlaps (winOf N p) (winOf N q) = false := by
   have h := ws_pairwise N
   rw [← kProcs_winOf, List.pairwise_map] at h
@@ -1429,10 +1531,10 @@ theorem kProcs_pairwise : (kProcs N).Pairwise fun p q => Win.overlaps (winOf N p
 theorem kM_disjoint : ∀ i j wi wj, i ≠ j → (kM N).Writes i wi → (kM N).Writes j wj →
     Win.overlaps wi wj = false := by
   intro i j wi wj hij hi hj
-  obtain ⟨p, hp, -, rfl⟩ := kM_writes hN hi
-  obtain ⟨q, hq, -, rfl⟩ := kM_writes hN hj
+  obtain ⟨p, hp, -, rfl⟩ := kM_writes hN h20 hi
+  obtain ⟨q, hq, -, rfl⟩ := kM_writes hN h20 hj
   have hpw := kProcs_pairwise (N := N)
-  rw [kProcs, ← kM_processes hN, List.pairwise_iff_getElem] at hpw
+  rw [kProcs, ← kM_processes hN h20, List.pairwise_iff_getElem] at hpw
   rw [← Array.getElem?_toList, List.getElem?_eq_some_iff] at hp hq
   obtain ⟨hil, hp⟩ := hp
   obtain ⟨hjl, hq⟩ := hq
@@ -1445,6 +1547,7 @@ theorem kM_disjoint : ∀ i j wi wj, i ≠ j → (kM N).Writes i wi → (kM N).W
     rw [Win.overlaps_comm]
     exact this
 
+omit h20 in
 theorem kws_inWidth {w : Win} (h : w ∈ wsAll N) :
     ∃ dw, (kM N).declWidth w.1 = some dw ∧ w.2.1 + w.2.2 ≤ dw := by
   rcases h' : w with ⟨n, lo, wd⟩
@@ -1478,7 +1581,7 @@ theorem kws_inWidth {w : Win} (h : w ∈ wsAll N) :
     subst hn hlo
     exact ⟨_, kM_declWidth_rv N, by simp only; omega⟩
 
-omit hN in
+omit hN h20 in
 theorem kProcs_rhsFree : ∀ p ∈ kProcs N, (rhsOf p).unsupportedFree = true := by
   refine kProcs_forall ?_ ?_ ?_ ?_
   · intro p hp
@@ -1494,9 +1597,10 @@ theorem kProcs_rhsFree : ∀ p ∈ kProcs N, (rhsOf p).unsupportedFree = true :=
     simp only [combP, List.mem_cons, List.not_mem_nil, or_false] at hp
     rcases hp with rfl | rfl | rfl | rfl | rfl <;> rfl
 
+omit h20 in
 def kNames : List String := ["a", "b", "p", "av", "bv", "rv"]
 
-omit hN in
+omit hN h20 in
 theorem kProcs_rhsDeclared : ∀ p ∈ kProcs N, ((rhsOf p).idents.all fun x => x ∈ kNames) = true := by
   refine kProcs_forall ?_ ?_ ?_ ?_
   · intro p hp
@@ -1519,36 +1623,36 @@ theorem kM_comb : CombDesign (kM N) where
     decide
   assign := by
     intro j p hp
-    have hm := kM_mem_of_getElem? hN hp
+    have hm := kM_mem_of_getElem? hN h20 hp
     rcases kProcs_shape hN p hm with ⟨n, lo, w, e, rfl, -⟩ | ⟨e, rfl⟩
     · exact ⟨_, _, _, rfl, (kProcs_wins hN _ hm _ _ rfl).1⟩
     · exact ⟨_, _, _, rfl, (kProcs_wins hN _ hm _ _ rfl).1⟩
   inWidth := by
     intro j n lo w h
-    obtain ⟨p, -, hm, hw⟩ := kM_writes hN h
+    obtain ⟨p, -, hm, hw⟩ := kM_writes hN h20 h
     have := kws_inWidth hN (winOf_mem hm)
     rw [← hw] at this
     exact this
   notInput := by
     rintro n ⟨j, lo, w, h⟩
-    obtain ⟨p, -, hm, hw⟩ := kM_writes hN h
+    obtain ⟨p, -, hm, hw⟩ := kM_writes hN h20 h
     have hmem := winOf_mem hm
     rw [← hw] at hmem
     have hr := wsAll_row hmem
     rw [kM_inputNames]
     rcases hr with ⟨rfl | rfl, -⟩ | ⟨rfl, -⟩ | ⟨rfl, -⟩ <;> decide
-  disjoint := kM_disjoint hN
+  disjoint := kM_disjoint hN h20
   selfDisjoint := by
     intro j t e hp
-    rcases kProcs_shape hN _ (kM_mem_of_getElem? hN hp) with ⟨n, lo, w, e', h, -⟩ | ⟨e', h⟩ <;>
+    rcases kProcs_shape hN _ (kM_mem_of_getElem? hN h20 hp) with ⟨n, lo, w, e', h, -⟩ | ⟨e', h⟩ <;>
       simp only [Process2.assign.injEq] at h <;> obtain ⟨rfl, -⟩ := h <;>
       exact Lhs2.wins_pairwise_of_leaf (fun _ h => by cases h) _
   rhsFree := by
     intro j t e hp
-    exact kProcs_rhsFree _ (kM_mem_of_getElem? hN hp)
+    exact kProcs_rhsFree _ (kM_mem_of_getElem? hN h20 hp)
   rhsDeclared := by
     intro j t e hp x hx
-    have h := List.all_eq_true.mp (kProcs_rhsDeclared _ (kM_mem_of_getElem? hN hp)) x hx
+    have h := List.all_eq_true.mp (kProcs_rhsDeclared _ (kM_mem_of_getElem? hN h20 hp)) x hx
     rw [kM_decls]
     simpa [kNames, kDecls] using h
   initWidth := by
@@ -1743,11 +1847,11 @@ theorem kProcs_reads {N : Nat} (hN : 1 ≤ N) : ∀ p ∈ kProcs N, ∀ r ∈ (r
       (rw [read_rv hww hov (by omega), show (l + 1) * KS (KL N) = (l + 1) * KS (KL N) + 0 by rfl,
         rkW_rv (by omega)]; exact hlt)
 
-theorem kM_acyclic {N : Nat} (hN : 1 ≤ N) : Acyclic (kM N) := by
+theorem kM_acyclic {N : Nat} (hN : 1 ≤ N) (h20 : N < 2 ^ 20) : Acyclic (kM N) := by
   refine ⟨kRank N, ?_⟩
   intro i j ti ei tj ej wj hi hj hwj ⟨r, hr, hov⟩
-  have hmi := kM_mem_of_getElem? hN hi
-  have hmj := kM_mem_of_getElem? hN hj
+  have hmi := kM_mem_of_getElem? hN h20 hi
+  have hmj := kM_mem_of_getElem? hN h20 hj
   obtain ⟨-, hws⟩ := kProcs_wins hN _ hmj tj ej rfl
   rw [hws, List.mem_singleton] at hwj
   subst hwj
@@ -1757,22 +1861,30 @@ theorem kM_acyclic {N : Nat} (hN : 1 ≤ N) : Acyclic (kM N) := by
 
 /-! ## 2g. `design.sem N` is the instantiated design -/
 
-theorem kara_sem_eq {N : Nat} (hN : 1 ≤ N) : design.sem N = kM N := by
-  show design.pdesign.instantiateGD2 [(N : Int)] = kM N
-  refine PDesign.instantiateGD2_of_combDesign (kara_instantiate2 hN) (kM_comb hN) ?_
-  intro i n lo w h
-  obtain ⟨p, -, hm, hw⟩ := kM_writes hN h
-  have hmem := winOf_mem hm
-  rw [← hw] at hmem
-  rcases wsAll_row hmem with ⟨-, -, -, -, -, -, hw0⟩ | ⟨-, -, -, -, -, -, hw0⟩ | ⟨-, hw0⟩
-  · exact hw0
-  · exact hw0
-  · omega
+theorem kara_sem_eq {N : Nat} (hN : 1 ≤ N) (h20 : N < 2 ^ 20) : design.sem N = kM N := by
+  -- `design.sem` is the alias-guarded family (`PDesign.instantiateGDAlias2`); the guard touches `always_comb`
+  -- processes only, and every process here is a continuous assignment
+  show (design.pdesign.instantiateGD2 [(N : Int)]).aliasGuard = kM N
+  have hgd : design.pdesign.instantiateGD2 [(N : Int)] = kM N := by
+    refine PDesign.instantiateGD2_of_combDesign (kara_instantiate2 hN h20) (kM_comb hN h20) ?_
+    intro i n lo w h
+    obtain ⟨p, -, hm, hw⟩ := kM_writes hN h20 h
+    have hmem := winOf_mem hm
+    rw [← hw] at hmem
+    rcases wsAll_row hmem with ⟨-, -, -, -, -, -, hw0⟩ | ⟨-, -, -, -, -, -, hw0⟩ | ⟨-, hw0⟩
+    · exact hw0
+    · exact hw0
+    · omega
+  rw [hgd]
+  refine Design2.aliasGuard_of_noComb fun p hp b hpb => ?_
+  rw [kM_processes hN h20] at hp
+  subst hpb
+  rcases kProcs_shape hN _ hp with ⟨n, lo, w, e, h, -⟩ | ⟨e, h⟩ <;> cases h
 
 /-- **The structure step, for every `N ≥ 1`**: the design is in the comb profile and acyclic. -/
-theorem kara_structure {N : Nat} (hN : 1 ≤ N) : CombDesign (design.sem N) ∧ Acyclic (design.sem N) := by
-  rw [kara_sem_eq hN]
-  exact ⟨kM_comb hN, kM_acyclic hN⟩
+theorem kara_structure {N : Nat} (hN : 1 ≤ N) (h20 : N < 2 ^ 20) : CombDesign (design.sem N) ∧ Acyclic (design.sem N) := by
+  rw [kara_sem_eq hN h20]
+  exact ⟨kM_comb hN h20, kM_acyclic hN h20⟩
 
 /-! # Part 3. The arithmetic of carry-less products and of one Karatsuba step
 
@@ -2183,7 +2295,7 @@ theorem KW0_le_KR (L : Nat) : KW L 0 ≤ KR L := by
 
 /-- **The operand invariant**: row `l` of `av` (of `bv`) holds, for every node `t < 3^l`, the node's
 operand of `W l = 4 * 2^(L - l)` bits. -/
-theorem opd_inv {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM N) st) {v : String}
+theorem opd_inv {N : Nat} (hN : 1 ≤ N) (h20 : N < 2 ^ 20) {st : SvState} (heqs : CombEqs (kM N) st) {v : String}
     (hv : v = "av" ∨ v = "bv") {u : LVec} (hu : SvState.lookup st v = some u) {f : Nat → Bool}
     (h0 : KB u 0 f (KR (KL N))) :
     ∀ l, l ≤ KL N → ∀ t, t < 3 ^ l →
@@ -2215,17 +2327,17 @@ theorem opd_inv {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM N) s
     rcases (show c = 0 ∨ c = 1 ∨ c = 2 by omega) with rfl | rfl | rfl
     · have hmem : spLoP v (KL N) l p ∈ kProcs N :=
         hmemv _ (by rcases hv with rfl | rfl <;> simp [splitP])
-      obtain ⟨j, hj⟩ := kM_getElem?_of_mem hN hmem
+      obtain ⟨j, hj⟩ := kM_getElem?_of_mem hN h20 hmem
       refine (eq_win heqs hj hu ev0).congr (fun k hk => ?_)
       rw [getLsbD_ofBits_lt hk, opd_c0]
     · have hmem : spHiP v (KL N) l p ∈ kProcs N :=
         hmemv _ (by rcases hv with rfl | rfl <;> simp [splitP])
-      obtain ⟨j, hj⟩ := kM_getElem?_of_mem hN hmem
+      obtain ⟨j, hj⟩ := kM_getElem?_of_mem hN h20 hmem
       refine (eq_win heqs hj hu ev1).congr (fun k hk => ?_)
       rw [getLsbD_ofBits_lt hk, opd_c1, Nat.add_comm k]
     · have hmem : spMidP v (KL N) l p ∈ kProcs N :=
         hmemv _ (by rcases hv with rfl | rfl <;> simp [splitP])
-      obtain ⟨j, hj⟩ := kM_getElem?_of_mem hN hmem
+      obtain ⟨j, hj⟩ := kM_getElem?_of_mem hN h20 hmem
       refine (eq_win heqs hj hu (evalPure2_xor_ofBitVec ev0 ev1)).congr (fun k hk => ?_)
       rw [BitVec.getLsbD_xor, getLsbD_ofBits_lt hk, getLsbD_ofBits_lt hk, opd_c2,
         Nat.add_comm (KW (KL N) (l + 1)) k]
@@ -2307,7 +2419,7 @@ theorem KW_self (L : Nat) : KW L L = 4 := by simp [KW]
 
 /-- **The base level**: product slot `t` of row `L` holds the carry-less product of the node's two 4-bit
 operands. -/
-theorem base_inv {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM N) st) {uA uB uR : LVec}
+theorem base_inv {N : Nat} (hN : 1 ≤ N) (h20 : N < 2 ^ 20) {st : SvState} (heqs : CombEqs (kM N) st) {uA uB uR : LVec}
     (hA : SvState.lookup st "av" = some uA) (hB : SvState.lookup st "bv" = some uB)
     (hR : SvState.lookup st "rv" = some uR) {fa fb : Nat → Bool}
     (hopA : ∀ t, t < 3 ^ KL N →
@@ -2331,7 +2443,7 @@ theorem base_inv {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM N) 
   have pe : ∀ i j, i < 4 → j < 4 → evalPure2 st (ppP (KL N) t i j) = .ok (kb (A i && B j)) :=
     fun i j hi hj => ev_and2 (ra i hi) (rb j hj)
   have hb : ∀ q, q ∈ baseP (KL N) t → ∃ j, (kM N).processes[j]? = some q :=
-    fun q h => kM_getElem?_of_mem hN (mem_base ht h)
+    fun q h => kM_getElem?_of_mem hN h20 (mem_base ht h)
   intro k hk
   rw [show KL N * KS (KL N) + t * 2 * 4 + k = KL N * KS (KL N) + (8 * t + k) by omega]
   rcases (show k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 ∨ k = 4 ∨ k = 5 ∨ k = 6 by omega) with
@@ -2408,7 +2520,7 @@ theorem colF_spec {H : Nat} (hH : 1 ≤ H) {X Y : Nat → Bool} :
 
 /-- **The product invariant**, from the base level up: product slot `t` of row `l` holds the carry-less
 product of node `(l, t)`'s operands (`2 W - 1` bits). -/
-theorem prod_inv {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM N) st) {uA uB uR : LVec}
+theorem prod_inv {N : Nat} (hN : 1 ≤ N) (h20 : N < 2 ^ 20) {st : SvState} (heqs : CombEqs (kM N) st) {uA uB uR : LVec}
     (hA : SvState.lookup st "av" = some uA) (hB : SvState.lookup st "bv" = some uB)
     (hR : SvState.lookup st "rv" = some uR) {fa fb : Nat → Bool}
     (hopA : ∀ l, l ≤ KL N → ∀ t, t < 3 ^ l →
@@ -2423,7 +2535,7 @@ theorem prod_inv {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM N) 
   | zero =>
     intro l hl t ht
     obtain rfl : l = KL N := by omega
-    exact base_inv hN heqs hA hB hR (fun t ht => hopA _ (Nat.le_refl _) t ht)
+    exact base_inv hN h20 heqs hA hB hR (fun t ht => hopA _ (Nat.le_refl _) t ht)
       (fun t ht => hopB _ (Nat.le_refl _) t ht) ht
   | succ d ih =>
     intro l hl t ht
@@ -2459,7 +2571,7 @@ theorem prod_inv {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM N) 
     refine KB.congr (g := colF m PL PH PM) ?_ (fun k hk => by rw [hspec k (by omega), show m + m = 2 * m by omega])
     -- the five column ranges, from the five combination assigns
     have hcb : ∀ q, q ∈ combP (KL N) l t → ∃ j, (kM N).processes[j]? = some q :=
-      fun q h => kM_getElem?_of_mem hN (mem_comb hlL ht h)
+      fun q h => kM_getElem?_of_mem hN h20 (mem_comb hlL ht h)
     simp only [combP, List.mem_cons, List.not_mem_nil, or_false, hWW, hmm] at hcb
     obtain ⟨j0, hj0⟩ := hcb _ (Or.inl rfl)
     obtain ⟨j1, hj1⟩ := hcb _ (Or.inr (Or.inl rfl))
@@ -2528,12 +2640,12 @@ theorem prod_inv {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM N) 
 
 /-- **The settled state**: in every solution of the design's equations with known inputs `x`, `y`, the
 output `p` holds the carry-less product `a (x) b` on `2N - 1` bits. -/
-theorem kara_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM N) st)
+theorem kara_settled {N : Nat} (hN : 1 ≤ N) (h20 : N < 2 ^ 20) {st : SvState} (heqs : CombEqs (kM N) st)
     (hs : StateShape (kM N) st) {x y : BitVec N} (ha : SvState.lookup st "a" = some (LVec.ofBitVec x))
     (hb : SvState.lookup st "b" = some (LVec.ofBitVec y)) :
     SvState.lookup st "p" = some (LVec.ofBitVec (ofBits (2 * N - 1) (coeff N x y))) := by
   have hst : ∀ q, q ∈ kStatics N → ∃ j, (kM N).processes[j]? = some q :=
-    fun q h => kM_getElem?_of_mem hN (mem_static h)
+    fun q h => kM_getElem?_of_mem hN h20 (mem_static h)
   simp only [kStatics, List.mem_cons, List.not_mem_nil, or_false] at hst
   obtain ⟨j0, hj0⟩ := hst _ (Or.inl rfl)
   obtain ⟨j1, hj1⟩ := hst _ (Or.inr (Or.inl rfl))
@@ -2548,17 +2660,17 @@ theorem kara_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM
   have h0B : KB uB 0 y.getLsbD (KR (KL N)) :=
     (KB.of_win hB0).congr (fun k hk => by simp [hk])
   have h3 : 0 < 3 ^ KL N := Nat.pos_of_ne_zero (by simp)
-  obtain ⟨jb, hjb⟩ := kM_getElem?_of_mem hN
+  obtain ⟨jb, hjb⟩ := kM_getElem?_of_mem hN h20
     (mem_base (N := N) h3 (show bsP (KL N) 0 0 (ppP (KL N) 0 0 0) ∈ baseP (KL N) 0 by simp [baseP]))
   obtain ⟨uR, hR, -⟩ := hs.driven "rv" ⟨jb, _, _, Design2.writes_of_window? hjb rfl⟩
-  have hopA := opd_inv hN heqs (Or.inl rfl) hA h0A
-  have hopB := opd_inv hN heqs (Or.inr rfl) hB h0B
-  have hP := prod_inv hN heqs hA hB hR hopA hopB (KL N) 0 (by omega) 0 (by simp)
+  have hopA := opd_inv hN h20 heqs (Or.inl rfl) hA h0A
+  have hopB := opd_inv hN h20 heqs (Or.inr rfl) hB h0B
+  have hP := prod_inv hN h20 heqs hA hB hR hopA hopB (KL N) 0 (by omega) 0 (by simp)
   have hNP := N_le_P N
   have hW0 : KW (KL N) 0 = 4 * 2 ^ KL N := by simp [KW]
   have hP' : KB uR 0 (cl (KW (KL N) 0) x.getLsbD y.getLsbD) (2 * N - 1) :=
     (hP.mono (by omega)).addr (by simp)
-  have hp := CombEqs.lookup_ident (kM_comb hN) heqs hs hj2 (ev_win hR hP') (kM_declWidth_p N)
+  have hp := CombEqs.lookup_ident (kM_comb hN h20) heqs hs hj2 (ev_win hR hP') (kM_declWidth_p N)
   rw [hp, LVec.resizeU_ofBitVec, BitVec.setWidth_eq]
   congr 2
   apply BitVec.eq_of_getLsbD_eq
@@ -2573,14 +2685,15 @@ theorem kara_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (kM
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  rw [kara_sem_eq hN']
-  refine CombTask.satisfiedAt_of_comb ?_ (kM_comb hN') (kM_acyclic hN') ?_
+  have h20 : N < 2 ^ 20 := hN.2
+  rw [kara_sem_eq hN' h20]
+  refine CombTask.satisfiedAt_of_comb ?_ (kM_comb hN' h20) (kM_acyclic hN' h20) ?_
   · simp [CombTask.Interface, inputPorts, outputPorts, kM_decls, kDecls, SvGolf.Tasks.Clmul.task]
   · intro st heqs hs v hv
     obtain ⟨x, y, ⟨⟩⟩ := v
     simp only [SvGolf.Tasks.Clmul.task, HoldAll_cons, HoldAll_nil, and_true] at hv ⊢
     obtain ⟨ha, hb⟩ := hv
-    exact kara_settled hN' heqs hs ha hb
+    exact kara_settled hN' h20 heqs hs ha hb
 
 /--
 info: 'Submission.solution' depends on axioms: [propext, Classical.choice, Quot.sound]

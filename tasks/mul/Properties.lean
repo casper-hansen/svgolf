@@ -14,10 +14,10 @@ namespace SvGolf.Tasks.Mul.Properties
 
 open SvGolf LeanModels.Sv
 
-/-- The widths the statement covers: every `N` with `1 ≤ N < 2^30` (so that the output width `2N`,
-an `int` expression of the module, stays below `2^31`, the values an `int` holds). -/
+/-- The widths the statement covers: every `N` with `1 ≤ N < 2^20` (decided 2026-11-14: the `int`
+arithmetic a design does on `N`, the output width `2N` among it, stays below `2^31`). -/
 def ParamsInRange (N : Nat) : Prop :=
-  1 ≤ N ∧ N < 2 ^ 30
+  1 ≤ N ∧ N < 2 ^ 20
 
 /-- Exactly these ports, in this order, with these widths. -/
 def Interface (N : Nat) (d : Design2) : Prop :=

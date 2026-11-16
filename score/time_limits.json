@@ -1,149 +1,149 @@
 {
-  "_comment": "Cold runs of every honest reference through check.py, in CPU SECONDS: `stages.solution.cpu_seconds` (the compile of the reference's Solution.lean, nothing else), with the wall clock of the same run (`stages.solution.seconds`) beside it. The input of score/time_limits.py, which holds every task to the one limit of 300 CPU s (decided 2026-11-02, the value 2026-11-06; it was 120 s of wall clock), names every reference above the 150 CPU s target, and fails when a measurement is not in CPU seconds or a reference task.json lists has none. T = the largest CPU run of the slowest reference of the task. Re-measured 2026-11-06 because the runs recorded before (2026-10-30 to 2026-11-05) were wall-clock seconds, which the CPU limit does not count (they are in this file's history). Re-measure after a change of the tactic library, the toolchain or the machine: put the new runs here and run `python3 score/time_limits.py --check`. Not hashed by the checker.",
+  "_comment": "Cold runs of every honest reference through check.py, in CPU SECONDS: `stages.solution.cpu_seconds` (the compile of the reference's Solution.lean, nothing else), with the wall clock of the same run (`stages.solution.seconds`) beside it. The input of score/time_limits.py, which holds every task to the one limit of 300 CPU s (decided 2026-11-02, the value 2026-11-06; it was 120 s of wall clock), names every reference above the 150 CPU s target, and fails when a measurement is not in CPU seconds or a reference task.json lists has none. T = the largest CPU run of the slowest reference of the task. Re-measured 2026-11-16, all three sweeps of every reference, after the move to Proglib 4fcda4c87 (the tactic library changed; the toolchain, v4.35.0, and the machine did not); the runs before are in this file's history. Re-measure after a change of the tactic library, the toolchain or the machine: put the new runs here and run `python3 score/time_limits.py --check`. Not hashed by the checker.",
   "unit": "cpu_s",
   "environment": {
-    "date": "2026-11-06 20:03:45 to 2026-11-06 21:41:15 (CET); arbiter, matmul and sorter: 2026-11-07 07:52:26 to 2026-11-07 08:00:32 (CET), after the merge round",
-    "machine": "Apple M2 Pro (8 performance and 4 efficiency cores), 16 GB, macOS 27.2: a laptop-class development machine, shared: other users' jobs ran throughout (1-minute load average 2.8 to 13.2 when the runs started); nothing else of this package ran concurrently; which cores ran a process was not controlled",
-    "build": "COLD per run: a new check.py process and a fresh staging directory (--stage-dir, removed before and after) for every run, the references of one task in sequence inside one acquisition of the Lean slot wrapper (one task per acquisition), 3 sweeps of all tasks one after the other; the project build (svGolf, tasks, LeanModels.Sv) was warm and current, not timed; the OS file cache was not purged",
-    "threads": "LEAN_NUM_THREADS=2 and nice 19 (the slot wrapper); the CPU seconds count both threads",
-    "lean_cache": "svGolf and LeanModels.Sv .olean files built and current, the staged Submission/*.olean built from scratch inside each run; lean-toolchain leanprover/lean4:v4.33.0-rc1",
-    "postsynth_mode": "none: --no-score (no score, no post-synthesis; neither enters the solution stage)",
-    "reference_commit": "sweep 1: 96459073f; sweep 2: bddf0f84e, 2fc47cb87; sweep 3: 2fc47cb87 (no commit between them changes the references, svGolf, LeanModels or the solution stage); arbiter, matmul and sorter: 5a9c89290, all three sweeps (the merge round that brought the arbiter and the txtask-v2 proofs of matmul_g1 and sorter_ins)",
-    "measured_with": "check.py tasks/<task> tasks/<task>/reference/<stem>.sv tasks/<task>/reference/<stem>.lean --no-score --stage-dir <fresh> --json <out>, default sandbox (auto: on)"
+    "date": "2026-11-16 (UTC): sweep 1 is the round's check of every reference at the tip (the final sweep for the references whose check reaches SvGolf/Cycle.lean, the round's last change a check reads; for the others the run at byte-identical inputs earlier that day), sweeps 2 and 3 followed it",
+    "machine": "a shared Linux build server, Intel Xeon Platinum 8488C, 96 hardware threads, 371 GB of memory: other users' jobs ran throughout, and up to four of these check.py processes ran at once (one Lean process each), fewer while the machine's Lean job budget was in use; which cores ran a process was not controlled",
+    "build": "COLD per run: a new check.py process and a fresh staging directory (--stage-dir, removed before each run) for every run; the project build (svGolf, tasks, LeanModels.Sv) was warm and current, not timed; the OS file cache was not purged",
+    "threads": "LEAN_NUM_THREADS=2, nice 19, each run in its own systemd scope with MemoryMax=8G and no swap; the CPU seconds count both threads",
+    "lean_cache": "svGolf and LeanModels.Sv .olean files built and current, the staged Submission/*.olean built from scratch inside each run; lean-toolchain leanprover/lean4:v4.35.0, Proglib 4fcda4c87",
+    "postsynth_mode": "none: --no-score --ppa off (no score, no post-synthesis; neither enters the solution stage)",
+    "reference_commit": "the references of this tree (none changed between the sweeps and the publication)",
+    "measured_with": "check.py tasks/<task> tasks/<task>/reference/<stem>.sv tasks/<task>/reference/<stem>.lean --no-score --ppa off --sandbox off --no-trusted-build --stage-dir <fresh> --json <out> (the sandbox is off on this machine; the trusted target was built beforehand)"
   },
   "tasks": {
     "_example": {
       "references": {
         "band": {
-          "cpu_s": [1.73, 1.6, 1.6],
-          "wall_s": [2.3, 1.39, 1.34]
+          "cpu_s": [2.37, 2.22, 2.39],
+          "wall_s": [13.08, 10.63, 12.81]
         },
         "band_lp": {
-          "cpu_s": [1.57, 1.73, 1.59],
-          "wall_s": [1.21, 1.36, 1.35]
+          "cpu_s": [3.26, 3.04, 3.18],
+          "wall_s": [16.44, 12.41, 13.54]
         },
         "band_tactics": {
-          "cpu_s": [3.26, 3.15, 3.21],
-          "wall_s": [2.47, 2.44, 2.41]
+          "cpu_s": [4.39, 4.28, 4.34],
+          "wall_s": [17.19, 12.93, 13.9]
         }
       },
-      "why": "band: 3 runs at a 1-minute load average of 10.9, 6.4, 8.3 when each started; comparator 12.2 to 16.0 s, leanchecker 14.3 to 15.4 s of wall clock; band_lp: 3 runs at a 1-minute load average of 7.9, 6.5, 6.7 when each started; comparator 10.4 to 12.2 s, leanchecker 11.9 to 16.8 s of wall clock; band_tactics: 3 runs at a 1-minute load average of 6.7, 6.6, 5.7 when each started; comparator 14.7 to 15.7 s, leanchecker 12.5 to 17.7 s of wall clock"
+      "why": "Three cold runs per reference at the round's tip, 2026-11-16 (the environment above): sweep 1 the round's check of every reference at the tip, sweeps 2 and 3 after it."
     },
     "add": {
       "references": {
         "add_n": {
-          "cpu_s": [5.73, 6.17, 6.01],
-          "wall_s": [3.47, 4.02, 3.93]
+          "cpu_s": [6.66, 6.48, 6.65],
+          "wall_s": [17.09, 13.1, 15.13]
         },
         "add_proc": {
-          "cpu_s": [8.18, 8.2, 8.42],
-          "wall_s": [5.22, 5.21, 5.45]
+          "cpu_s": [8.9, 8.62, 8.54],
+          "wall_s": [19.14, 15.8, 19.68]
         },
         "add_proc_m": {
-          "cpu_s": [12.29, 12.37, 11.23],
-          "wall_s": [7.12, 7.23, 6.47]
+          "cpu_s": [11.02, 11.12, 11.11],
+          "wall_s": [18.28, 17.27, 17.42]
         },
         "add_mux": {
-          "cpu_s": [6.82, 6.95, 6.51],
-          "wall_s": [4.07, 4.14, 3.92]
+          "cpu_s": [7.38, 7.47, 7.46],
+          "wall_s": [14.97, 16.41, 15.02]
         },
         "add_n_byhand": {
-          "cpu_s": [4.23, 4.68, 4.12],
-          "wall_s": [2.01, 4.6, 1.91]
+          "cpu_s": [4.67, 4.69, 4.86],
+          "wall_s": [12.29, 12.51, 14.3]
         }
       },
-      "why": "add_n: 3 runs at a 1-minute load average of 6.0, 6.4, 4.9 when each started; comparator 15.7 to 16.3 s, leanchecker 13.9 to 17.2 s of wall clock; add_proc: 3 runs at a 1-minute load average of 5.5, 8.4, 5.8 when each started; comparator 16.6 to 18.2 s, leanchecker 14.9 to 15.6 s of wall clock; add_proc_m: 3 runs at a 1-minute load average of 8.2, 12.4, 5.3 when each started; comparator 17.0 to 18.7 s, leanchecker 13.1 to 16.6 s of wall clock; add_mux: 3 runs at a 1-minute load average of 6.4, 9.1, 3.9 when each started; comparator 14.7 to 18.2 s, leanchecker 13.1 to 23.0 s of wall clock; add_n_byhand: 3 runs at a 1-minute load average of 5.7, 12.4, 4.0 when each started; comparator 10.7 to 15.6 s, leanchecker 11.3 to 16.5 s of wall clock"
+      "why": "Three cold runs per reference at the round's tip, 2026-11-16 (the environment above): sweep 1 the round's check of every reference at the tip, sweeps 2 and 3 after it."
     },
     "mul": {
       "references": {
         "mul_n": {
-          "cpu_s": [16.36, 16.86, 16.12],
-          "wall_s": [10.16, 12.86, 10.09]
+          "cpu_s": [19.59, 19.61, 19.5],
+          "wall_s": [27.09, 23.66, 24.06]
         },
         "mul_n_byhand": {
-          "cpu_s": [14.12, 14.55, 13.85],
-          "wall_s": [6.63, 6.92, 6.55]
+          "cpu_s": [8.7, 8.19, 8.41],
+          "wall_s": [18.48, 13.74, 15.24]
         },
         "mul_tree": {
-          "cpu_s": [37.08, 34.76, 34.92],
-          "wall_s": [28.71, 27.53, 25.7]
+          "cpu_s": [39.14, 39.43, 38.7],
+          "wall_s": [37.51, 37.69, 36.97]
         },
         "mul_wallace": {
-          "cpu_s": [31.59, 30.05, 28.72],
-          "wall_s": [23.49, 22.62, 16.15]
+          "cpu_s": [33.93, 33.41, 34.0],
+          "wall_s": [31.28, 28.77, 32.48]
         },
         "mul_tree_h": {
-          "cpu_s": [32.67, 32.31, 33.68],
-          "wall_s": [19.3, 19.65, 20.0]
+          "cpu_s": [37.73, 37.29, 37.48],
+          "wall_s": [33.88, 34.68, 33.87]
         }
       },
-      "why": "mul_n: 3 runs at a 1-minute load average of 4.8, 8.3, 3.6 when each started; comparator 15.7 to 22.1 s, leanchecker 13.8 to 15.9 s of wall clock; mul_n_byhand: 3 runs at a 1-minute load average of 4.5, 6.8, 2.8 when each started; comparator 11.4 to 12.8 s, leanchecker 12.4 to 13.9 s of wall clock; run 1 integrity: rejected AFTER the solution stage, which finished and is counted (its integrity stage saw score/fourstate.py change: a docstring edit of the same round, made while the run was going); mul_tree: 3 runs at a 1-minute load average of 5.7, 5.3, 2.8 when each started; comparator 20.5 to 25.3 s, leanchecker 18.6 to 19.9 s of wall clock; mul_wallace: 3 runs at a 1-minute load average of 7.7, 5.5, 3.5 when each started; comparator 16.7 to 22.7 s, leanchecker 18.2 to 22.1 s of wall clock; mul_tree_h: 3 runs at a 1-minute load average of 7.6, 7.4, 4.3 when each started; comparator 17.4 to 20.4 s, leanchecker 18.9 to 20.5 s of wall clock"
+      "why": "Three cold runs per reference at the round's tip, 2026-11-16 (the environment above): sweep 1 the round's check of every reference at the tip, sweeps 2 and 3 after it."
     },
     "clmul": {
       "references": {
         "clmul_n": {
-          "cpu_s": [10.39, 9.9, 9.96],
-          "wall_s": [6.23, 5.9, 5.93]
+          "cpu_s": [11.79, 11.88, 11.87],
+          "wall_s": [17.7, 19.22, 19.0]
         }
       },
-      "why": "clmul_n: 3 runs at a 1-minute load average of 6.9, 5.1, 4.4 when each started; comparator 16.2 to 16.6 s, leanchecker 13.9 to 15.6 s of wall clock"
+      "why": "Three cold runs per reference at the round's tip, 2026-11-16 (the environment above): sweep 1 the round's check of every reference at the tip, sweeps 2 and 3 after it."
     },
     "fdivp": {
       "references": {
         "fdivp": {
-          "cpu_s": [82.18, 79.11, 80.38],
-          "wall_s": [30.56, 28.6, 29.76]
+          "cpu_s": [54.72, 53.85, 54.61],
+          "wall_s": [34.61, 33.68, 35.29]
         },
         "fdivp_newton": {
-          "cpu_s": [120.7, 108.32, 108.42],
-          "wall_s": [47.83, 40.34, 40.04]
+          "cpu_s": [91.3, 91.02, 91.52],
+          "wall_s": [49.84, 48.36, 48.84]
         },
         "fdivp_srt": {
-          "cpu_s": [181.84, 160.5, 160.17],
-          "wall_s": [77.69, 65.86, 64.41]
+          "cpu_s": [126.91, 128.13, 125.77],
+          "wall_s": [72.47, 72.35, 71.28]
         }
       },
-      "why": "fdivp: 3 runs at a 1-minute load average of 6.0, 4.7, 5.2 when each started; comparator 18.9 to 23.0 s, leanchecker 29.6 to 32.3 s of wall clock; fdivp_newton: 3 runs at a 1-minute load average of 9.0, 4.4, 6.1 when each started; comparator 22.9 to 27.2 s, leanchecker 34.9 to 39.3 s of wall clock; fdivp_srt: 3 runs at a 1-minute load average of 12.9, 4.4, 5.1 when each started; comparator 25.3 to 31.2 s, leanchecker 43.2 to 55.6 s of wall clock"
+      "why": "Three cold runs per reference at the round's tip, 2026-11-16 (the environment above): sweep 1 the round's check of every reference at the tip, sweeps 2 and 3 after it."
     },
     "aes_sbox": {
       "references": {
         "sbox_bp": {
-          "cpu_s": [66.97, 51.87, 50.83],
-          "wall_s": [75.25, 52.04, 50.52]
+          "cpu_s": [52.93, 51.58, 51.18],
+          "wall_s": [63.62, 62.19, 61.58]
         },
         "sbox_table": {
-          "cpu_s": [26.0, 23.92, 23.32],
-          "wall_s": [26.69, 24.26, 23.4]
+          "cpu_s": [23.42, 23.28, 22.42],
+          "wall_s": [34.37, 34.15, 31.94]
         }
       },
-      "why": "sbox_bp: 3 runs at a 1-minute load average of 12.9, 5.3, 3.9 when each started; comparator 26.9 to 36.1 s, leanchecker 46.3 to 54.8 s of wall clock; sbox_table: 3 runs at a 1-minute load average of 13.2, 5.1, 4.8 when each started; comparator 19.7 to 24.3 s, leanchecker 24.2 to 27.2 s of wall clock"
+      "why": "Three cold runs per reference at the round's tip, 2026-11-16 (the environment above): sweep 1 the round's check of every reference at the tip, sweeps 2 and 3 after it."
     },
     "matmul": {
       "references": {
         "matmul_g1": {
-          "cpu_s": [16.2, 17.46, 17.26],
-          "wall_s": [7.71, 9.61, 11.64]
+          "cpu_s": [15.68, 15.44, 15.4],
+          "wall_s": [22.89, 20.27, 20.92]
         }
       },
-      "why": "matmul_g1: 3 runs at a 1-minute load average of 5.9, 5.5, 7.1 when each started; comparator 13.0 to 25.4 s, leanchecker 18.1 to 21.6 s of wall clock; measured 2026-11-07 after the merge round, of the txtask-v2 proof (the runs of 2026-11-06, 15.23, 15.05, 15.12 CPU s, were of the v1 proof, and are in this file's history)"
+      "why": "Three cold runs per reference at the round's tip, 2026-11-16 (the environment above): sweep 1 the round's check of every reference at the tip, sweeps 2 and 3 after it."
     },
     "sorter": {
       "references": {
         "sorter_ins": {
-          "cpu_s": [17.37, 17.37, 17.02],
-          "wall_s": [5.09, 5.67, 5.17]
+          "cpu_s": [13.6, 13.25, 13.25],
+          "wall_s": [16.79, 17.65, 16.09]
         }
       },
-      "why": "sorter_ins: 3 runs at a 1-minute load average of 5.4, 6.4, 5.2 when each started; comparator 13.9 to 21.8 s, leanchecker 15.3 to 18.1 s of wall clock; measured 2026-11-07 after the merge round, of the txtask-v2 proof (the runs of 2026-11-06, 15.96, 15.25, 15.78 CPU s, were of the v1 proof, and are in this file's history)"
+      "why": "Three cold runs per reference at the round's tip, 2026-11-16 (the environment above): sweep 1 the round's check of every reference at the tip, sweeps 2 and 3 after it."
     },
     "arbiter": {
       "references": {
         "rr_mask": {
-          "cpu_s": [12.56, 12.71, 11.18],
-          "wall_s": [9.75, 9.67, 4.12]
+          "cpu_s": [6.78, 6.48, 6.4],
+          "wall_s": [16.6, 15.5, 15.54]
         }
       },
-      "why": "rr_mask: 3 runs at a 1-minute load average of 4.3, 6.0, 4.8 when each started; comparator 12.2 to 31.6 s, leanchecker 17.4 to 19.0 s of wall clock (two Python checks of this package's docs, a few seconds, ran during the first run); measured 2026-11-07 after the merge round, under the 300 CPU s limit (the runs recorded before, 2026-11-05, were wall-clock seconds against round 7's 120 s limit: 8.25, 11.08, 9.41 s; they are in this file's history)"
+      "why": "Three cold runs per reference at the round's tip, 2026-11-16 (the environment above): sweep 1 the round's check of every reference at the tip, sweeps 2 and 3 after it."
     }
   }
 }

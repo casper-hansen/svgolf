@@ -3661,7 +3661,7 @@ class LatencyTaskTest(unittest.TestCase):
                 self.assertIn("Adapted from licensed code (MIT): its licence notice is in the design file, shown in "
                               "full below.", card)
                 self.assertNotIn("the list of changes", card)
-        self.assertGreaterEqual(checked, 1)     # kestrel-golf's 61bf6f8d17f7 keeps the reference's MIT notice
+        self.assertGreaterEqual(checked, 1)     # kestrel-golf's 3b1ec4b16d7a keeps the reference's MIT notice
         grant, condition = build.LICENCE_NOTICES["MIT"]
         self.assertEqual(build.licence_ids(f"// {grant[:60]}\n//   {grant[60:]}\n/* {condition} */\n"), ["MIT"])
         self.assertEqual(build.licence_ids(f"// {grant}\n"), [])

@@ -1,11 +1,11 @@
-import tasks.fdivp.IEEE754
+import LeanModels.SoftFloat.Binary.Defs
 
 /-!
 # Batch runner for the differential validation (untrusted tooling)
 
     lake env lean --run tasks/fdivp/spec_validate/Run.lean <impl> <w> <p> <mode> <pairs.bin> <out.bin>   (from svgolf/)
 
-`<impl>` is `spec` (this repo's `SvGolf.IEEE754.divide`) or `core` (Lean core's own logical
+`<impl>` is `spec` (`LeanModels.SoftFloat.Binary.divide`, Proglib's IEEE 754 library, which the task's statement names) or `core` (Lean core's own logical
 float model `Float.Model.UnpackedFloat.div`, an independent implementation shipped with the
 toolchain; roundTiesToEven only). `<mode>` is one of `rne rna rtp rtn rtz`.
 
@@ -14,14 +14,14 @@ toolchain; roundTiesToEven only). `<mode>` is one of `rne rna rtp rtn rtz`.
 Driven by `validate.py`; see svgolf/tasks/fdivp/spec_validate/README.md.
 -/
 
-open SvGolf.IEEE754
+open LeanModels.SoftFloat.Binary
 
 def parseMode : String → Option RoundingMode
-  | "rne" => some .roundTiesToEven
-  | "rna" => some .roundTiesToAway
-  | "rtp" => some .roundTowardPositive
-  | "rtn" => some .roundTowardNegative
-  | "rtz" => some .roundTowardZero
+  | "rne" => some .nearestTiesToEven
+  | "rna" => some .nearestTiesToAway
+  | "rtp" => some .towardPositive
+  | "rtn" => some .towardNegative
+  | "rtz" => some .towardZero
   | _ => none
 
 /-- Read the little-endian word of `nb` bytes at byte offset `off`. -/
@@ -61,7 +61,7 @@ def main (args : List String) : IO UInt32 := do
         match impl with
         | "spec" => pure (divide f mode)
         | "core" =>
-          if mode == .roundTiesToEven then pure (coreDiv f)
+          if mode == .nearestTiesToEven then pure (coreDiv f)
           else throw (IO.userError "core model is roundTiesToEven only")
         | _ => throw (IO.userError "impl must be spec or core")
       let data ← IO.FS.readBinFile inp

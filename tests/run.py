@@ -675,11 +675,14 @@ def step_layout(tasks, expected):
         # of the statement and proves the statement equivalent to them (not a proof library: nothing about
         # designs); properties.json is their plain-words text for the site
         allowed = {"task.json", "Spec.lean", "README.md", "REVIEW.md", "reference", "oracle.py",
-                   "Properties.lean", "properties.json"}
+                   "Properties.lean", "properties.json",
+                   # a task's own facts about its statement's definitions (decided 2026-11-14: beside the
+                   # statement, untrusted, kernel-checked, built by the trusted build like Properties.lean)
+                   "Facts.lean"}
         allowed |= {f for f in os.listdir(tdir) if dev_only(f"tasks/{t}/{f}")}
         if t == "fdivp":
-            # the trusted IEEE 754 spec beside the statement, and its (untrusted) validation tooling
-            allowed |= {"IEEE754.lean", "spec_validate"}
+            # the (untrusted) validation tooling of the IEEE 754 division its statement names
+            allowed |= {"spec_validate"}
         extra = sorted(set(os.listdir(tdir)) - allowed)
         if extra:
             errs.append(f"files a player does not need in tasks/{t}/: {extra} (tests go to tests/{t}/)")
@@ -889,12 +892,20 @@ def lssv_imports():
     return sorted(mods)
 
 
+# Lean tests of the development tree only (they state `sorry` to test its refusal; the public export leaves them
+# out, tools/export_public.py): compiled by the build step where they exist.
+DEV_LEAN_TESTS = ["tests/cycle/Unfinished.lean"]
+
+
 def step_build():
     t0 = time.time()
     proc = subprocess.run(WRAP + ["lake", "build"], cwd=SVGOLF, capture_output=True, text=True)
     if proc.returncode == 0 and lssv_imports():
         proc = subprocess.run(WRAP + ["lake", "build"] + lssv_imports(), cwd=SVGOLF,
                               capture_output=True, text=True)
+    for rel in DEV_LEAN_TESTS:
+        if proc.returncode == 0 and os.path.isfile(os.path.join(SVGOLF, rel)):
+            proc = subprocess.run(WRAP + ["lake", "env", "lean", rel], cwd=SVGOLF, capture_output=True, text=True)
     out = proc.stdout + proc.stderr
     m = re.findall(r"Build completed successfully \((\d+) jobs\)", out)
     built = sorted(set(re.findall(r"Built (tests\.\S+)", out)))

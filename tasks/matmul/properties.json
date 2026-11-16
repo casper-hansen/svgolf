@@ -13,7 +13,7 @@
       "decl": "SvGolf.Tasks.Matmul.Properties.ParamsInRange",
       "file": "svgolf/tasks/matmul/Properties.lean",
       "kind": "range",
-      "text": "The statement covers every matrix size N ≥ 1, entry width W ≥ 1 and accumulator width AccW ≥ 1, as long as both port widths, N·N·W and N·N·AccW bits, stay below 2^31: the parameters are 32-bit ints, and in that range a real SystemVerilog tool and Lean's model agree on every width and index. One proof covers all of them; the design is scored at N = 4, W = 8, AccW = 32."
+      "text": "The statement covers every matrix size 1 ≤ N < 2^5 (up to 31 × 31), entry width 1 ≤ W < 2^10 and accumulator width 1 ≤ AccW < 2^12: the parameters are 32-bit ints, and in that range every width and index a design computes from them (the port widths N·N·W and N·N·AccW, and larger ones such as a multiplier cube's N·N·(2N-1)·AccW bits) stays far below 2^31, where a real SystemVerilog tool and Lean's model agree. One proof covers all of them; the design is scored at N = 4, W = 8, AccW = 32."
     },
     {
       "name": "INTERFACE",
@@ -223,7 +223,7 @@
     {
       "name": "Process2.isEdgePhase",
       "decl": "LeanModels.Sv.Process2.isEdgePhase",
-      "file": "LeanModels/Sv/Sem2.lean",
+      "file": "LeanModels/Sv/Sem2Ast.lean",
       "text": "True for the processes that run at the clock edge: always_ff, always @(posedge …) and asynchronous-reset blocks."
     },
     {

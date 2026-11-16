@@ -103,10 +103,10 @@
    },
    "netlist_sha256": "b339cc280a6d33865ab421e2879a83d99982cabd381c57f3469135805a2f7385",
    "of": [
-    "record:78eafaad6144a56d7f9bc189bea080f4b96d63f38d8cffcd27d4d72d69bb8cc3",
+    "record:2b45c33f7258b604cea4e28f7817b2bace62068434f930411b1370b56c0f8afc",
     "reference:sbox_table"
    ],
-   "record": "78eafaad6144a56d7f9bc189bea080f4b96d63f38d8cffcd27d4d72d69bb8cc3",
+   "record": "2b45c33f7258b604cea4e28f7817b2bace62068434f930411b1370b56c0f8afc",
    "request": {
     "seed": 1,
     "settings": {},
@@ -364,10 +364,10 @@
    },
    "netlist_sha256": "19f2288bdc50054aa83efde39b136fbfa0fdefdef2de8daa427e82ad13164be5",
    "of": [
-    "record:6a7b5691ccd5523ec21bd597e3948931d2023e423e536bf679aaa6ab9a2ee167",
+    "record:93dadf475239e27e795b1014e6346ba113d0e660fc8ec7b0539b3d36c8223332",
     "reference:sbox_bp"
    ],
-   "record": "6a7b5691ccd5523ec21bd597e3948931d2023e423e536bf679aaa6ab9a2ee167",
+   "record": "93dadf475239e27e795b1014e6346ba113d0e660fc8ec7b0539b3d36c8223332",
    "request": {
     "seed": 1,
     "settings": {},
@@ -625,9 +625,9 @@
    },
    "netlist_sha256": "5f16602fa6382d8361e34c1d4c8a8a1a34fd14b61da01a9eeee56d98c1393adf",
    "of": [
-    "record:d2880a7160dd09519db7626bdd17a0bff9cc65b9f87de0a6b66857c9dfc1ecc6"
+    "record:bc1c50aceaa710ccec5b012045bc1a19dcbb738eba538ef02cb173ee17695d8e"
    ],
-   "record": "d2880a7160dd09519db7626bdd17a0bff9cc65b9f87de0a6b66857c9dfc1ecc6",
+   "record": "bc1c50aceaa710ccec5b012045bc1a19dcbb738eba538ef02cb173ee17695d8e",
    "request": {
     "seed": 1,
     "settings": {},
@@ -886,9 +886,9 @@
    "netlist_sha256": "e631c36dd5d2e60c1e09c93f2886fe32786f92e042ae496ed7ec79b9d0dac4a7",
    "of": [
     "baseline:sbox_bp_d16",
-    "record:1852a895190cd00bd301f465d043161aea5257a622ece5856aae06d8e149604c"
+    "record:e98b307e09605023e195db34289edb82442d1125a213b021f11e4b8282f182db"
    ],
-   "record": "1852a895190cd00bd301f465d043161aea5257a622ece5856aae06d8e149604c",
+   "record": "e98b307e09605023e195db34289edb82442d1125a213b021f11e4b8282f182db",
    "request": {
     "seed": 1,
     "settings": {},

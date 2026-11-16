@@ -4,6 +4,7 @@ import LeanModels.Sv.Gen2
 import LeanModels.Sv.Hier2Gen
 import LeanModels.Sv.Comb2
 import LeanModels.Sv.Known2
+import LeanModels.Sv.CombView
 
 /-!
 # Reference solution for task `mul` (N-bit unsigned multiplier): the proof
@@ -232,23 +233,23 @@ theorem pp_inst (env : IEnv) (elems : List (String × Nat)) (N i j : Nat) (hN : 
   simp [ppCell, hidx]
 
 /-- The loop bound `N` survives genvar bindings (genvars never shadow `N`). -/
-private theorem n_bound (env : IEnv) (N : Nat) (h : env.vals.lookup "N" = some (N : Int))
+private theorem n_bound (env : IEnv) (N : Nat) (h : env.intVal? "N" = some (N : Int))
     (g : String) (hg : g ≠ "N") (i : Int) :
     evalInt (env.bindVal g i) (.paramRef "N" none) = .ok (N : Int) := by
-  apply evalInt_paramRef_of
-  simp [IEnv.bindVal, List.lookup, h, beq_false_of_ne (Ne.symm hg)]
+  apply CombView.evalInt_paramRef_of_intVal
+  rw [IEnv.intVal?_bindVal_ne _ (Ne.symm hg)]; exact h
 
 /-- … and `N` stays in the INT class there (`PExpr.isInt`: bound in `vals`). -/
-private theorem n_bound_int (env : IEnv) (N : Nat) (h : env.vals.lookup "N" = some (N : Int))
+private theorem n_bound_int (env : IEnv) (N : Nat) (h : env.intVal? "N" = some (N : Int))
     (g : String) (hg : g ≠ "N") (i : Int) :
     (PExpr.paramRef "N" none).isInt (env.bindVal g i) = true := by
-  exact isInt_paramRef_of (v := (N : Int))
-    (by simp [IEnv.bindVal, List.lookup, h, beq_false_of_ne (Ne.symm hg)])
+  exact CombView.isInt_paramRef_of_intVal (v := (N : Int))
+    (by rw [IEnv.intVal?_bindVal_ne _ (Ne.symm hg)]; exact h)
 
 /-- **The partial-product generate block, for every `N ≥ 1`**: the
 `i`-major family of 1-bit cells `pp[i*N + j] = a[j] & b[i]`. -/
 theorem mul_pp_expand (env : IEnv) (elems : List (String × Nat)) (N F : Nat) (hN : 1 ≤ N)
-    (hF : N < F) (hNv : env.vals.lookup "N" = some (N : Int))
+    (hF : N < F) (hNv : env.intVal? "N" = some (N : Int))
     (hd : env.dims.lookup "pp" = some (ppGeom N))
     (ha : elems.lookup "a" = some 1) (hb : elems.lookup "b" = some 1) :
     ppGen.expand2 env elems F =
@@ -270,26 +271,28 @@ theorem mul_pp_expand (env : IEnv) (elems : List (String × Nat)) (N F : Nat) (h
   · intro v _ _
     apply expandList2_singleton_ok
     rw [GenItem.expand2_genFor_ascending_processes (N := (N : Int)) (evalInt_int 0)
-      (n_bound_int _ N (by simp [IEnv.bindVal, List.lookup, hNv]) "j" (by decide))
-      (n_bound _ N (by simp [IEnv.bindVal, List.lookup, hNv]) "j" (by decide)) (by simpa using hF)]
+      (n_bound_int _ N (by rw [IEnv.intVal?_bindVal_ne _ (by decide)]; exact hNv) "j" (by decide))
+      (n_bound _ N (by rw [IEnv.intVal?_bindVal_ne _ (by decide)]; exact hNv) "j" (by decide)) (by simpa using hF)]
     simp
 
 /-! ## At the environment `instantiate2` builds -/
 
 /-- The declaration scope of `mul_n` at `N`: `N` bound, its declared `int`
 type 32 bits. -/
-def mulScope (N : Int) : IEnv := { vals := [("N", N)], pwidths := [("N", 32)] }
+def mulScope (N : Int) : IEnv :=
+  { nvals := [("N", (N, 32, true))], pwidths := [("N", 32)], int32 := true }
 
 /-- The parameter environment of `mul_n` at `N` (by `rfl`): the declaration
 scope plus the geometry table evaluated in it. -/
 def mulEnv (N : Int) : IEnv := { mulScope N with dims := dimTable (mulScope N) design.pdesign.decls }
 
-theorem mul_paramEnv (N : Int) : design.pdesign.paramEnv2 [N] = .ok (mulEnv N) := rfl
+theorem mul_paramEnv (N : Int) : design.pdesign.paramEnv2 [N] = .ok (mulEnv (canonInt 32 true N)) := rfl
 
 /-- `N - 1` in the declaration scope, at any declared-width table. -/
 theorem mulScope_nM1 (N : Int) (ws : List (String × Nat)) :
     evalInt { mulScope N with widths := ws } nM1 = .ok (N - 1) :=
-  evalInt_sub_of (by simp [mulScope]) rfl (evalInt_paramRef_of (by simp [mulScope])) (evalInt_int 1)
+  evalInt_sub_of (by simp [mulScope]) rfl
+    (CombView.evalInt_paramRef_of_intVal (by simp [mulScope, IEnv.intVal?])) (evalInt_int 1)
 
 /-- The geometry table's `pp` entry: `[N-1:0][N-1:0]` evaluated. -/
 theorem mulEnv_pp (N : Nat) : (mulEnv N).dims.lookup "pp" = some (ppGeom N) :=
@@ -311,7 +314,7 @@ theorem mul_pp_instantiated (N : Nat) (hN : 1 ≤ N) (decls : List Decl)
       have := Nat.le_mul_self (N + 2)
       simp [PDesign.surfaceFuel]
       omega)
-    (by simp [mulEnv, mulScope]) (by simpa using mulEnv_pp N) ha hb
+    (by simp [mulEnv, mulScope, IEnv.intVal?]) (by simpa using mulEnv_pp N) ha hb
 
 /-! ## The whole instantiated multiplier
 
@@ -343,7 +346,7 @@ private theorem rect_eval (N : Nat) (ws : List (String × Nat)) :
     evalDims { mulScope N with widths := ws } rectDims = .ok (rectGeom N) :=
   evalDims_cons_of (d := ⟨nM1, .int 0⟩) (mulScope_nM1 N ws) (evalInt_int 0)
     (evalDims_cons_of (d := ⟨.paramRef "N" none, .int 0⟩)
-      (evalInt_paramRef_of (by simp [mulScope])) (evalInt_int 0) evalDims_nil)
+      (CombView.evalInt_paramRef_of_intVal (by simp [mulScope, IEnv.intVal?])) (evalInt_int 0) evalDims_nil)
 
 theorem mulEnv_s (N : Nat) : (mulEnv N).dims.lookup "s" = some (rectGeom N) :=
   PDesign.dimTable_lookup_of mul_s_dims (rect_eval N)
@@ -358,16 +361,19 @@ def pMsb : PExpr := .binary (.m0 .sub) (.binary .mul (.int 2) (.paramRef "N" non
 theorem mul_p_dims : design.pdesign.packedDims.lookup "p" = some [⟨pMsb, .int 0⟩] := rfl
 
 /-- `2*N-1` at `N`, in any environment binding `N`. -/
-theorem evalInt_pMsb {E : IEnv} {N : Int} (hN : E.vals.lookup "N" = some N) :
+theorem evalInt_pMsb {E : IEnv} {N : Int} (hN : E.intVal? "N" = some N) :
     evalInt E pMsb = .ok (2 * N - 1) :=
-  evalInt_sub_of (by simp [PExpr.isInt, SymBinOp.intArith, hN]) rfl
-    (evalInt_mul_of rfl (by simp [PExpr.isInt, hN]) (evalInt_int 2) (evalInt_paramRef_of hN))
+  have hi := CombView.isInt_paramRef_of_intVal hN
+  evalInt_sub_of (by
+      show (SymBinOp.mul.intArith && (PExpr.int 2).isInt E && (PExpr.paramRef "N" none).isInt E) = true
+      rw [hi]; rfl) rfl
+    (evalInt_mul_of rfl hi (evalInt_int 2) (CombView.evalInt_paramRef_of_intVal hN))
     (evalInt_int 1)
 
 /-- The geometry table's `p` entry. -/
 theorem mulEnv_p (N : Nat) : (mulEnv N).dims.lookup "p" = some [(2 * (N : Int) - 1, 0)] :=
   PDesign.dimTable_lookup_of mul_p_dims fun _ =>
-    evalDims_cons_of (d := ⟨pMsb, .int 0⟩) (evalInt_pMsb (by simp [mulScope])) (evalInt_int 0)
+    evalDims_cons_of (d := ⟨pMsb, .int 0⟩) (evalInt_pMsb (by simp [mulScope, IEnv.intVal?])) (evalInt_int 0)
       evalDims_nil
 
 /-- The 1-bit literal `1'b0`. -/
@@ -484,7 +490,7 @@ def mulProcs (N : Nat) : List Process2 :=
 /-- The environment facts every template reads: `N`, and the evaluated
 geometry of the four arrays. -/
 structure MulEnvOk (E : IEnv) (N : Nat) : Prop where
-  n : E.vals.lookup "N" = some (N : Int)
+  n : E.intVal? "N" = some (N : Int)
   pp : E.dims.lookup "pp" = some (ppGeom N)
   t : E.dims.lookup "t" = some (ppGeom N)
   s : E.dims.lookup "s" = some (rectGeom N)
@@ -492,12 +498,13 @@ structure MulEnvOk (E : IEnv) (N : Nat) : Prop where
 
 theorem MulEnvOk.bind {E : IEnv} {N : Nat} (h : MulEnvOk E N) (g : String) (hg : g ≠ "N")
     (v : Int) : MulEnvOk (E.bindVal g v) N :=
-  ⟨by simp [IEnv.bindVal, List.lookup, h.n, beq_false_of_ne (Ne.symm hg)],
+  ⟨by rw [IEnv.intVal?_bindVal_ne _ (Ne.symm hg)]; exact h.n,
    by simpa using h.pp, by simpa using h.t, by simpa using h.s, by simpa using h.c⟩
 
 theorem MulEnvOk.nM1 {E : IEnv} {N : Nat} (h : MulEnvOk E N) :
     evalInt E nM1 = .ok ((N : Int) - 1) :=
-  evalInt_sub_of (by simp [h.n]) rfl (evalInt_paramRef_of h.n) (evalInt_int 1)
+  evalInt_sub_of (CombView.isInt_paramRef_of_intVal h.n) rfl (CombView.evalInt_paramRef_of_intVal h.n)
+    (evalInt_int 1)
 
 /-- A path `x[i][j]` over `[N-1:0][N-1:0]` (`pp`, `t`). -/
 theorem win_sq {E : IEnv} {N : Nat} {n : String} (hd : E.dims.lookup n = some (ppGeom N))
@@ -611,8 +618,8 @@ theorem sTop_inst (h : MulEnvOk env N) (hN : 1 ≤ N) (i : Nat) (hi : i < N) :
   have h' := h.bind "i" (by decide) i
   have hi' : evalInt (env.bindVal "i" i) (.genvarRef "i") = .ok (i : Int) :=
     evalInt_genvarRef_of (by simp [IEnv.bindVal])
-  have hwS := win_rect (n := "s") h'.s hN hi' (evalInt_paramRef_of h'.n) hi (Nat.le_refl N)
-  have hwC := win_rect (n := "c") h'.c hN hi' (evalInt_paramRef_of h'.n) hi (Nat.le_refl N)
+  have hwS := win_rect (n := "s") h'.s hN hi' (CombView.evalInt_paramRef_of_intVal h'.n) hi (Nat.le_refl N)
+  have hwC := win_rect (n := "c") h'.c hN hi' (CombView.evalInt_paramRef_of_intVal h'.n) hi (Nat.le_refl N)
   rw [sTopT, instProcess2_assignL _ (target1 hwS), read1 hwC]
   rfl
 
@@ -705,7 +712,7 @@ theorem mul_elems (N : Nat) (hN : 1 ≤ N) :
     except_pure]
 
 theorem mulEnvOk (N : Nat) (decls : List Decl) : MulEnvOk ((mulEnv N).withDecls decls) N :=
-  ⟨by simp [mulEnv, mulScope], by simpa using mulEnv_pp N, by simpa using mulEnv_t N,
+  ⟨by simp [mulEnv, mulScope, IEnv.intVal?], by simpa using mulEnv_pp N, by simpa using mulEnv_t N,
    by simpa using mulEnv_s N, by simpa using mulEnv_c N⟩
 
 /-- An unbased-unsized fill in a context of width `w`. -/
@@ -726,7 +733,7 @@ theorem mul_static (N : Nat) (hN : 1 ≤ N) (decls : List Decl) :
     simpa using mulEnv_p N
   have hgp := arrayPartGeom_range_of (is := []) (a := pMsb) (b := .paramRef "N" none)
     (arrayDims_of hpd) (walkIndices_nil (env := (mulEnv N).withDecls decls) _) hm
-    (evalInt_paramRef_of E.n)
+    (CombView.evalInt_paramRef_of_intVal E.n)
     (by rw [labelOffset_desc0 (m := 2 * (N : Int) - 1) (by omega),
       labelOffset_desc0 (m := 2 * (N : Int) - 1) (by omega)]; omega)
   rw [labelOffset_desc0 (m := 2 * (N : Int) - 1) (by omega) (N : Int),
@@ -740,7 +747,7 @@ theorem mul_static (N : Nat) (hN : 1 ≤ N) (decls : List Decl) :
     (by omega : (0 : Int) ≤ (N : Int) - 1) E.nM1 (by omega) (Int.le_refl _)
     (walkIndices_nil (env := (mulEnv N).withDecls decls) [((N : Int), 0)])
   have hgeom := arrayPartGeom_range_of (a := .paramRef "N" none) (b := .int 1)
-    (arrayDims_of E.s) hwalk (evalInt_paramRef_of E.n) (evalInt_int 1)
+    (arrayDims_of E.s) hwalk (CombView.evalInt_paramRef_of_intVal E.n) (evalInt_int 1)
     (by rw [labelOffset_desc0 (m := (N : Int)) (by omega),
       labelOffset_desc0 (m := (N : Int)) (by omega)]; omega)
   rw [labelOffset_desc0 (m := (N : Int)) (by omega) (N : Int),
@@ -1028,51 +1035,63 @@ theorem mul_buildDecls (N : Nat) (hN : 1 ≤ N) :
 /-! ## The family member `design.sem N` -/
 
 /-- `instantiate2` at symbolic `N ≥ 1`. -/
-theorem mul_instantiate2 (N : Nat) (hN : 1 ≤ N) :
+theorem mul_instantiate2 (N : Nat) (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) :
     design.pdesign.instantiate2 [(N : Int)] (PDesign.surfaceFuel [(N : Int)]) =
       .ok (design.pdesign.assemble2 (mulEnv N) (mulDecls N) (mulElems N)
         (((List.range N).flatMap fun i => (List.range N).map fun j => ppCell N i j)
           ++ (((List.range (N - 1)).flatMap fun k => rowCells N (k + 1))
           ++ (List.range N).map (outCell N)))) :=
-  PDesign.instantiate2_of_ok rfl (mul_paramEnv N) (mul_buildDecls N hN) (mul_elems N hN)
+  PDesign.instantiate2_of_ok rfl
+    (by rw [mul_paramEnv, CombView.canonInt32_of_range ⟨by omega, by omega⟩]) (mul_buildDecls N hN) (mul_elems N hN)
     (mul_gens N hN (mulDecls N))
 
-theorem mul_instD_processes (N : Nat) (hN : 1 ≤ N) :
+theorem mul_instD_processes (N : Nat) (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) :
     (design.pdesign.instantiateD2 [(N : Int)]).processes.toList = mulProcs N := by
   have hothers : design.pdesign.others = [] := rfl
-  rw [PDesign.instantiateD2_of_ok (mul_instantiate2 N hN), PDesign.assemble2_processes,
+  rw [PDesign.instantiateD2_of_ok (mul_instantiate2 N hN hR20), PDesign.assemble2_processes,
     mul_static N hN (mulDecls N), hothers]
   simp [mulProcs]
 
 /-- `design.sem N` is the instantiated design: its one-driver guard passes. -/
-theorem mul_sem_eq (N : Nat) (hN : 1 ≤ N) :
+theorem mul_sem_eq (N : Nat) (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) :
     design.sem N = design.pdesign.instantiateD2 [(N : Int)] := by
-  show design.pdesign.instantiateGD2 [(N : Int)] = _
-  apply PDesign.instantiateGD2_of_driversOk
-  rw [mul_instD_processes N hN]
-  exact mul_driversOk N
+  -- `design.sem` is the alias-guarded family (`PDesign.instantiateGDAlias2`); the guard touches `always_comb`
+  -- processes only, and this design has none
+  show (design.pdesign.instantiateGD2 [(N : Int)]).aliasGuard = _
+  have hgd : design.pdesign.instantiateGD2 [(N : Int)] = design.pdesign.instantiateD2 [(N : Int)] := by
+    apply PDesign.instantiateGD2_of_driversOk
+    rw [mul_instD_processes N hN hR20]
+    exact mul_driversOk N
+  rw [hgd]
+  refine Design2.aliasGuard_of_noComb fun p hp b => ?_
+  rw [mul_instD_processes N hN hR20] at hp
+  intro hpb
+  subst hpb
+  revert hp
+  simp [mulProcs, rowCells, s0Proc, c0Proc, t0Proc, pHiProc, ppCell, cRowCell, tCell, sCell, cCell, sTopCell,
+    outCell]
 
-theorem mul_sem_processes (N : Nat) (hN : 1 ≤ N) :
+theorem mul_sem_processes (N : Nat) (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) :
     (design.sem N).processes.toList = mulProcs N := by
-  rw [mul_sem_eq N hN]
-  exact mul_instD_processes N hN
+  rw [mul_sem_eq N hN hR20]
+  exact mul_instD_processes N hN hR20
 
-theorem mul_sem_decls (N : Nat) (hN : 1 ≤ N) : (design.sem N).decls.toList = mulDecls N := by
-  rw [mul_sem_eq N hN, PDesign.instantiateD2_of_ok (mul_instantiate2 N hN),
+theorem mul_sem_decls (N : Nat) (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) : (design.sem N).decls.toList = mulDecls N := by
+  rw [mul_sem_eq N hN hR20, PDesign.instantiateD2_of_ok (mul_instantiate2 N hN hR20),
     PDesign.assemble2_decls]
 
 /-! ## The process table -/
 
-theorem mul_getElem?_of_mem {N : Nat} (hN : 1 ≤ N) {p : Process2} (h : p ∈ mulProcs N) :
+theorem mul_getElem?_of_mem {N : Nat} (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) {p : Process2} (h : p ∈ mulProcs N) :
     ∃ k : Nat, (design.sem N).processes[k]? = some p := by
-  rw [← mul_sem_processes N hN, List.mem_iff_getElem?] at h
+  rw [← mul_sem_processes N hN hR20, List.mem_iff_getElem?] at h
   obtain ⟨k, hk⟩ := h
   rw [Array.getElem?_toList] at hk
   exact ⟨k, hk⟩
 
-theorem mul_mem_of_getElem? {N : Nat} (hN : 1 ≤ N) {k : Nat} {p : Process2}
+theorem mul_mem_of_getElem? {N : Nat} (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) {k : Nat} {p : Process2}
     (h : (design.sem N).processes[k]? = some p) : p ∈ mulProcs N := by
-  rw [← mul_sem_processes N hN, List.mem_iff_getElem?]
+  rw [← mul_sem_processes N hN hR20, List.mem_iff_getElem?]
   exact ⟨k, by rw [Array.getElem?_toList]; exact h⟩
 
 /-- **Every process of the multiplier**, by kind: a property of each of the
@@ -1143,26 +1162,26 @@ theorem mem_pHiProc {N : Nat} : pHiProc N ∈ mulProcs N := by simp [mulProcs]
 
 section Decls
 
-variable {N : Nat} (hN : 1 ≤ N)
-include hN
+variable {N : Nat} (hN : 1 ≤ N) (hR20 : N < 2 ^ 20)
+include hN hR20
 
 theorem mul_declWidth (n : String) :
     (design.sem N).declWidth n = ((mulDecls N).find? fun dc => dc.name == n).map Decl.width := by
-  simp only [Design2.declWidth, mul_sem_decls N hN]
+  simp only [Design2.declWidth, mul_sem_decls N hN hR20]
 
 theorem mul_declWidth_p : (design.sem N).declWidth "p" = some (2 * N) := by
-  simp [mul_declWidth hN, mulDecls]
+  simp [mul_declWidth hN hR20, mulDecls]
 theorem mul_declWidth_pp : (design.sem N).declWidth "pp" = some (N * N) := by
-  simp [mul_declWidth hN, mulDecls]
+  simp [mul_declWidth hN hR20, mulDecls]
 theorem mul_declWidth_s : (design.sem N).declWidth "s" = some (N * (N + 1)) := by
-  simp [mul_declWidth hN, mulDecls]
+  simp [mul_declWidth hN hR20, mulDecls]
 theorem mul_declWidth_c : (design.sem N).declWidth "c" = some (N * (N + 1)) := by
-  simp [mul_declWidth hN, mulDecls]
+  simp [mul_declWidth hN hR20, mulDecls]
 theorem mul_declWidth_t : (design.sem N).declWidth "t" = some (N * N) := by
-  simp [mul_declWidth hN, mulDecls]
+  simp [mul_declWidth hN hR20, mulDecls]
 
 theorem mul_sem_inputNames : (design.sem N).inputNames.toList = ["a", "b"] := by
-  simp [Design2.inputNames, mul_sem_decls N hN, mulDecls]
+  simp [Design2.inputNames, mul_sem_decls N hN hR20, mulDecls]
 
 end Decls
 
@@ -1206,10 +1225,10 @@ theorem mulProcs_pairwise (N : Nat) :
 /-! ## The comb profile -/
 
 /-- Process-wise facts, pulled back from an index. -/
-theorem mul_proc_slice {N : Nat} (hN : 1 ≤ N) {k : Nat} {t : Lhs2} {e : Expr2}
+theorem mul_proc_slice {N : Nat} (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) {k : Nat} {t : Lhs2} {e : Expr2}
     (h : (design.sem N).processes[k]? = some (.assign t e)) :
     ∃ n lo w, t = .slice n lo w ∧ n ∈ mulDriven := by
-  obtain ⟨n, lo, w, e', hp, hn⟩ := mulProcs_slice _ (mul_mem_of_getElem? hN h)
+  obtain ⟨n, lo, w, e', hp, hn⟩ := mulProcs_slice _ (mul_mem_of_getElem? hN hR20 h)
   simp only [Process2.assign.injEq] at hp
   exact ⟨n, lo, w, hp.1, hn⟩
 
@@ -1218,16 +1237,16 @@ theorem rowMajor_lt {K M i c : Nat} (hi : i < M) (hc : c < K) : i * K + c < M * 
   have := rowMajor_le (K := K) hi
   omega
 
-theorem mul_disjoint {N : Nat} (hN : 1 ≤ N) :
+theorem mul_disjoint {N : Nat} (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) :
     ∀ i j wi wj, i ≠ j → (design.sem N).Writes i wi → (design.sem N).Writes j wj →
       Win.overlaps wi wj = false := by
   intro i j wi wj hij ⟨ti, ei, hi, hwi⟩ ⟨tj, ej, hj, hwj⟩
-  obtain ⟨n, lo, w, rfl, -⟩ := mul_proc_slice hN hi
-  obtain ⟨n', lo', w', rfl, -⟩ := mul_proc_slice hN hj
+  obtain ⟨n, lo, w, rfl, -⟩ := mul_proc_slice hN hR20 hi
+  obtain ⟨n', lo', w', rfl, -⟩ := mul_proc_slice hN hR20 hj
   simp only [Lhs2.wins_slice, List.mem_singleton] at hwi hwj
   subst hwi hwj
   have hpw := mulProcs_pairwise N
-  rw [← mul_sem_processes N hN, List.pairwise_iff_getElem] at hpw
+  rw [← mul_sem_processes N hN hR20, List.pairwise_iff_getElem] at hpw
   rw [← Array.getElem?_toList, List.getElem?_eq_some_iff] at hi hj
   obtain ⟨hil, hi⟩ := hi
   obtain ⟨hjl, hj⟩ := hj
@@ -1249,7 +1268,7 @@ theorem mul_disjoint {N : Nat} (hN : 1 ≤ N) :
     · exact Or.inr (Or.inl h)
 
 /-- Every write window lies inside its signal (row-major index bounds). -/
-theorem mul_inWidth {N : Nat} (hN : 1 ≤ N) :
+theorem mul_inWidth {N : Nat} (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) :
     ∀ p ∈ mulProcs N, ∀ t e, p = .assign t e → ∀ n lo w, (n, lo, w) ∈ t.wins (design.sem N) →
       ∃ dw, (design.sem N).declWidth n = some dw ∧ lo + w ≤ dw := by
   refine mulProcs_forall ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_
@@ -1257,17 +1276,17 @@ theorem mul_inWidth {N : Nat} (hN : 1 ≤ N) :
     simp only [s0Proc, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, rfl⟩ := hw
-    exact ⟨_, mul_declWidth_s hN, by have := Nat.le_mul_of_pos_left (N + 1) hN; omega⟩
+    exact ⟨_, mul_declWidth_s hN hR20, by have := Nat.le_mul_of_pos_left (N + 1) hN; omega⟩
   · intro t e h n lo w hw
     simp only [c0Proc, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, rfl⟩ := hw
-    exact ⟨_, mul_declWidth_c hN, by have := Nat.le_mul_of_pos_left (N + 1) hN; omega⟩
+    exact ⟨_, mul_declWidth_c hN hR20, by have := Nat.le_mul_of_pos_left (N + 1) hN; omega⟩
   · intro t e h n lo w hw
     simp only [t0Proc, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, hw⟩ := hw
-    refine ⟨_, mul_declWidth_t hN, ?_⟩
+    refine ⟨_, mul_declWidth_t hN hR20, ?_⟩
     rw [hw]
     have := Nat.le_mul_of_pos_left N hN
     omega
@@ -1275,46 +1294,46 @@ theorem mul_inWidth {N : Nat} (hN : 1 ≤ N) :
     simp only [pHiProc, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, rfl⟩ := hw
-    exact ⟨_, mul_declWidth_p hN, by omega⟩
+    exact ⟨_, mul_declWidth_p hN hR20, by omega⟩
   · intro i hi j hj t e h n lo w hw
     simp only [ppCell, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, rfl⟩ := hw
-    exact ⟨_, mul_declWidth_pp hN, by have := rowMajor_lt hi hj; omega⟩
+    exact ⟨_, mul_declWidth_pp hN hR20, by have := rowMajor_lt hi hj; omega⟩
   · intro k hk t e h n lo w hw
     simp only [cRowCell, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, rfl⟩ := hw
-    exact ⟨_, mul_declWidth_c hN, by
+    exact ⟨_, mul_declWidth_c hN hR20, by
       have := rowMajor_lt (K := N + 1) (c := 0) hk (by omega); omega⟩
   · intro k hk j hj t e h n lo w hw
     simp only [tCell, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, rfl⟩ := hw
-    exact ⟨_, mul_declWidth_t hN, by have := rowMajor_lt hk hj; omega⟩
+    exact ⟨_, mul_declWidth_t hN hR20, by have := rowMajor_lt hk hj; omega⟩
   · intro k hk j hj t e h n lo w hw
     simp only [sCell, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, rfl⟩ := hw
-    exact ⟨_, mul_declWidth_s hN, by
+    exact ⟨_, mul_declWidth_s hN hR20, by
       have := rowMajor_lt (K := N + 1) (c := j) hk (by omega); omega⟩
   · intro k hk j hj t e h n lo w hw
     simp only [cCell, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, rfl⟩ := hw
-    exact ⟨_, mul_declWidth_c hN, by
+    exact ⟨_, mul_declWidth_c hN hR20, by
       have := rowMajor_lt (K := N + 1) (c := j + 1) hk (by omega); omega⟩
   · intro k hk t e h n lo w hw
     simp only [sTopCell, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, rfl⟩ := hw
-    exact ⟨_, mul_declWidth_s hN, by
+    exact ⟨_, mul_declWidth_s hN hR20, by
       have := rowMajor_lt (K := N + 1) (c := N) hk (by omega); omega⟩
   · intro i hi t e h n lo w hw
     simp only [outCell, Process2.assign.injEq] at h; obtain ⟨rfl, -⟩ := h
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, rfl, rfl⟩ := hw
-    exact ⟨_, mul_declWidth_p hN, by omega⟩
+    exact ⟨_, mul_declWidth_p hN hR20, by omega⟩
 
 /-- The right-hand side of an assign. -/
 def rhsOf : Process2 → Expr2
@@ -1331,47 +1350,47 @@ theorem mulProcs_rhsDeclared {N : Nat} :
     ∀ p ∈ mulProcs N, ((rhsOf p).idents.all fun x => x ∈ mulNames) = true := by
   refine mulProcs_forall ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ ?_ <;> intros <;> rfl
 
-theorem mul_comb {N : Nat} (hN : 1 ≤ N) : CombDesign (design.sem N) where
+theorem mul_comb {N : Nat} (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) : CombDesign (design.sem N) where
   nodup := by
-    rw [mul_sem_decls N hN]
+    rw [mul_sem_decls N hN hR20]
     simp only [mulDecls, List.map_cons, List.map_nil]
     decide
   assign := by
     intro j p hp
-    obtain ⟨n, lo, w, e, rfl, -⟩ := mulProcs_slice p (mul_mem_of_getElem? hN hp)
+    obtain ⟨n, lo, w, e, rfl, -⟩ := mulProcs_slice p (mul_mem_of_getElem? hN hR20 hp)
     exact ⟨_, _, _, rfl, rfl⟩
   inWidth := by
     intro j n lo w ⟨t, e, hp, hw⟩
-    exact mul_inWidth hN _ (mul_mem_of_getElem? hN hp) t e rfl n lo w hw
+    exact mul_inWidth hN hR20 _ (mul_mem_of_getElem? hN hR20 hp) t e rfl n lo w hw
   notInput := by
     rintro n ⟨j, lo, w, t, e, hp, hw⟩
-    obtain ⟨n', lo', w', rfl, hn⟩ := mul_proc_slice hN hp
+    obtain ⟨n', lo', w', rfl, hn⟩ := mul_proc_slice hN hR20 hp
     simp only [Lhs2.wins_slice, List.mem_singleton, Prod.mk.injEq] at hw
     obtain ⟨rfl, -, -⟩ := hw
-    rw [mul_sem_inputNames hN]
+    rw [mul_sem_inputNames hN hR20]
     simp only [mulDriven, List.mem_cons, List.not_mem_nil, or_false] at hn
     rcases hn with rfl | rfl | rfl | rfl | rfl <;> decide
-  disjoint := mul_disjoint hN
+  disjoint := mul_disjoint hN hR20
   selfDisjoint := by
     intro j t e hp
-    obtain ⟨n, lo, w, rfl, -⟩ := mul_proc_slice hN hp
+    obtain ⟨n, lo, w, rfl, -⟩ := mul_proc_slice hN hR20 hp
     exact Lhs2.wins_pairwise_of_leaf (fun _ h => by cases h) _
   rhsFree := by
     intro j t e hp
-    exact mulProcs_rhsFree _ (mul_mem_of_getElem? hN hp)
+    exact mulProcs_rhsFree _ (mul_mem_of_getElem? hN hR20 hp)
   rhsDeclared := by
     intro j t e hp x hx
-    have h := List.all_eq_true.mp (mulProcs_rhsDeclared _ (mul_mem_of_getElem? hN hp)) x hx
-    rw [mul_sem_decls N hN]
+    have h := List.all_eq_true.mp (mulProcs_rhsDeclared _ (mul_mem_of_getElem? hN hR20 hp)) x hx
+    rw [mul_sem_decls N hN hR20]
     simpa [mulNames, mulDecls] using h
   initWidth := by
     intro n _ dc hdc _ v hv
-    rw [mul_sem_decls N hN] at hdc
+    rw [mul_sem_decls N hN hR20] at hdc
     simp [mulDecls] at hdc
     rcases hdc with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> cases hv
   inFourState := by
     intro dc hdc _
-    rw [mul_sem_decls N hN] at hdc
+    rw [mul_sem_decls N hN hR20] at hdc
     simp [mulDecls] at hdc
     rcases hdc with rfl | rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
 
@@ -1517,17 +1536,17 @@ theorem mul_reader {N : Nat} (hN : 1 ≤ N) {n' : String} {lo' w' : Nat} (hn' : 
     omega
 
 /-- **The multiplier is acyclic** (every `N ≥ 1`), with rank `mulRank`. -/
-theorem mul_acyclic {N : Nat} (hN : 1 ≤ N) : Acyclic (design.sem N) := by
+theorem mul_acyclic {N : Nat} (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) : Acyclic (design.sem N) := by
   refine ⟨mulRank N, ?_⟩
   intro i j ti ei tj ej wj hi hj hw ⟨r, hr, hov⟩
-  obtain ⟨n', lo', w', rfl, hn'⟩ := mul_proc_slice hN hj
-  obtain ⟨m, lo, w, rfl, -⟩ := mul_proc_slice hN hi
+  obtain ⟨n', lo', w', rfl, hn'⟩ := mul_proc_slice hN hR20 hj
+  obtain ⟨m, lo, w, rfl, -⟩ := mul_proc_slice hN hR20 hi
   simp only [Lhs2.wins_slice, List.mem_singleton] at hw
   subst hw
   have hrj : mulRank N j = rkWin N n' lo' := by simp only [mulRank, hj]
   have hri : mulRank N i = rkWin N m lo := by simp only [mulRank, hi]
   rw [hrj, hri]
-  exact mul_reader hN hn' _ (mul_mem_of_getElem? hN hi) m lo w ei rfl r hr hov
+  exact mul_reader hN hn' _ (mul_mem_of_getElem? hN hR20 hi) m lo w ei rfl r hr hov
 
 /-! # Part 3. The settled state and the statement -/
 
@@ -1617,7 +1636,7 @@ on `a b` give the `2N`-bit product on `p`. Row by row: row `i`'s window of
 `s` holds the row sum `R i` (`MulMath.R`), its carries are core's
 `BitVec.carry` of the row's two addends; the low output bits are bit 0 of
 each row, the high ones the upper bits of the last row (`MulMath`). -/
-theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (design.sem N) st)
+theorem mul_settled {N : Nat} (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) {st : SvState} (heqs : CombEqs (design.sem N) st)
     (hs : StateShape (design.sem N) st) {x y : BitVec N}
     (ha : SvState.lookup st "a" = some (LVec.ofBitVec x))
     (hb : SvState.lookup st "b" = some (LVec.ofBitVec y)) :
@@ -1625,7 +1644,7 @@ theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (des
   have driven_of : ∀ {p : Process2} {n : String} {lo w : Nat} {e : Expr2}, p ∈ mulProcs N →
       p = .assign (.slice n lo w) e → Driven (design.sem N) n := by
     intro p n lo w e hp he
-    obtain ⟨k, hk⟩ := mul_getElem?_of_mem hN hp
+    obtain ⟨k, hk⟩ := mul_getElem?_of_mem hN hR20 hp
     subst he
     exact ⟨k, lo, w, _, _, hk, by simp⟩
   have hN0 : 0 < N := by omega
@@ -1636,7 +1655,7 @@ theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (des
   have hpp : ∀ i, i < N → ∀ j, j < N →
       uPP.extract (i * N + j) 1 = LVec.ofBitVec (BitVec.ofBool (x.getLsbD j && y.getLsbD i)) := by
     intro i hi j hj
-    obtain ⟨k, hk⟩ := mul_getElem?_of_mem hN (mem_ppCell hi hj)
+    obtain ⟨k, hk⟩ := mul_getElem?_of_mem hN hR20 (mem_ppCell hi hj)
     have he := evalPure2_and_ofBitVec (eval_bitK ha hj) (eval_bitK hb hi)
     rw [BitVec.ofBool_and_ofBool] at he
     exact readback1 heqs hk hPP he
@@ -1655,7 +1674,7 @@ theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (des
           rw [getLsbD_sel, Nat.zero_add]
           have := hpp 0 hN0 j hj
           rwa [Nat.zero_mul, Nat.zero_add] at this
-      obtain ⟨k0, hk0⟩ := mul_getElem?_of_mem hN (mem_s0Proc (N := N))
+      obtain ⟨k0, hk0⟩ := mul_getElem?_of_mem hN hR20 (mem_s0Proc (N := N))
       have he := evalPure2_concat_ofBitVec (st := st) eval_zero1 (eval_sliceK hPP hP0)
       have h0 := readback heqs hk0 hS he
       rw [Nat.zero_mul, Nat.zero_add, ← Nat.zero_add k,
@@ -1701,7 +1720,7 @@ theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (des
       have ht : ∀ j, j < N → uT.extract ((i + 1) * N + j) 1 =
           LVec.ofBitVec (BitVec.ofBool (Xr.getLsbD j ^^ Yr.getLsbD j)) := by
         intro j hj
-        obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN (mem_tCell hi hj)
+        obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN hR20 (mem_tCell hi hj)
         have he := evalPure2_xor_ofBitVec (eval_sliceK hS (hsr j hj)) (eval_sliceK hPP (hppr j hj))
         rw [BitVec.ofBool_xor_ofBool] at he
         exact readback1 heqs hq hT he
@@ -1712,12 +1731,12 @@ theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (des
         induction j with
         | zero =>
           intro _
-          obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN (mem_cRowCell (k := i) hi)
+          obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN hR20 (mem_cRowCell (k := i) hi)
           rw [Nat.add_zero, BitVec.carry_zero]
           exact readback1 heqs hq hC eval_zero1
         | succ j ihj =>
           intro hj
-          obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN (mem_cCell hi (j := j) (by omega))
+          obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN hR20 (mem_cCell hi (j := j) (by omega))
           have he := evalPure2_or_ofBitVec
             (evalPure2_and_ofBitVec (eval_sliceK hS (hsr j (by omega)))
               (eval_sliceK hPP (hppr j (by omega))))
@@ -1735,7 +1754,7 @@ theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (des
         have := hR (i + 1)
         omega
       by_cases hkN : k < N
-      · obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN (mem_sCell hi hkN)
+      · obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN hR20 (mem_sCell hi hkN)
         have he := evalPure2_xor_ofBitVec (eval_sliceK hT (ht k hkN)) (eval_sliceK hC (hc k hk))
         rw [BitVec.ofBool_xor_ofBool, Bool.xor_assoc, ← BitVec.getLsbD_add hkN] at he
         rw [readback1 heqs hq hS he, hsum, ← BitVec.testBit_toNat, BitVec.toNat_add,
@@ -1743,7 +1762,7 @@ theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (des
         simp [hkN]
       · have hkN' : k = N := by omega
         subst hkN'
-        obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN (mem_sTopCell hi)
+        obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN hR20 (mem_sTopCell hi)
         have he := eval_sliceK hC (hc k hk)
         rw [readback1 heqs hq hS he, hsum, MulMath.testBit_top _ _ hsumlt, BitVec.carry_width]
         simp
@@ -1751,7 +1770,7 @@ theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (des
   have hlo : ∀ i, i < N → uP.extract i 1 =
       LVec.ofBitVec (BitVec.ofBool ((MulMath.R x.toNat y.toNat i).testBit 0)) := by
     intro i hi
-    obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN (mem_outCell hi)
+    obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN hR20 (mem_outCell hi)
     have := hrow i hi 0 (Nat.zero_le _)
     rw [Nat.add_zero] at this
     exact readback1 heqs hq hP (eval_sliceK hS this)
@@ -1768,10 +1787,10 @@ theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (des
       simp [hj]
   have hhi : uP.extract N N =
       LVec.ofBitVec (BitVec.ofNat N (MulMath.R x.toNat y.toNat (N - 1) / 2)) := by
-    obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN (mem_pHiProc (N := N))
+    obtain ⟨q, hq⟩ := mul_getElem?_of_mem hN hR20 (mem_pHiProc (N := N))
     rw [readback heqs hq hP (eval_sliceK hS hZ), BitVec.setWidth_eq]
   -- assemble `p`
-  rw [mul_declWidth_p hN, Option.some.injEq] at hPw
+  rw [mul_declWidth_p hN hR20, Option.some.injEq] at hPw
   rw [hP]
   congr 1
   apply LVec.eq_ofBitVec_of_extract_one hPw.symm
@@ -1787,19 +1806,20 @@ theorem mul_settled {N : Nat} (hN : 1 ≤ N) {st : SvState} (heqs : CombEqs (des
 
 /-! ## The statement -/
 
-theorem mul_interface (N : Nat) (hN : 1 ≤ N) :
+theorem mul_interface (N : Nat) (hN : 1 ≤ N) (hR20 : N < 2 ^ 20) :
     SvGolf.Tasks.Mul.task.Interface N (design.sem N) := by
-  simp [CombTask.Interface, inputPorts, outputPorts, mul_sem_decls N hN, mulDecls,
+  simp [CombTask.Interface, inputPorts, outputPorts, mul_sem_decls N hN hR20, mulDecls,
     SvGolf.Tasks.Mul.task]
 
 /-- **The reference solution**: the `mul` statement, for every `N ≥ 1`. -/
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  refine CombTask.satisfiedAt_of_comb (mul_interface N hN') (mul_comb hN') (mul_acyclic hN') ?_
+  have hR20 : N < 2 ^ 20 := hN.2
+  refine CombTask.satisfiedAt_of_comb (mul_interface N hN' hR20) (mul_comb hN' hR20) (mul_acyclic hN' hR20) ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ⟨⟩⟩ := v
   simp only [SvGolf.Tasks.Mul.task, HoldAll_cons, HoldAll_nil, and_true] at hv ⊢
-  exact mul_settled hN' heqs hs hv.1 hv.2
+  exact mul_settled hN' hR20 heqs hs hv.1 hv.2
 
 end Submission

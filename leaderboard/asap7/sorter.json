@@ -13,7 +13,7 @@
    "flops": 81,
    "netlist_sha256": "426979cefe8d08cb30796c79bf5b4cdd1c6a9a179c011c677cbe471c094aedce",
    "of": [
-    "record:90919c7cd8f8f4362a84b1e460f0ca0f62f55d54fe22ab890e514f35b137d069",
+    "record:7b878f6d1ea43ab1cac85a8faff1963467aa76c29410bbc1127edd9bb0290ab4",
     "reference:sorter_ins"
    ],
    "repaired_sha256": "616d75ed0732cc6d80d85e184ece13bafcd0de4649fc9891fb17f5e2ca95620c",
@@ -35,7 +35,7 @@
    "flops": 81,
    "netlist_sha256": "53acc0a89c3304e66ce09c8bccce981934d96a11c23058bdccd4f3c528bc7806",
    "of": [
-    "record:61bf6f8d17f7aa5108524dcb4a8a9fe7f4113d82b25f4242827859740a19bf7e"
+    "record:3b1ec4b16d7a4c0a984b1915cc50751fb75b7ab5c8d3524240c07979ebc5a449"
    ],
    "repaired_sha256": "eb1f9813fae22f01c05aa1bba32959daa75fab546d653b51410b868702d78bac",
    "rtlil_sha256": "6e90099868a43fc5dc47541c77325f274fa36824b925a4417eb9510df38ba1ab",

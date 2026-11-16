@@ -1,8 +1,9 @@
 # `fdivp`: review of the trusted statement
 
-Hard gate of `PLAN2.md` for a new task: "reviewed trusted `Spec.lean`". The files under review are [Spec.lean](Spec.lean)
-(in the `tasks` library: `lake build tasks.fdivp.Spec`) and, since 2026-11-03, the IEEE 754 spec it uses,
-[IEEE754.lean](IEEE754.lean) (module `tasks.fdivp.IEEE754`; it was `svgolf/spec/IEEE754.lean`, reviewed for the former
+Hard gate of `PLAN2.md` for a new task: "reviewed trusted `Spec.lean`". The file under review is [Spec.lean](Spec.lean)
+(in the `tasks` library: `lake build tasks.fdivp.Spec`); since 2026-11-14 its function is IEEE 754 division from
+Proglib's library `LeanModels.SoftFloat.Binary` (below, "Changes"). From 2026-11-03 to 2026-11-14 the task also had a
+trusted IEEE 754 spec of its own, `IEEE754.lean` (module `tasks.fdivp.IEEE754`; it was `svgolf/spec/IEEE754.lean`, reviewed for the former
 16-bit task (binary16 alone), and moved into the task with its content unchanged: sha256
 `4819c7290aa152f18c16706da82f086c0994cc285bde3fb6e6391449ae6c987b` before and after the move; renamed inside on 2026-11-04, below). The task is registered as READY: the word-level reference
 `reference/fdivp.sv` is proved for every format (`reference/fdivp.lean`). The statement is "Option C" of
@@ -26,11 +27,12 @@ module fdiv #(parameter int W = 5, parameter int P = 11) (
 pattern is `1 + W + (P - 1) = W + P` bits: binary16 is `(W, P) = (5, 11)`, bfloat16 `(8, 8)`, binary32 `(8, 24)`,
 binary64 `(11, 53)`.
 
-The task is satisfied when, **for every `W >= 2` and every `P >= 2`** (no upper bound), the instance `fdiv #(W, P)` has
+The task is satisfied when, **for every `W >= 2` and every `P >= 2` with `W + P < 2^20`**, the instance `fdiv #(W, P)` has
 exactly the ports `a`, `b` (inputs) and `q` (output), each `W + P` bits; every run terminates; no process is clocked
 (`Unclocked`); and in every cycle whose stimulus drives `a` and `b` with KNOWN values the snapshot's `q` equals
-`SvGolf.IEEE754.divide <W, P> .roundTiesToEven a b` (`IEEE754.lean`, the same function the former 16-bit task was
-about, at binary16). In Lean (`Spec.lean`):
+`LeanModels.SoftFloat.Binary.divide <W, P> .nearestTiesToEven a b`: IEEE 754 division under roundTiesToEven, from
+Proglib's IEEE 754 library (`LeanModels/SoftFloat/Binary/Defs.lean` of the pinned revision; `.nearestTiesToEven` is
+the library's name for roundTiesToEven). In Lean (`Spec.lean`):
 
 ```lean
 def task (W P : Nat) : CombTask where
@@ -39,28 +41,35 @@ def task (W P : Nat) : CombTask where
   outputs _ := [("q", W + P)]
   fn _ := fun (a, b, ()) => (fdivBits W P a b, ())
 
-def inRange (W P : Nat) : Prop := 2 ≤ W ∧ 2 ≤ P
+def inRange (W P : Nat) : Prop := 2 ≤ W ∧ 2 ≤ P ∧ W + P < 2 ^ 20
 
 abbrev Statement (sem : Nat → Nat → Design2) : Prop :=
   ∀ W P, inRange W P → (task W P).StatementFixed (sem W P)
 ```
 
-`fdivBits W P a b` is `divide <W, P> .roundTiesToEven a b` on `(W + P)`-bit patterns (casts along `1 + W + (P - 1) = W + P`;
-the casts do not change a value, `fdivBits_toNat`). The rows of the function, in the order tested (the spec's, as for
-the former 16-bit task): any NaN operand gives the canonical quiet NaN; `inf / inf` and `0 / 0` give it too; `inf / y` and `x / 0` (finite
+`fdivBits W P a b` is the library's `divide <W, P> .nearestTiesToEven a b` on `(W + P)`-bit patterns (casts along
+`1 + W + (P - 1) = W + P`; the casts do not change a value, `fdivBits_toNat`). The rows of the function, in the order
+tested (the library's `divide`, clause by clause): any NaN operand gives the canonical quiet NaN; `inf / inf` and `0 / 0` give it too; `inf / y` and `x / 0` (finite
 nonzero `x`) give `±inf`; `x / inf` and `0 / y` give `±0`; finite nonzero over finite nonzero is the exact quotient
 rounded to nearest, ties to even, with gradual underflow and overflow to `±inf`; the sign is `a[K-1] ^ b[K-1]`.
 
 ## Why the definition can be trusted (independent evidence, none of it part of the statement)
 
-* **It is the spec's binary16 and binary32 division.** At `(5, 11)` (IEEE binary16) and `(8, 24)` (binary32), `fdivBits`
-  unfolds to `divide binary16 .roundTiesToEven` and `divide binary32 .roundTiesToEven`, which `IEEE754.lean` names
-  `divBinary16` and `divBinary32`. The golden vectors of
+* **It is the library's binary16 and binary32 division.** At `(5, 11)` (IEEE binary16) and `(8, 24)` (binary32),
+  `fdivBits` unfolds to `divide binary16 .nearestTiesToEven` and `divide binary32 .nearestTiesToEven`, which the library
+  names `divBinary16` and `divBinary32`. The golden vectors of
   `Spec.lean` (`1 / 3` in binary16 `0x3555`, binary32 `0x3EAAAAAB`, bfloat16 `0x3EAB`; `0 / 0` the canonical NaN; the
-  smallest format `(2, 2)`) are `decide`d there. The spec file `IEEE754.lean` (reviewed for the former 16-bit task as `spec/IEEE754.lean`;
-  `README.md`, "The trusted spec", and its validation in `spec_validate/`) is generic in the format; `Format` requires `2 <= w` and `2 <= p` and nothing else.
-* **The spec at every format is cross-validated THROUGH THE PROOF.** The reference is proved equal to this function for every
-  format (`SvGolf.FdivParam.OutN_fdivBits`, `tasks/fdivp/DpU.lean`), and the reference is simulated (Verilator) against two
+  smallest format `(2, 2)`) are `decide`d there. The library's definitions (`LeanModels/SoftFloat/Binary/Defs.lean`,
+  each citing its IEEE 754-2019 clause; `README.md`, "IEEE 754 division", says what they are, and `spec_validate/` has
+  their differential validation) are generic in the format; `Format` requires `2 <= w` and `2 <= p` and nothing else.
+* **The library proves its `divide` is the standard's division.** `LeanModels/SoftFloat/Binary/Characterization.lean`:
+  a quotient with a value is a nearest number of the format, ties to even (`divide_isNearestTiesToEven`); it is an
+  infinity exactly at the overflow threshold (`divide_overflowsAtThreshold`); a quotient of two numbers is never a NaN
+  (`divide_ofNumbersIsNotNaN`); its sign is the XOR of the operands' signs (`divide_signIsXor`); and these four
+  properties leave exactly one pattern (`divide_isUniquelyCharacterized`).
+* **The function at every format is cross-validated THROUGH THE PROOF.** The reference is proved equal to this function
+  for every format (`SvGolf.FdivParam.OutN_fdivBits`, section `DpU` of `reference/fdivp.lean`), and the reference is
+  simulated (Verilator) against two
   independent implementations of the function, so every simulated pair is an indirect test of `divide` itself at that
   format: `oracle.py` (exact `fractions.Fraction` arithmetic, no floating point, no code from the spec's tooling `spec_validate/`) and
   `tests/fdivp/validate/oracle.h` (128-bit integers, the quotient rounded at the spacing of its binade). They agree with
@@ -72,11 +81,12 @@ rounded to nearest, ties to even, with gradual underflow and overflow to `±inf`
 
 ## The modelling choices to look at
 
-1. **`inRange W P = 2 <= W /\ 2 <= P`.** These are the spec's own `Format` well-formedness: `W = 1` would have exponent
+1. **`inRange W P = 2 <= W /\ 2 <= P /\ W + P < 2^20`.** The first two are the library's own `Format` well-formedness: `W = 1` would have exponent
    bias `2^0 - 1 = 0` and no normal exponent below the all-ones one; `P = 1` would have no fraction bit, hence no quiet-NaN
-   bit. Any larger lower bound would be a free choice; there is no upper bound (the statement is for ALL formats, so a
-   design must be generic in `W` and `P`: a design specialized to `(5, 11)` has no proof of `forall W P`). The checker's
-   `parameters` ranges say the same (`2 <= W`, `2 <= P`). Since 2026-11-06 the range also requires `W + P + 1 < 2^31`
+   bit. Any larger lower bound would be a free choice. The statement is for every format in the range, so a design
+   must be generic in `W` and `P`: a design specialized to `(5, 11)` has no proof of `forall W P`. Since 2026-11-14 the
+   range also requires `W + P < 2^20`
+   (below, "Changes"); from 2026-11-06 it required `W + P + 1 < 2^31`
    (decided 2026-11-06, README "The statement"): the port and exponent widths are `int` expressions of the module,
    and an `int` holds no value of `2^31` or more.
 2. **The canonical quiet NaN, whatever the operands.** Every NaN result is `{0, all-ones exponent, fraction MSB set, rest 0}`
@@ -92,8 +102,9 @@ rounded to nearest, ties to even, with gradual underflow and overflow to `±inf`
    a two-parameter `CombTask`. It needs no change to the trusted `SvGolf/Task.lean`. The alternative (`CombTask2`,
    `design/fdiv-param/Task.lean.patch`, 35 lines) would rebuild every task library and is kept for a second two-parameter
    task. The one place `check.py` is not n-ary is the advisory `--tactics` probe (README.md of the task, "Findings").
-7. **No region parameter.** The statement does not bound `W + P`, so a design with a width limit (say `W + P <= 64`) is not
-   a solution; the reference works for every `W, P >= 2` because every width in it is an expression of the parameters.
+7. **No region parameter.** Below `2^20` the statement does not bound `W + P`, so a design with a width limit (say
+   `W + P <= 64`) is not a solution; the reference works for every `W, P >= 2` in the range because every width in it is
+   an expression of the parameters.
 
 ## What it does NOT ban
 
@@ -112,6 +123,36 @@ allowed. `task.json` `banlist.operators = ["/", "%", "**"]`.
 | a constant output right on the NaN rows only | the proof | `tests/fdivp/negative/const_nan.sv`, refuted at `(2, 2)` in `Refute.lean` |
 
 ## Changes to the trusted statement since the review (to review)
+
+* **2026-11-16: the proof of equivalence with the former statement is removed** (decided 2026-11-16: "You don't have to
+  prove equiv to the old statement. Just update the statement and fix the proofs so they work wrt. the new
+  statement."). `tests/fdivp/Equivalence.lean` (which proved the task's function equal to the former one, for every
+  format and every pair of input patterns) and `tests/fdivp/OldIEEE754.lean` (the former definitions, kept as test
+  material for that proof only) are deleted. No trusted file changes: `Spec.lean` is byte-identical, and the statement
+  stands on its own as the library's IEEE 754 division. Every fdivp proof (the three references, the test baseline
+  and the board's records) proves this statement directly.
+
+* **2026-11-14: the range is reduced to `W + P < 2^20`** (decided 2026-11-14, for every family task whose
+  designs compute `int` localparams from the parameters: the range is reduced so that this arithmetic never wraps).
+  `inRange W P` was `2 ≤ W ∧ 2 ≤ P ∧ W + P + 1 < 2 ^ 31`; it is `2 ≤ W ∧ 2 ≤ P ∧ W + P < 2 ^ 20`. Under the exact
+  32-bit `int` instantiation of the pinned ls-sv the Newton divider's `localparam integer F = P + 4` and the SRT
+  divider's `RW = P + 6` wrapped at the top of the former range, so neither design was provable for the whole
+  range by any proof; below `2^20` every localparam of the board's designs is its own value. `task`, `fdivBits` and
+  the golden vectors are unchanged; the sanity check of the range's end moves to `2^20`. (Until 2026-11-16 a test
+  file proved the statement the former one on the smaller range; removed, above.)
+
+* **2026-11-14: the statement names IEEE 754 division from Proglib's library** (decided 2026-11-14: "Yes, repoint. Just
+  make sure it feels clean for the user, so they can see it's nothing but the real IEEE spec, and not some obscure
+  homegrown version"). `Spec.lean` imports `LeanModels.SoftFloat.Binary.Defs` (Proglib's IEEE 754 library, at the pinned
+  revision) instead of `tasks.fdivp.IEEE754`, and `fdivBits W P` is `LeanModels.SoftFloat.Binary.divide ⟨W, P⟩
+  .nearestTiesToEven` (the library's spelling of roundTiesToEven) instead of `SvGolf.IEEE754.divide ⟨W, P⟩
+  .roundTiesToEven`; the module docstring now says, clause by clause, what that function is. `IEEE754.lean` leaves the
+  trusted files (until 2026-11-16 it was kept as test material, with a proof that the task's function was the former
+  one for every format and pair of patterns; both removed, above). `task`, `inRange`, `Statement`, the
+  sanity checks and the golden vectors are textually unchanged. The trusted files are now `Spec.lean` and
+  `SvGolf/Task.lean` (the library's `Defs.lean` is covered, like ls-sv's semantics, by the pinned Proglib revision a
+  record names). What the library does not model is what the former spec did not: exception flags (§7) and NaN payloads
+  (every NaN result is the canonical quiet NaN).
 
 * **2026-11-03: the former 16-bit task (binary16 alone) is removed** (binary16 is this task's instance `(5, 11)`,
   the scoring point). `Spec.lean` loses the import of that task's `Spec` and its cross-link theorem (a design family
@@ -146,6 +187,7 @@ allowed. `task.json` `banlist.operators = ["/", "%", "**"]`.
 1. Port and module names `fdiv`, `a`, `b`, `q`, parameters `W`, `P` in that order (the former 16-bit task had `a`, `b`, `q`): acceptable?
 2. `inRange = 2 <= W /\ 2 <= P` with no upper bound: confirmed? (The statement is for ALL formats, which the proof delivers.)
    Answered 2026-11-06: the range is `2 ≤ W ∧ 2 ≤ P ∧ W + P + 1 < 2^31`, so that every width stays an `int`.
+   Since 2026-11-14 it is `2 ≤ W ∧ 2 ≤ P ∧ W + P < 2^20` ("Changes").
 3. The canonical quiet NaN with sign 0 and no payload propagation, as in the former 16-bit task: confirmed for every format?
 4. Round to nearest even only, no flags, full subnormals, overflow to infinity: confirmed?
 5. Option C (`StatementFixed` family) rather than the `CombTask2` patch: confirmed?

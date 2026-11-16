@@ -586,11 +586,11 @@ theorem early_refuted_of_check {aw : Nat} {d : Design2} {st0 : SvState} (hpu : P
   exact early_refuted st0 hpu a b n c hc hks hrun hdone
 
 /-- `(2, 2, aw)` is in range for `aw ≥ 1`. -/
-theorem p22_inRange (aw : Nat) (h : 1 ≤ aw) (h' : aw < 2 ^ 27) : task.inRange (2, 2, aw) := by
+theorem p22_inRange (aw : Nat) (h : 1 ≤ aw) (h' : aw < 2 ^ 12) : task.inRange (2, 2, aw) := by
   simp only [task]; omega
 
 /-- The refutation at `(2, 2, aw)` of every family whose instance there is `d`, for every latency function. -/
-theorem refuted_of_sat {aw : Nat} (haw : 1 ≤ aw ∧ aw < 2 ^ 27) {d : Design2}
+theorem refuted_of_sat {aw : Nat} (haw : 1 ≤ aw ∧ aw < 2 ^ 12) {d : Design2}
     (h : ∀ lat, ¬ task.SatisfiedAtV2 (2, 2, aw) lat d) (sem : Nat → Nat → Nat → Design2)
     (lat : Nat → Nat → Nat → Nat) (hd : sem 2 2 aw = d) : ¬ Statement sem lat := fun hs => by
   have hf : task.SatisfiedAtV2 (2, 2, aw) (lat 2 2 aw) (sem 2 2 aw) := hs (2, 2, aw) (p22_inRange aw haw.1 haw.2)
@@ -598,7 +598,7 @@ theorem refuted_of_sat {aw : Nat} (haw : 1 ≤ aw ∧ aw < 2 ^ 27) {d : Design2}
   exact h _ hf
 
 /-- The same from `¬ FollowsPU` (rule 2's claims). -/
-theorem refuted_of {aw : Nat} (haw : 1 ≤ aw ∧ aw < 2 ^ 27) {d : Design2} (h : ∀ lat, ¬ task.FollowsPU (2, 2, aw) lat d)
+theorem refuted_of {aw : Nat} (haw : 1 ≤ aw ∧ aw < 2 ^ 12) {d : Design2} (h : ∀ lat, ¬ task.FollowsPU (2, 2, aw) lat d)
     (sem : Nat → Nat → Nat → Design2) (lat : Nat → Nat → Nat → Nat) (hd : sem 2 2 aw = d) : ¬ Statement sem lat :=
   refuted_of_sat haw (fun lat hs => h lat hs.2.2.2.1) sem lat hd
 
@@ -617,8 +617,8 @@ def matP : BitVec 8 := mat 3 1 1 1
 /-- `[[1, 1], [1, 1]]` (`matP · matO = [[0, 0], [2, 2]]`: one negative product in each entry of row 0). -/
 def matO : BitVec 8 := mat 1 1 1 1
 
-theorem aw4 : 1 ≤ 4 ∧ 4 < 2 ^ 27 := by decide
-theorem aw5 : 1 ≤ 5 ∧ 5 < 2 ^ 27 := by decide
+theorem aw4 : 1 ≤ 4 ∧ 4 < 2 ^ 12 := by decide
+theorem aw5 : 1 ≤ 5 ∧ 5 < 2 ^ 12 := by decide
 
 /-! ## The attacks refuted, for every latency function -/
 

@@ -666,6 +666,8 @@ def import_closure(module):
 
 
 def module_role(mod):
+    if mod.startswith("LeanModels.SoftFloat."):             # the library's IEEE 754 floats (its name: config.json)
+        return "IEEE 754 library"
     head = mod.split(".")[0]
     return {"tasks": "task statement", "SvGolf": "svGolf statement helpers", "spec": "IEEE 754 specification",
             "LeanModels": "ls-sv semantics"}.get(head, "Lean toolchain")
@@ -1051,6 +1053,20 @@ def load_writeups(site, records):
             raise BuildError(f"{WRITEUPS}/{name}: " + "; ".join(problems))
         title, body = writeup.render(data.decode("utf-8"), source=f"{WRITEUPS}/{name}", highlight=_md_highlight)
         site.writeups[m.group(1)] = (title, body)
+
+
+def remade_rows(rec):
+    """The record card's "re-made" row of a record `leaderboard.py remake` made (decided 2026-11-16): when, whose
+    proof, that the scores are carried and from which record, and why; [] for any other record."""
+    m = rec.get(lb.REMADE_KEY)
+    if not isinstance(m, dict):
+        return []
+    whose = ("the player's proof, checked again unchanged" if m.get("proof") == "original" else
+             "the proof is the maintainers' port of the player's to the current checker (the design is the "
+             "player's, byte for byte)")
+    return [("re-made", f"{esc(m.get('date', ''))}: {whose}; the scores are carried from record "
+                        f"{code(str(m.get('from_record', ''))[:12])} (the same design under the same scoring flow). "
+                        f"{esc(m.get('reason', ''))}")]
 
 
 def record_title(site, rec):
@@ -5513,6 +5529,7 @@ def record_page(site, t, rec, ge_tables):
         ("assisted by", esc("; ".join(rec["assisted_by"])) or "none (an unassisted claim)"),
         ("submitted", esc(rec["submitted_at"])),
         ("notes", esc(rec.get("notes") or "") or '<span class="muted">none</span>'),
+        *remade_rows(rec),
         ("scoring point", esc(point_text(sc["scoring_point"]))),
         ("downloads", " ".join(page.link(rel_link(here, base + ext), code(h[:12] + ext)) for ext in (".sv", ".lean", ".json"))),
     ])
@@ -5523,6 +5540,9 @@ def record_page(site, t, rec, ge_tables):
                       + (f": the proof of the reference {code(ref['stem'])} ({code(posixpath.basename(ref['lean']))}, "
                          f"{ref['proof_lines']} code lines)" if is_ref and ref else "")),
             ("canonical text", f"sha256 {code(rec.get('canonical_sha256', ''))}"),
+            *([("player's proof", f"sha256 {code(rec[lb.REMADE_KEY]['original_lean_sha256'])}, in record "
+                                  f"{code(rec[lb.REMADE_KEY]['from_record'][:12])} (the repository's history)")]
+              if (rec.get(lb.REMADE_KEY) or {}).get("proof") == "maintainer port" else []),
             ("record hash", code(h)),
         ])))
     proof_card = card("proof", "The proof", page.dl([

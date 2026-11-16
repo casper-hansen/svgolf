@@ -20,7 +20,8 @@ Pure Python (no Lean, no Yosys): it takes about a second. What it checks:
    `CombLib`, ... import, transitively, is itself allowed. A later change of
    lean-surfaces that made a tactic module import Mathlib (or any module off
    the list) would otherwise turn every tactic proof into an `imports`-stage
-   rejection of the references;
+   rejection of the references (the modules it reaches off the list are pinned
+   exactly, `tactic_closure_unallowed`);
 5. `SvGolf/CoreSimp.lean` (`sv_core_simp`) and `LeanModels/Sv/CombCoreSimp.lean` (`sv_simp`, the
    tactics' own `simp`) list exactly the package roots of `check.py` (WP-B review, gate M);
 6. the CLOSURE of Mathlib (WP-B, 2026-10-31): the import closure of the module
@@ -202,8 +203,11 @@ def main(argv=None):
     seen, outside = closure(exp["admitted_tactic_library"])
     n += 1
     off = sorted(m for m in seen | outside if not allowed(m))
-    if off:
-        bad.append(f"the tactic library's import closure leaves the allowlist: {off}")
+    # pinned exactly, like Mathlib's toolchain modules below: reached through the tactic library, never importable
+    # directly (Proglib's `LeanModels.Core.Outcome` since the pin of 2026-11-14)
+    if off != sorted(exp.get("tactic_closure_unallowed", [])):
+        bad.append(f"the tactic library's import closure leaves the allowlist: {off}; expected exactly "
+                   f"{sorted(exp.get('tactic_closure_unallowed', []))}")
     note = ""
     mc = exp.get("mathlib_closure")
     pkgs = chk.packages_dir()      # SVGOLF_PACKAGES, else the layout's package directory

@@ -164,7 +164,7 @@
    "records": [
     {
      "player": "select-six",
-     "record_hash": "d20bd7d9a6e6c181bf3ce92b55d7bb610fd7bd7dada03f3bab5ca0bb000dc315",
+     "record_hash": "9e0b4286ba443d08ad84918bc90d17dc083c4b1db9d5e3122e167be1dd3fa726",
      "sv_name": "solution.sv"
     }
    ],
@@ -334,7 +334,7 @@
    "records": [
     {
      "player": "svgolf-reference",
-     "record_hash": "8c1f662e6f8cb040b8527e08c0c7f32f64731a1e83e8b78994b433e10f9b2310",
+     "record_hash": "710c4589935969941c2a42db2bf4dde42a2ef93446da043b8f1f682c6cadb512",
      "sv_name": "add_n_byhand.sv"
     }
    ],
@@ -504,7 +504,7 @@
    "records": [
     {
      "player": "cobblerill",
-     "record_hash": "da4f738a22344ce93760a18d40662bf2712ddc265c3ea841d74c6a7c639039e3",
+     "record_hash": "e30d319a06edee0a7d0a15e6be83f80b67896a66ead2ae0f70de83c653136292",
      "sv_name": "add_mux.sv"
     }
    ],
@@ -674,7 +674,7 @@
    "records": [
     {
      "player": "fernladder",
-     "record_hash": "101f03345d6507d06eaaf79e07b62858da93f3d8c3f20b87a4615026f1ec20e5",
+     "record_hash": "2140324c1c10df867a7d68beb1a815378b146ff8a5bf5a908f6e01a740814b1e",
      "sv_name": "add_n_kogge_stone.sv"
     }
    ],
@@ -844,7 +844,7 @@
    "records": [
     {
      "player": "cobblerill",
-     "record_hash": "80c0f4e46ad8a059d3596e6d706be53de0ebe8232b8e0f8e40b1f8321be8c648",
+     "record_hash": "19562fe5f824c27eb6c9239e689b1dac1b15f693fdf00679a7cea3539b828bf7",
      "sv_name": "add_proc_m.sv"
     }
    ],
@@ -1014,7 +1014,7 @@
    "records": [
     {
      "player": "cobblerill",
-     "record_hash": "e096fc2b625c7bbd476d828bd6dc0746a4b468a2896bc5af23795775c032802e",
+     "record_hash": "b1a6c9b7d935a146fbc0642c545b7574fb9a5d86db5f09f8dfce89ac7334e8f1",
      "sv_name": "add_proc.sv"
     }
    ],
@@ -1184,7 +1184,7 @@
    "records": [
     {
      "player": "fernladder",
-     "record_hash": "f5ecef0e7c3bba67a785bc9d09196f5238a7456a76e0d4960289033dc56542a6",
+     "record_hash": "2387ec6053e613460abdd2b9cc98b5b5cd68639f47e2b012e3cd91e85995a64c",
      "sv_name": "add_n_sklansky.sv"
     }
    ],

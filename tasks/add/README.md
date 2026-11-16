@@ -28,7 +28,7 @@ named there, not deep in a proof), says whether the proof tactics read the desig
 and leaves it staged in `stage/` for probe files ([PROVING.md, section 0](../../PROVING.md#0-the-loop)).
 
 **The route: the `sv_comb` tactics, then one lemma of arithmetic** ([PROVING.md, section
-1](../../PROVING.md#1-the-shape-of-a-proof); `reference/add_n.lean` is a complete proof, 84 code lines):
+1](../../PROVING.md#1-the-shape-of-a-proof); `reference/add_n.lean` is a complete proof, 85 code lines):
 
 1. `sv_structure (rank := …)`: one driver per bit and no combinational loop (`CombDesign ∧ Acyclic`). The
    rank is yours: an assign that writes a bit ranks below every assign that reads it.
@@ -87,12 +87,12 @@ import LeanModels.Sv.CombLib
 namespace Submission
 open LeanModels.Sv LeanModels.Sv.CombView LeanModels.Sv.CombLib LeanModels.Sv.CombEq SvGolf
 
-theorem my_struct (N : Nat) (hN : 1 ≤ N) :
+theorem my_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) ∧ SharedObl design.pdesign [N] := by
   sv_structure (rank := myRank N)            -- your rank, a `def` above
   all_goals (intros; omega)
 
-theorem my_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
+theorem my_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) (hc : CombDesign (design.sem N)) :
     SvGolf.Tasks.Add.task.Interface N (design.sem N) := by
   sv_interface
 
@@ -101,8 +101,9 @@ theorem my_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha, hso⟩ := my_struct N hN'
-  refine CombTask.satisfiedAt_of_comb (my_interface N hN' hc) hc ha ?_
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨hc, ha, hso⟩ := my_struct N hN' hR
+  refine CombTask.satisfiedAt_of_comb (my_interface N hN' hR hc) hc ha ?_
   intro st heqs hs v hv
   -- name the inputs `hA`, `hB`, `hCi`, as add_n.lean does
   sv_equations
@@ -157,7 +158,7 @@ It must compute, combinationally, `{cout, s} = a + b + cin`: `s` is the low
 
 ```lean
 def task : CombTask where
-  inRange N := 1 ≤ N
+  inRange N := 1 ≤ N ∧ N < 2 ^ 20
   inputs N := [("a", N), ("b", N), ("cin", 1)]
   outputs N := [("s", N), ("cout", 1)]
   fn N := fun (a, b, cin, ()) =>
@@ -167,7 +168,7 @@ def task : CombTask where
 abbrev Statement : (Nat → LeanModels.Sv.Design2) → Prop := task.Statement
 ```
 
-For every `N` with `1 ≤ N < 2^31`: the design's input ports are exactly `a`, `b` (`N` bits)
+For every `N` with `1 ≤ N < 2^20`: the design's input ports are exactly `a`, `b` (`N` bits)
 and `cin` (1 bit), its output ports exactly `s` (`N` bits) and `cout`
 (1 bit), in that order; no process is clocked (no `always_ff`, no
 `always @(posedge …)`); there is no combinational loop; every run terminates under every schedule and
@@ -179,9 +180,11 @@ sum). `SvGolf/Task.lean` defines `CombTask` and explains why the statement
 cannot be met vacuously (no settling, `x` values, extra or renamed ports,
 history, a clock that never ticks, ...).
 
-The range ends below `2^31` (decided 2026-11-06): the port widths are `int` expressions of `N`
-(`[N-1:0]`), and an `int` holds no value of `2^31` or more. Every task's range keeps every width it
-implies below `2^31`.
+The range ends below `2^20` (decided 2026-11-14; from 2026-11-06 it ended below `2^31`, the values an `int`
+holds): the port widths are `int` expressions of `N` (`[N-1:0]`), and so is every index or localparam a design
+computes from `N`. Every family task's range keeps the `int` arithmetic a design does on its parameters (its widths, and the
+indices and localparams it computes from them, such as a `localparam int P = 2*N + 4`) below `2^31`, where an
+`int` wraps.
 
 The "no clocked process" requirement closes a gap between ls-sv and every
 other tool: ls-sv runs each `always_ff` once per cycle whatever its clock
@@ -461,20 +464,17 @@ prove; `score/score.py` gives the GE columns alone).
   count: its carries are Yosys's `$alu`, banned since 2026-11-05.
 * **A prefix adder that is an entry.** The Sklansky and Kogge-Stone adders (`tests/add/baselines/`) are
   PROVED for every `N` (decided 2026-11-12: every design the site shows is proved; and they are entries, like every
-  design but par's, recorded under a handle of their own), by hand, on the route of
-  `reference/add_n_byhand.lean`: instantiate the nested generate loops (the level loop over `l < $clog2(N+1)`,
-  the node loop, and the generate-if on bit `l` of the node, `GenItem.expand2_genIf_of_ne`/`_of_eq`), give one
-  driver per bit and a rank computed from the process, then prove by induction on the level `l` that `g[l][k]`,
-  `p[l][k]` hold the group generate and propagate of a block of positions ending at `k` (the prefix operator
-  `(g, p) ∘ (g', p') = (g | p & g', p & p')` is associative), and at the last level that the block is `[0, k]`,
-  so `g[L][k]` is core's `BitVec.carry k a b cin`. The Sklansky mathematics is
-  `tests/add/baselines/add_n_sklansky_core.lean` (section `SklCore`, on the library's
-  `LeanModels/Sv/Lib/Prefix.lean`), which `add_n_sklansky.lean` copies; the Kogge-Stone proof's block is
-  `LeanModels.Sv.Lib.pgBlock` over `[k + 1 - 2^l, k]`. The `sv_comb` tactics do not take these designs as written
-  (`sv_structure: outside the supported fragment — localparam `L`: `$clog2` is outside the v1 fragment ...`, and
-  a conditional generate inside a generate loop is outside it too; [PROVING.md](../../PROVING.md), section 4;
-  even without the `$clog2` localparam, a prefix adder's index arithmetic, `((i >> l) << l) - 1` or
-  `i - (1 << l)`, is not affine in the genvars, which the tactics' recognizer requires). The source is not
+  design but par's, recorded under a handle of their own), with the `sv_comb` tactics since 2026-11-15 (by hand
+  before, on the route of `reference/add_n_byhand.lean`, when the tactics did not read a conditional generate
+  inside a generate loop, the `$clog2` localparam or the shift indices): `sv_structure` gives the comb profile and
+  acyclicity with the level as the rank, `sv_interface` the ports, `sv_equations` the settled-state equations (the
+  atom `2 ^ l` for `1 << l`; the bit test and the shift atoms for Sklansky's `((i >> l) & 1) == 1` and
+  `((i >> l) << l) - 1`), `sv_eq_nat` states them at `Nat` indices, and the proof is the prefix mathematics: by
+  induction on the level `l`, `g[l][k]`, `p[l][k]` hold the group generate and propagate of a block of positions
+  ending at `k` (the prefix operator `(g, p) ∘ (g', p') = (g | p & g', p & p')` is associative; Kogge-Stone's block
+  is `[k + 1 - 2^l, k]`, Sklansky's `[k / 2^l * 2^l, k]`, `LeanModels.Sv.Lib.pgBlock`), and at the last level the
+  block is `[0, k]`, so `g[L][k]` is the ripple carry and `CombLib.add_spec` gives the sum. The by-hand Sklansky
+  mathematics stays in `tests/add/baselines/add_n_sklansky_core.lean` (section `SklCore`). The source was never
   rewritten around the tactics (decided 2026-11-05: the tactics are made more robust, designs are not rewritten
   around them). Neither beats the ripple's area x time at `N = 16` (1327.9 and 1324.8 against 1202.2), and a
   baseline is never an entry: a prefix adder that beats par is a submission.

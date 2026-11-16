@@ -133,7 +133,7 @@
    "records": [
     {
      "player": "loamstep",
-     "record_hash": "318fa07afcc76eb9e86c0b84c52304b9c82bfa7f364da5f543b2f4bffdfb053e",
+     "record_hash": "ffcad16e02e487364e0380791f13c4338a76914b98993cf31b2bf362f30cc78f",
      "sv_name": "fdivp_d2.sv"
     }
    ],
@@ -272,7 +272,7 @@
    "records": [
     {
      "player": "svgolf-reference",
-     "record_hash": "b4c12abf595b73967c0e77de0a539544b11a1ebdbffbccc07a32814e3bb8cdaa",
+     "record_hash": "f5a6045c647f29e093b2c35ded2bd33da330c897e174ee98e974a0f902835892",
      "sv_name": "fdivp.sv"
     }
    ],
@@ -411,7 +411,7 @@
    "records": [
     {
      "player": "quarrydigit",
-     "record_hash": "eaec05cb8733b7ae46497a8b4071ed30f00914c284eaa754c95075574126ed71",
+     "record_hash": "9aa52640fe80ffe54d5422953ec8a3df35f3b5dbb5d8c79955a6ed6fe0c36e1f",
      "sv_name": "fdivp_srt.sv"
     }
    ],
@@ -525,7 +525,7 @@
    "records": [
     {
      "player": "tidereckon",
-     "record_hash": "64613194a816a915350832aa12af8cca5cc4b24e99fad3e80d84e4985f15ea8a",
+     "record_hash": "6395a1d6d55ee756f62a3a661edc9bcba5bf400b3769dbf1a0744c13499f223b",
      "sv_name": "fdivp_newton.sv"
     }
    ],

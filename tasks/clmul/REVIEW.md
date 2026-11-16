@@ -38,7 +38,9 @@ def task : CombTask where
   fn N := fun (a, b, ()) => (ofBits (2 * N - 1) (coeff N a b), ())
 ```
 
-(As reviewed. Since 2026-11-06 the range is `1 ≤ N ∧ N < 2 ^ 30`, so that the widths `2N-1` and `2N-2`, `int`
+(As reviewed. Since 2026-11-14 the range is `1 ≤ N ∧ N < 2 ^ 20` (decided 2026-11-14: so that the `int` arithmetic a
+design does on `N`, its widths and the indices and localparams it computes from `N`, stays below `2^31`; to review);
+from 2026-11-06 it was `1 ≤ N ∧ N < 2 ^ 30`, so that the widths `2N-1` and `2N-2`, `int`
 expressions of the module, stay below `2^31`: `Spec.lean`, README "The statement".)
 
 ## Why the definition can be trusted (independent evidence, none of it part of the statement)

@@ -47,7 +47,7 @@ open LeanModels.Sv LeanModels.Sv.CombView LeanModels.Sv.CombLib LeanModels.Sv.Co
 
 /-- `CombDesign` and `Acyclic` for every `N ≥ 1`, from ONE round of obligations: the rank is the
 player's. -/
-theorem add_struct (N : Nat) (hN : 1 ≤ N) :
+theorem add_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) ∧ SharedObl design.pdesign [N] := by
   sv_structure (rank := rippleRank (fun p => if p = 0 then 0 else 3 * N + 1)
     (fun _ p i => 3 * i.toNat + p + 1))
@@ -57,7 +57,7 @@ theorem add_struct (N : Nat) (hN : 1 ≤ N) :
 
 /-- The task's interface: exactly the ports `a`, `b`, `cin` and `s`, `cout`, in this order and with
 these widths. -/
-theorem add_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
+theorem add_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) (hc : CombDesign (design.sem N)) :
     SvGolf.Tasks.Add.task.Interface N (design.sem N) := by
   sv_interface
 
@@ -133,8 +133,9 @@ theorem add_final {N : Nat} {st : SvState} {x y : BitVec N} {c0 : Bool}
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha, hso⟩ := add_struct N hN'
-  refine CombTask.satisfiedAt_of_comb (add_interface N hN' hc) hc ha ?_
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨hc, ha, hso⟩ := add_struct N hN' hR
+  refine CombTask.satisfiedAt_of_comb (add_interface N hN' hR hc) hc ha ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ci, ⟨⟩⟩ := v
   obtain ⟨c0, rfl⟩ : ∃ c0, ci = BitVec.ofBool c0 := ⟨_, bv1_eq_ofBool ci⟩

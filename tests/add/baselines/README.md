@@ -14,12 +14,14 @@ checks the banlist's verdict (it passes the prefix adders, rejects `cmp_carry.sv
 `tasks/add/README.md`, "Scores", has the table and the (area, depth) frontier.
 
 * `add_n_sklansky.sv` + `add_n_sklansky.lean`: a Sklansky parallel-prefix adder (127.658 GE, depth 28 at
-  `N = 16`), proved by hand: the `sv_comb` tactics refuse a conditional generate inside the inner generate loop,
-  so the proof instantiates the design at symbolic `N`, gives one driver per bit, a rank computed from the process
-  and the settled state by induction on the level. Its prefix mathematics is `add_n_sklansky_core.lean` (section
-  `SklCore`), which the proof copies.
+  `N = 16`), proved with the `sv_comb` tactics (since 2026-11-15; by hand before, when the tactics refused a
+  conditional generate inside the inner generate loop): `sv_structure` (the comb profile and the shared obligations,
+  then acyclicity with the level as the rank), `sv_interface`, `sv_equations` (the bit test and the shift atoms of
+  `((i >> l) & 1) == 1` and `((i >> l) << l) - 1`) and `sv_eq_nat`, then the prefix mathematics (`sklRec_block`, on
+  `LeanModels.Sv.Lib.Prefix`). `add_n_sklansky_core.lean` is the by-hand proof's longer prefix mathematics (section
+  `SklCore`), kept as a library-style example.
 * `add_n_kogge_stone.sv` + `add_n_kogge_stone.lean`: a Kogge-Stone parallel-prefix adder (149.652 GE, depth 24),
-  proved the same way, its prefix mathematics on `LeanModels.Sv.Lib.Prefix`.
+  proved the same way (the atom `2 ^ l` where the source has `1 << l`), its block on `LeanModels.Sv.Lib.Prefix`.
 * `cmp_carry.sv` + `cmp_carry.lean`: every carry a run-time comparison, i.e. Yosys's own adder (`alumacc` builds
   each comparison as an `$alu`), so the banlist rejects it since 2026-11-05 (195.975 GE, depth 17;
   `tests/add/validate/README.md` explains why it is here). Proved with the tactics (each carry is

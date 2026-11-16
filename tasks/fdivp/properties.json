@@ -6,14 +6,14 @@
     "decl": "SvGolf.Tasks.FdivP.Statement",
     "file": "svgolf/tasks/fdivp/Spec.lean"
   },
-  "summary": "A design meets the trusted statement exactly when, for every format (W, P) with 2 ≤ W, 2 ≤ P and W + P + 1 < 2^31, it has all of the properties below. Lean checks that, together, they say exactly what the statement says, nothing less and nothing more (the theorem statement_iff_properties).",
+  "summary": "A design meets the trusted statement exactly when, for every format (W, P) with 2 ≤ W, 2 ≤ P and W + P < 2^20, it has all of the properties below. Lean checks that, together, they say exactly what the statement says, nothing less and nothing more (the theorem statement_iff_properties).",
   "properties": [
     {
       "name": "PARAMS_IN_RANGE",
       "decl": "SvGolf.Tasks.FdivP.Properties.ParamsInRange",
       "file": "svgolf/tasks/fdivp/Properties.lean",
       "kind": "range",
-      "text": "The statement covers every binary floating-point format with an exponent field of W ≥ 2 bits and a precision of P ≥ 2 significand bits (the hidden bit included): binary16 (W = 5, P = 11, the scoring point), bfloat16 (8, 8), binary32 (8, 24), binary64 (11, 53) and every other with W + P + 1 < 2^31 (the module's widths, such as W + P, are int expressions, and an int holds no value of 2^31 or more). One proof covers all of them, and every property below must hold at each format."
+      "text": "The statement covers every binary floating-point format with an exponent field of W ≥ 2 bits and a precision of P ≥ 2 significand bits (the hidden bit included): binary16 (W = 5, P = 11, the scoring point), bfloat16 (8, 8), binary32 (8, 24), binary64 (11, 53) and every other with W + P < 2^20 (the module's widths, such as W + P, are int expressions, and the range keeps them and the localparams a design computes from W and P below 2^31, where an int wraps). One proof covers all of them, and every property below must hold at each format."
     },
     {
       "name": "INTERFACE",
@@ -56,19 +56,19 @@
       "name": "fdivBits",
       "decl": "SvGolf.Tasks.FdivP.fdivBits",
       "file": "svgolf/tasks/fdivp/Spec.lean",
-      "text": "fdivBits W P a b: the IEEE 754 division of the spec, divide ⟨W, P⟩ roundTiesToEven a b, on (W + P)-bit patterns (the casts only restate the width as W + P)."
+      "text": "fdivBits W P a b: IEEE 754 division of the two patterns in the format (W, P), rounded to nearest, ties to even: Proglib's divide ⟨W, P⟩ nearestTiesToEven a b, on (W + P)-bit patterns (the casts only restate the width as W + P)."
     },
     {
       "name": "divide",
-      "decl": "SvGolf.IEEE754.divide",
-      "file": "svgolf/tasks/fdivp/IEEE754.lean",
-      "text": "The trusted IEEE 754-2019 division on bit patterns, for any format and rounding mode: the special cases first, then the exact quotient rounded once."
+      "decl": "LeanModels.SoftFloat.Binary.divide",
+      "file": "LeanModels/SoftFloat/Binary/Defs.lean",
+      "text": "IEEE 754-2019 division on bit patterns, for any binary format and rounding-direction attribute, from Proglib's IEEE 754 library: the standard's special cases first, then the exact quotient rounded once. Every NaN result is the one canonical quiet NaN; exception flags are not modelled."
     },
     {
       "name": "Format",
-      "decl": "SvGolf.IEEE754.Format",
-      "file": "svgolf/tasks/fdivp/IEEE754.lean",
-      "text": "A binary interchange format: the exponent-field width w and the precision p, both at least 2; a pattern has 1 + w + (p − 1) = w + p bits."
+      "decl": "LeanModels.SoftFloat.Binary.Format",
+      "file": "LeanModels/SoftFloat/Binary/Defs.lean",
+      "text": "A binary interchange format of IEEE 754 (Proglib's library): the exponent-field width w and the precision p, both at least 2; a pattern has 1 + w + (p − 1) = w + p bits."
     },
     {
       "name": "Statement",
@@ -133,7 +133,7 @@
     {
       "name": "Process2.isEdgePhase",
       "decl": "LeanModels.Sv.Process2.isEdgePhase",
-      "file": "LeanModels/Sv/Sem2.lean",
+      "file": "LeanModels/Sv/Sem2Ast.lean",
       "text": "True for the processes that run at the clock edge: always_ff, always @(posedge …) and asynchronous-reset blocks."
     }
   ]

@@ -164,7 +164,7 @@
    "records": [
     {
      "player": "thistlefold",
-     "record_hash": "0a8a41bb5ec4aaa1a4db561549c3889925e1d67b875a44e5f44fe66869e789e0",
+     "record_hash": "18a301ef53161d39c252757220f9cb8ae80aeb446fdfd671db7a33796506c5e0",
      "sv_name": "kara_lv.sv"
     }
    ],
@@ -334,7 +334,7 @@
    "records": [
     {
      "player": "svgolf-reference",
-     "record_hash": "bfb3c58778b624c3de1cbe0d46c15560a9534ddc13da8f512b8931457989f745",
+     "record_hash": "0d28d278b0cb2d0144de36ffc909c1641021a271c25e8663d206828412ee82cc",
      "sv_name": "clmul_n.sv"
     }
    ],
@@ -504,7 +504,7 @@
    "records": [
     {
      "player": "brambleknot",
-     "record_hash": "e9c8f0a7db44334c2f401ebfd6ea5071e7780089246f1ab551dfbf878e713cb3",
+     "record_hash": "3aa7a23ffc4a316bc9b005418eb22d4c56bba7ebd3dea3d661475652af96818c",
      "sv_name": "clmul_tree.sv"
     }
    ],
@@ -674,7 +674,7 @@
    "records": [
     {
      "player": "cinderhalve",
-     "record_hash": "61b1e96724a8ef7ec02ab3c9f8de158e19e4f36947d328f798e1ee2ba2ca1a7a",
+     "record_hash": "62d43f9b340bba7788322e18509fd09a33aa10c45aa1fd1e03ab716534e3f44e",
      "sv_name": "clmul_k1.sv"
     }
    ],

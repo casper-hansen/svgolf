@@ -2732,7 +2732,7 @@ class StatementTest(unittest.TestCase):
         def files(t):
             return lb.statement_files(lb.load_task(lb.DEFAULT_TASKS, t))
         self.assertEqual(files("add"), ["tasks/add/Spec.lean", "SvGolf/Task.lean"])
-        self.assertEqual(files("fdivp"), ["tasks/fdivp/Spec.lean", "SvGolf/Task.lean", "tasks/fdivp/IEEE754.lean"])
+        self.assertEqual(files("fdivp"), ["tasks/fdivp/Spec.lean", "SvGolf/Task.lean"])
         self.assertEqual(files("matmul"), ["tasks/matmul/Spec.lean", "SvGolf/TaskSeq.lean", "SvGolf/Task.lean"])
         self.assertEqual(files("arbiter"), ["tasks/arbiter/Spec.lean", "SvGolf/TaskReact.lean", "SvGolf/TaskSeq.lean",
                                             "SvGolf/Task.lean"])
@@ -4776,6 +4776,207 @@ class WriteupTest(Tmp):
                 self.assertEqual(problems, [])
                 self.assertTrue(title)
         self.assertTrue(os.path.isfile(os.path.join(lb.WRITEUPS_DIR, lb.WRITEUP_TEMPLATE)))
+
+
+REMADE_ENV = {"svgolf_revision": "def456", "lean_toolchain": "leanprover/lean4:v4.35.0",
+              "files": {"check.py": "6" * 64, "score/score.py": "5" * 64},
+              "statement": {"tasks/toy/Spec.lean": "7" * 64}}
+PORT_TEXT = LEAN_TEXT.replace(b"  omega\n", b"  omega\n  -- a maintainer port\n")
+
+
+def recheck(lean=LEAN_TEXT, **kw):
+    """check.py's result of the re-check `remake` reads: an accepted check of the stored design that names the proof
+    it compiled (`stages.solution.sha256`), with no score (a re-check needs none)."""
+    res = fake_result(**kw)
+    res["stages"]["solution"]["sha256"] = lb.sha256_bytes(lean)
+    res["stages"]["extract"]["extractor_sha256"] = "8" * 64
+    res.pop("score")
+    res["stages"].pop("score")
+    res["stages"].pop("postsynth")
+    return res
+
+
+def remade(old, res=None, lean=LEAN_TEXT, **kw):
+    args = dict(lean_bytes=lean, reason="the library pin moved", date="2026-11-16", environment=REMADE_ENV,
+                lean_surfaces_revision="def456", flow=dict(FLOW, flow=lb.COMB_FLOW), ppa_now=None,
+                mapped_now=None, input_drive=None)
+    args.update(kw)
+    return lb.build_remade_record(old, res if res is not None else recheck(lean), toy_task(), **args)
+
+
+class RemakeTest(Tmp):
+    """`remake` (decided 2026-11-16): the proof checked again, the scores carried, the record replaced."""
+
+    def test_original_proof(self):
+        old = make_record(sky=(4604416, 2487))
+        new = remade(old)
+        self.assertEqual(lb.validate_record(new), [])
+        self.assertNotEqual(new["record_hash"], old["record_hash"])
+        self.assertEqual(new["remade"], {"date": "2026-11-16", "from_record": old["record_hash"],
+                                         "proof": "original", "original_lean_sha256": old["files"]["lean"]["sha256"],
+                                         "scores": "carried", "reason": "the library pin moved"})
+        for k in lb.REMADE_CARRIED + ("player", "assisted_by", "submitted_at", "notes", "task"):
+            self.assertEqual(new.get(k), old.get(k), k)
+        self.assertEqual(new["files"], old["files"])
+        c = new["checker"]
+        self.assertEqual((c["svgolf_revision"], c["lean_surfaces_revision"], c["lean_toolchain"], c["extractor_sha256"]),
+                         ("def456", "def456", "leanprover/lean4:v4.35.0", "8" * 64))
+        self.assertEqual(c["statement"], REMADE_ENV["statement"])
+        self.assertEqual(c["files"], REMADE_ENV["files"])
+        for k in ("yosys", "verilator", "canon_script_sha256", "script_sha256", "ge_table_sha256"):
+            self.assertEqual(c[k], old["checker"][k], k)       # the flow the carried score was measured under
+        self.assertEqual(new["proof"]["build_seconds"], 8.41)
+
+    def test_maintainer_port_and_a_chain(self):
+        old = make_record()
+        new = remade(old, lean=PORT_TEXT)
+        self.assertEqual(new["remade"]["proof"], "maintainer port")
+        self.assertEqual(new["remade"]["original_lean_sha256"], old["files"]["lean"]["sha256"])
+        self.assertEqual(new["files"]["lean"], {"name": "toy.lean", "sha256": lb.sha256_bytes(PORT_TEXT)})
+        again = remade(new, lean=PORT_TEXT, date="2026-11-20")
+        self.assertEqual((again["remade"]["proof"], again["remade"]["original_lean_sha256"],
+                          again["remade"]["from_record"]),
+                         ("maintainer port", old["files"]["lean"]["sha256"], new["record_hash"]))
+        back = remade(new, lean=LEAN_TEXT)          # the player's own proof compiles again
+        self.assertEqual(back["remade"]["proof"], "original")
+        self.assertEqual(lb.validate_record(back), [])
+
+    def refused(self, fn):
+        with self.assertRaises(lb.Refused) as cm:
+            fn()
+        return " ".join(cm.exception.problems)
+
+    def test_refusals(self):
+        old = make_record(sky=(4604416, 2487))
+        res = recheck(sv_sha="9" * 64)
+        self.assertIn("not of the record's design", self.refused(lambda: remade(old, res)))
+        res = recheck()
+        res["stages"]["source"]["canonical_sha256"] = "1" * 64
+        self.assertIn("canonical text", self.refused(lambda: remade(old, res)))
+        self.assertIn("did not compile this proof", self.refused(lambda: remade(old, recheck(), lean=PORT_TEXT)))
+        res = recheck()
+        res["accepted"] = False
+        self.assertIn("not an accepted check", self.refused(lambda: remade(old, res)))
+        res = recheck()
+        res["stages"]["comparator"]["result"]["axioms"].append("sorryAx")
+        self.assertIn("axioms", self.refused(lambda: remade(old, res)))
+        self.assertIn("scoring flow pinned now differs",
+                      self.refused(lambda: remade(old, flow=dict(FLOW, flow=lb.COMB_FLOW, yosys="Yosys 0.54"))))
+        self.assertIn("another ppa_version",
+                      self.refused(lambda: remade(old, ppa_now={"ppa_version": "sky130_a0_v9"})))
+        self.assertIn("input drive", self.refused(lambda: remade(old, input_drive=BUF1)))
+        self.assertIn("dirty", self.refused(lambda: remade(old, environment=dict(REMADE_ENV,
+                                                                                  svgolf_revision="def456+dirty"))))
+        self.assertIn("library revision", self.refused(lambda: remade(old, lean_surfaces_revision=None)))
+
+    def test_a_clocked_record_keeps_its_latency(self):
+        old = make_record()
+        old["score"]["cycles"] = 4              # (the shape alone: build_remade_record reads score.cycles)
+        res = recheck()
+        res["stages"]["latency"] = {"declared": 5, "definition": "Submission.lat"}
+        self.assertIn("proved latency 5", self.refused(lambda: remade(old, res)))
+        res["stages"]["latency"]["declared"] = 4
+        with self.assertRaises(lb.Refused) as cm:   # passes the latency test; the shape test then fails (no flow seq)
+            remade(old, res)
+        self.assertNotIn("proved latency", " ".join(cm.exception.problems))
+        lat = b"def lat (N : Nat) : Nat := N + 1\n"
+        port = LEAN_TEXT + b"def lat (N : Nat) : Nat := N + 2\n"
+        self.assertIn("`def lat` line", self.refused(lambda: remade(make_record(), recheck(port), lean=port,
+                                                                    old_lean_bytes=LEAN_TEXT + lat)))
+        same = LEAN_TEXT + b"-- ported\n" + lat
+        self.assertEqual(remade(make_record(), recheck(same), lean=same, old_lean_bytes=LEAN_TEXT + lat)["remade"]
+                         ["proof"], "maintainer port")
+
+    def test_validation_of_the_key(self):
+        new = remade(make_record())
+
+        def problems(edit):
+            r = copy.deepcopy(new)
+            edit(r["remade"])
+            return " ".join(lb.validate_record(r))
+        self.assertIn("is 'maintainer port'", problems(lambda m: m.update(proof="maintainer port")))
+        self.assertIn("'carried'", problems(lambda m: m.update(scores="measured")))
+        self.assertIn("exactly the keys", problems(lambda m: m.update(extra=1)))
+        self.assertIn("record's own hash", problems(lambda m: m.update(from_record=new["record_hash"])))
+        self.assertIn("reason", problems(lambda m: m.update(reason=" ")))
+        self.assertIn("ISO date", problems(lambda m: m.update(date="16 Nov")))
+
+    def test_repoint_tables(self):
+        old_h, new_h, other = "1" * 64, "f" * 64, "2" * 64
+        a7, pnr, sz, wr = (os.path.join(self.tmp, d) for d in ("asap7", "asap7pnr", "sizes", "writeups"))
+        for d in (a7, pnr, sz, wr):
+            os.makedirs(d)
+        tag = lambda h: f"record:{h}"   # noqa: E731
+        with open(os.path.join(a7, "toy.json"), "w") as fh:
+            fh.write(json.dumps({"designs": [{"of": [tag(old_h), tag(other)], "area": 1},
+                                             {"of": ["reference:r"], "area": 2}]}, indent=1, sort_keys=True) + "\n")
+        with open(os.path.join(pnr, "toy.json"), "w") as fh:
+            fh.write(json.dumps({"designs": [{"of": [tag(old_h)], "record": old_h}]}, indent=1, sort_keys=True) + "\n")
+        with open(os.path.join(sz, "toy.json"), "w") as fh:
+            fh.write(json.dumps({"designs": [{"records": [{"record_hash": old_h, "player": "a"},
+                                                          {"record_hash": other, "player": "b"}]}]},
+                                indent=1, sort_keys=True) + "\n")
+        with open(os.path.join(wr, old_h + ".md"), "w") as fh:
+            fh.write("# A title\n")
+        would = lb.repoint_tables("toy", old_h, new_h, asap7_dir=a7, pnr_dir=pnr, sizes_dir=sz, writeups_dir=wr,
+                                  write=False)
+        self.assertEqual(len(would), 4)
+        self.assertTrue(os.path.isfile(os.path.join(wr, old_h + ".md")))      # nothing written
+        lb.repoint_tables("toy", old_h, new_h, asap7_dir=a7, pnr_dir=pnr, sizes_dir=sz, writeups_dir=wr)
+        with open(os.path.join(a7, "toy.json")) as fh:
+            text = fh.read()
+        data = json.loads(text)
+        self.assertEqual(text, json.dumps(data, indent=1, sort_keys=True) + "\n")
+        self.assertEqual(data["designs"][0]["of"], [tag(other), tag(new_h)])     # sorted
+        self.assertEqual(data["designs"][1]["of"], ["reference:r"])
+        with open(os.path.join(pnr, "toy.json")) as fh:
+            self.assertEqual(json.load(fh)["designs"][0], {"of": [tag(new_h)], "record": new_h})
+        with open(os.path.join(sz, "toy.json")) as fh:
+            self.assertEqual([r["record_hash"] for r in json.load(fh)["designs"][0]["records"]], [other, new_h])
+        self.assertFalse(os.path.exists(os.path.join(wr, old_h + ".md")))
+        self.assertTrue(os.path.isfile(os.path.join(wr, new_h + ".md")))
+
+    def test_cli_in_a_trial_directory(self):
+        old = make_record()
+        self.store(old)
+        res_path = os.path.join(self.tmp, "res.json")
+        port = os.path.join(self.tmp, "port.lean")
+        with open(port, "wb") as fh:
+            fh.write(PORT_TEXT)
+        with open(res_path, "w") as fh:
+            json.dump(recheck(PORT_TEXT), fh)
+        task_dir = os.path.join(self.tmp, "tasks", "toy")
+        os.makedirs(task_dir)
+        with open(os.path.join(task_dir, "task.json"), "w") as fh:
+            json.dump(toy_task(), fh)
+        argv = ["remake", "--data-dir", self.data, "--tasks-dir", os.path.join(self.tmp, "tasks"), "--task", "toy",
+                "--record", old["record_hash"][:12], "--check", res_path, "--lean", port, "--reason", "pin moved",
+                "--date", "2026-11-16"]
+        env = dict(REMADE_ENV, statement={})
+        with mock.patch.object(lb, "collect_environment", return_value=env), \
+                mock.patch.object(lb, "ls_revision", return_value="def456"), \
+                mock.patch.object(lb, "pinned_flow", return_value=(dict(FLOW, flow=lb.COMB_FLOW), [])):
+            rc, out, err = quiet(lb.main, argv + ["--dry-run"])
+            self.assertEqual(rc, 0, err)
+            self.assertIn("would re-make toy/", out)
+            self.assertEqual(len(lb.load_records(self.data)), 1)
+            rc, out, err = quiet(lb.main, argv)
+        self.assertEqual(rc, 0, err)
+        recs = lb.load_records(self.data)
+        self.assertEqual(len(recs), 1)
+        path, rec, _ = recs[0]
+        self.assertTrue(lb.intact(path, rec))
+        self.assertEqual(rec["remade"]["from_record"], old["record_hash"])
+        self.assertEqual(rec["remade"]["proof"], "maintainer port")
+        with open(lb.record_paths(self.data, "toy", rec["record_hash"])[2], "rb") as fh:
+            self.assertEqual(fh.read(), PORT_TEXT)
+        self.assertFalse(os.path.exists(lb.record_paths(self.data, "toy", old["record_hash"])[0]))
+        with mock.patch.object(lb, "collect_environment", return_value=env), \
+                mock.patch.object(lb, "ls_revision", return_value="def456"), \
+                mock.patch.object(lb, "pinned_flow", return_value=(dict(FLOW, flow=lb.COMB_FLOW), [])):
+            rc, out, err = quiet(lb.main, argv)        # the old record is gone
+        self.assertEqual(rc, 1)
+        self.assertIn("no record", err)
 
 
 class CommittedDataTest(unittest.TestCase):

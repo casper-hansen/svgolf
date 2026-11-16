@@ -17,7 +17,7 @@ are the references of the `add` and `mul` tasks:
 | `sorter` (clocked stream, `StreamTask`; section 19) | `tasks/sorter/reference/sorter_ins.lean` (the insertion-cell array, `lat = 2N`; `StreamTask.satisfiedAtV2_of_phases`) | |
 | `arbiter` (clocked, reactive, `ReactTask`; section 20) | `tasks/arbiter/reference/rr_mask.lean` (the registered mask round-robin, every `N` with `1 ≤ N`, `N·N < 2^31`; `ReactTask.satisfiedAt_of_rank` with an invariant and a rank) | |
 
-Both proofs are for every `N` in their task's range (`1 ≤ N < 2^31` for `add`, `1 ≤ N < 2^30` for `mul`),
+Both proofs are for every `N` in their task's range (`1 ≤ N < 2^20` for `add` and for `mul`),
 accepted by `check.py`, and depend only on `propext`,
 `Classical.choice` and `Quot.sound`. [README.md](README.md) has the rules and the checker's
 stages; [REFUSALS.md](REFUSALS.md) lists everything the checker refuses. Paths under `LeanModels/`, `docs/`,
@@ -86,13 +86,16 @@ open LeanModels.Sv LeanModels.Sv.CombView LeanModels.Sv.CombLib LeanModels.Sv.Co
 
 -- 1. The sites and the relation a rank must satisfy. `sv_structure?` takes no arguments;
 --    `sv_structure` (no rank) then proves `CombDesign` alone, so this part compiles.
-example (N : Nat) (hN : 1 ≤ N) : CombDesign (design.sem N) := by
+--    `hR`: the tactics read the parameters off the instantiation, which is exact 32-bit `int` arithmetic
+--    (the pinned ls-sv), so a theorem at a symbolic `int` parameter needs a range premise below `2^31`; the
+--    statement's range gives one (`hN.2` in `solution`: `N < 2 ^ 20`).
+example (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) : CombDesign (design.sem N) := by
   sv_structure?
   sv_structure
   all_goals (intros; omega)
 
 -- 2. With a rank chosen from that listing: the triple the solution takes apart.
-theorem probe_struct (N : Nat) (hN : 1 ≤ N) :
+theorem probe_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) ∧ SharedObl design.pdesign [N] := by
   sv_structure (rank := rippleRank (fun p => if p = 0 then 0 else N + 1) (fun _ _ i => i.toNat + 1))
   all_goals (intros; omega)
@@ -102,7 +105,8 @@ theorem probe_struct (N : Nat) (hN : 1 ≤ N) :
 example : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha, hso⟩ := probe_struct N hN'
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨hc, ha, hso⟩ := probe_struct N hN' hR
   refine CombTask.satisfiedAt_of_comb (by sv_interface) hc ha ?_
   intro st heqs hs v hv
   sv_equations?
@@ -251,7 +255,7 @@ The whole proof, `reference/add_n.lean`, is 84 code lines (the by-hand one: 509)
 ### 2.1 Structure
 
 ```lean
-theorem add_struct (N : Nat) (hN : 1 ≤ N) : CombDesign (design.sem N) ∧ Acyclic (design.sem N) := by
+theorem add_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) : CombDesign (design.sem N) ∧ Acyclic (design.sem N) := by
   sv_structure (rank := rippleRank (fun p => if p = 0 then 0 else N + 1) (fun _ _ i => i.toNat + 1))
   all_goals (intros; omega)
 ```
@@ -269,7 +273,7 @@ Newton 139, `mul_tree` 78, `add_n` 19 thousand heartbeats: 5 to 14% of the file)
 conjunct and the second normalization goes:
 
 ```lean
-theorem add_struct (N : Nat) (hN : 1 ≤ N) :
+theorem add_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) ∧ SharedObl design.pdesign [N] := by
   sv_structure (rank := rippleRank (fun p => if p = 0 then 0 else N + 1) (fun _ _ i => i.toNat + 1))
   all_goals (intros; omega)
@@ -378,7 +382,7 @@ The statement also pins the port names, order and widths (conjunct 1). One tacti
 the comb profile:
 
 ```lean
-theorem add_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
+theorem add_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) (hc : CombDesign (design.sem N)) :
     SvGolf.Tasks.Add.task.Interface N (design.sem N) := by
   sv_interface
 ```
@@ -400,8 +404,9 @@ The task's statement is reduced to the settled-state lemma and its context is se
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha, hso⟩ := add_struct N hN'   -- the triple of section 2.1
-  refine CombTask.satisfiedAt_of_comb (add_interface N hN' hc) hc ha ?_
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨hc, ha, hso⟩ := add_struct N hN' hR   -- the triple of section 2.1
+  refine CombTask.satisfiedAt_of_comb (add_interface N hN' hR hc) hc ha ?_
   intro st heqs hs v hv           -- st: a state that solves the design's equations
   obtain ⟨x, y, ci, ⟨⟩⟩ := v      -- the known input values
   obtain ⟨c0, rfl⟩ : ∃ c0, ci = BitVec.ofBool c0 := ⟨_, bv1_eq_ofBool ci⟩
@@ -693,6 +698,27 @@ is 300 CPU s). It was written in one pass from the `mul` recipe; what differed:
 
 ## 4. What the tactics accept, and what they refuse
 
+**Since the pin moved to Proglib 4fcda4c8 (2026-11-16)** the tactics also read 3-D packed declarations (as whole
+signals; Proglib's `Examples/system-verilog/gen_d3`), a product of a genvar and an atom and a shift by an affine amount
+(`gen_mulx`), shift and power atoms in replication counts (`gen_repa`), `?:` of the parameters and genvars in indices,
+loop bounds and generate conditions (`gen_tern`), a generate loop whose start is not an integer literal, and
+two-parameter hierarchies; `$clog2` reads its argument as unsigned (IEEE 1800-2023 §20.8.1), and the rank obligation
+takes the ranged form by default (`set_option sv_comb.rank_ranged false` restores the former one; no proof of this
+repository needed it). The constructs named "out" below were measured at Proglib 76afe721 and are read now; the
+fallback for what is still out (an index or bound otherwise not affine, `i*j`) is a by-hand proof.
+**Since the pin moved to Proglib 76afe721 (2026-11-15)** the tactics read more than the list below says (the comb
+tactic rounds of 2026-11-14; Proglib's `Examples/system-verilog/gen_*` and `prefix_*` directories are the tests): generate
+trees of any depth; a loop bound that names the parameters and the enclosing genvars; a conditional generate (`if`,
+`else if`, `else`) inside a generate loop, whose condition compares affine operands; the atoms `1 << l`, `b ** l`,
+`m >> l`, `(m >> l) << l`, the bit test `(m >> l) & 1` and shifts of a named constant by a literal amount, in indices,
+loop bounds and conditions, each with its 32-bit range as an obligation (`Summary.XObl`); indexed part selects `+:`
+and `-:` with affine bases; `$clog2` of a quotient by a literal and a power of a `$clog2` localparam at a symbolic
+parameter; and the generate fuel owed is the instantiation's own (`fuelSq s + 4 s + 67`), not the linear bound below.
+The two prefix adders of `tests/add/baselines/` are proved with the tactics on that basis (section 5). What stays out:
+3-D packed declarations, a genvar times an atom, a shift by an affine amount, an atom in a replication count. The
+table of refusals below was measured before; its rows for a conditional generate in a loop and for three nested loops
+no longer apply.
+
 **Accepted** (the "v1 fragment", `LeanModels/Sv/CombView.lean`):
 
 * a flat top module whose processes are continuous assigns: `assign x = e`, `x[idx] = e`,
@@ -773,13 +799,13 @@ design may exist). Measured on small variants of the adder and on the prefix-add
 | `always_comb` with an `if … else` after the first statement, a nested `begin … end` with several statements as a statement of a block, or an override writing another window | ``…: an `if … else` after the first statement of an always_comb block (outside the second fragment: only `if (c) …;` without `else` can follow, as a default-then-override body)`` / ``…: a `begin … end` with several statements as a statement of a block (outside the second fragment: write its statements in the outer block)`` / the `writes more than one window` message |
 | an override that READS the window it writes (`y = a; if (e) y = y ^ b;`) | the `noSelfRead` / `reads the window it writes` message of section 13 (SSA substitution of the earlier value is NOT modelled) |
 | `always_ff`, `always @(...)`, any other process | `site g_bit#0: procedural process (always): outside the combinational-assign fragment` |
-| `if (...) begin ... end` inside a generate loop | `conditional generate inside a generate loop (outside the v1 fragment)` |
+| `if (...) begin ... end` inside a generate loop | `conditional generate inside a generate loop (outside the v1 fragment)` (until 2026-11-15: read at Proglib 76afe721 when the condition compares affine operands or the atoms above; another condition is refused naming it) |
 | a dynamic write `s[b] = ...` | `site g_bit#0: write to s[…] has a non-affine (dynamic) index: the driven window cannot be determined` |
 | a generate bound that is not affine (`for (j = 0; j < N/2; j++)`) | `generate bound is not affine` |
 | a 3-D packed array | `only scalar, 1-D and 2-D packed declarations are in the v1 fragment` |
 | a part select of a vector whose range is not zero-based (`logic [8:1] v; … v[4:2]`) | ``site `plain#0`: `v`: part selects need a zero-based descending dimension `[hi:0]` `` (accepted for `[hi:0]` since 2026-11-01) |
 | a whole row of a 2-D array whose first range is not zero-based (`logic [4:1][2:0] r; r[1] = x`) | `structural check failed: site `plain#0`: the access `r[0]` does not match the declaration of `r` (a select needs zero-based descending packed dimensions `[hi:0]`, …)` |
-| three nested generate loops | `an inner generate loop holds a nested generate ...` |
+| three nested generate loops | `an inner generate loop holds a nested generate ...` (until 2026-11-15: read at Proglib 76afe721) |
 | `bit` or `signed` declarations | `declaration a is signed or 2-state (outside the v1 fragment ...)` |
 | a submodule instance (a hand-built full adder) | ``sv_structure: this design instantiates modules, and the `sv_comb` tactics cannot summarize module instances yet. …`` (the same text from `sv_interface` and `sv_equations` since 2026-11-01, pinned in `Examples/system-verilog/ripple_fa/comb_errors.lean`). The loader, the scorer and the post-synthesis check accept the design; flatten it in the source, or prove the structure by hand as `ripple_fa/gen.lean` does. Before then the message was `cannot read a load_design_sv2 family (X.sem N) off the design in the goal`, which did not mention instances |
 | a right-hand side the recognizer reads but `sv_equations` cannot (an `x` literal, a width mismatch) | `sv_equations: ...` from the decidable check: a long `decide` failure that does not name the site |
@@ -826,10 +852,12 @@ but the **reduction and the arithmetic still are**:
   them in whatever way works. The by-hand references are complete examples of that route:
   `tasks/add/reference/add_n_byhand.lean` (509 code lines: walk the generate loop symbolically,
   one-driver rule, rank certificate, the settled state by induction on the bit index) and
-  `tasks/mul/reference/mul_n_byhand.lean` (1385 code lines, 2-D). The proved prefix adders
-  `tests/add/baselines/add_n_sklansky.lean` and `add_n_kogge_stone.lean` take the same route through a
-  conditional generate inside an inner generate loop, and `tests/clmul/baselines/kara_lv.lean` through a
-  level-by-level Karatsuba with `**` in a localparam.
+  `tasks/mul/reference/mul_n_byhand.lean` (1385 code lines, 2-D). The prefix adders
+  `tests/add/baselines/add_n_sklansky.lean` and `add_n_kogge_stone.lean` took the same route through a
+  conditional generate inside an inner generate loop until 2026-11-15 (about 1,450 lines each; at Proglib 76afe721
+  they are tactic proofs of 105 and 123 code lines: `sv_structure`, `sv_interface`, `sv_equations`, `sv_eq_nat`,
+  then the prefix mathematics), and `tests/clmul/baselines/kara_lv.lean` takes it through a level-by-level
+  Karatsuba with `**` in a localparam.
 * the plumbing of that route is in svGolf's library (`SvGolf.CombLemmas`, section 6): state the instantiated
   design's process list and the one window of each process as `LeafProcs`, and `LeafProcs.combDesign` and
   `LeafProcs.acyclic` give `CombDesign` and `Acyclic` from facts about the list and a rank on the processes; the
@@ -880,7 +908,7 @@ say what. A lemma that is in no library yet is named in its task's README, with 
 | `CombLib.bfVal_eq_val`, `CombLib.bfVal_false`, `CombLib.bfVal_lt`, `CombLib.bfVal_mod`, `CombLib.bfVal_not`, `CombLib.bfVal_window`, `CombLib.bfVal_or` | SvGolf.CombLemmas | `bfVal` is `XF.val`; bits all `false` have the value 0; the bound `< 2^n`; the low `n` bits are the value modulo `2^n`; the complement; a function that is `false` outside a window; an OR of two functions never both `true` | the `bfVal` forms of the `XF.val` lemmas above (`bfVal_eq_val` turns one sum into the other) |
 | `XorSum.bx_succ`, `XorSum.bx_congr`, `XorSum.bx_trunc`, `XorSum.bx_false`, `XorSum.bx_add`, `XorSum.bx_xor`, `XorSum.bx_and`, `XorSum.bx_pair` | SvGolf.CombLemmas | one term off the end; congruence; trailing `false` terms dropped; all terms `false`; a split at `m`; the sum of an XOR and of a mask; the inner sum over `j` of `[i + j = k] && x && c j` is its one term `j = k - i` | GF(2) sums; collapsing a double sum to its diagonal |
 | `XorSum.cl`, `XorSum.cl_congr`, `XorSum.cl_big`, `XorSum.cl_shift`, `XorSum.cl_trunc`, `XorSum.cl_sum`, `XorSum.karatsuba`, `XorSum.karatsuba_full`, `XorSum.karatsuba_cols` | SvGolf.CombLemmas | bit `k` of the carry-less product of two `n`-bit operands; congruence; its bits from `2n - 1` on are `false`; a shifted double sum; zero-padded operands; the product of the half sums; one Karatsuba split; a node's columns `PL + x^H (PM + PL + PH) + x^2H PH` are the `2H`-bit product | carry-less multipliers, Karatsuba trees |
-| `Tasks.Clmul.coeff_eq`, `Tasks.Clmul.getLsbD_ofBits`, `Tasks.Clmul.getLsbD_ofBits_lt` | SvGolf.SpecFacts | the `clmul` Spec's `coeff` is the nested XOR sum `bx`; bit `k` of the Spec's `ofBits n f` | the last step of a `clmul` proof, to the Spec's `BitVec` |
+| `Tasks.Clmul.coeff_eq`, `Tasks.Clmul.getLsbD_ofBits`, `Tasks.Clmul.getLsbD_ofBits_lt` | tasks.clmul.Facts (the task's own facts, beside its statement) | the `clmul` Spec's `coeff` is the nested XOR sum `bx`; bit `k` of the Spec's `ofBits n f` | the last step of a `clmul` proof, to the Spec's `BitVec` |
 | `packBV`, `packBV_eq_ofNat`, `packBV_congr` | SeqFamily | `n` entries of `W` bits packed row-major into one `BitVec`; it is `Σ_r (v r) · 2^(r·W)`; it reads only the entries below `n` | a port that carries a matrix or a list of words |
 | `List.range_succ`, `List.foldl_append` | core | `range (n + 1) = range n ++ [n]`; a fold over an append | taking the last term off a spec written as a `List.range` fold (matmul's `dot`) |
 
@@ -913,6 +941,7 @@ say what. A lemma that is in no library yet is named in its task's README, with 
 | `CombTask.statement_of_comb` | SvGolf.CombLemmas | the statement from, at each `N` in range, the triple `CombDesign ∧ Acyclic ∧ P N` (`P N` is `sv_structure`'s `SharedObl`, or `True`), the interface, and the settled-state lemma, which is given the three facts as hypotheses (`sv_equations` reads `CombDesign` and `SharedObl` from the context) | the opening of `solution`: `refine CombTask.statement_of_comb (fun N hN => X_struct N hN.1) (fun N hN hc => X_interface N hN.1 hc) ?_`, then `intro N hN hc ha hso st heqs hs v hv` |
 | `LeafProcs`, `LeafProcs.combDesign`, `LeafProcs.acyclic`, `LeafProcs.writes`, `LeafProcs.writes_pos`, `LeafProcs.getElem?_of_mem`, `LeafProcs.mem_of_getElem?` | SvGolf.CombLemmas | the processes of a design are a list of continuous assigns to one window each: the comb profile from facts about the list (windows pairwise disjoint, inside their signals, of no input; right-hand sides free of unsupported nodes and naming declared signals) and the declarations (distinct names, no initializer, no 2-state input); acyclicity from a rank on the processes; what process `j` writes; positive widths (for `PDesign.instantiateGD2_of_combDesign`) | the by-hand route (section 5): instead of writing the fields of `CombDesign` and the `Acyclic` certificate out |
 | `evalPure2_bit_of_lookup`, `evalPure2_slice_of_extract`, `evalPure2_lit_l0`, `evalPure2_and_bool`, `evalPure2_or_bool`, `evalPure2_xor_bool`, `CombEqs.readback`, `CombEqs.readback1` | SvGolf.CombLemmas | gates on known one-bit values in `Bool` form (`ofBool (p && q)`, …): a bit of a known signal, a known window, `1'b0`, AND, OR, XOR; a slice assign read back on a state solving the equations | a by-hand settled-state lemma, one gate at a time |
+| `ConstEval.Frag`, `Frag.eval`, `Frag.evalGenGuard_eq`, `Frag.evalIntExact_eq`, `Frag.evalSized_eq` | SvGolf.CombLemmas | on the in-range INT fragment (unsized integers, genvars, `int` parameters, `+ - *`, `>>` by `0 … 31`, the signed comparisons, `==`, `!=`, `?:`; every `int` node a 32-bit value) the width-exact evaluators (`evalGenGuard`, `evalIntExact`, `evalSized`) give `evalInt`'s unbounded value | a by-hand proof's generate conditions and `int` localparams at the exact 32-bit instantiation (`tests/mul/baselines/dadda_rc.lean`) |
 
 **Clocked designs: NBA folds, register windows, power-up**
 
@@ -949,8 +978,10 @@ say what. A lemma that is in no library yet is named in its task's README, with 
 | `Lib.rmN_row0`, `Lib.rmN_succ0`, `Lib.rmN_last_col`, `Lib.rmN_eq` | Lib.RowMajor | `rmN` at natural coordinates, in the forms `sv_equations` prints | turning printed indices into `Nat` ones |
 | `Nat.mul_add_mod_of_lt`, `Nat.add_mul_div_right` | core | `(a * b + c) % b = c` for `c < b`; `(x + y * z) / z = x / z + y` for `0 < z` | the column and the row of a row-major index |
 
-**Floating-point value functions.** No library has the IEEE 754 format or rounding lemmas yet (the `fdivp` README
-says where they are); these carry a datapath's netlist into `Nat`:
+**Floating-point value functions.** Proglib's IEEE 754 library `LeanModels.SoftFloat.Binary` (the one the `fdivp`
+statement is written in; `import LeanModels.SoftFloat.Binary`) has the formats, correct rounding, the rounding
+certificate and the datapath's rounding stage (the `fdivp` README says which lemma does what); these carry a datapath's
+netlist into `Nat`:
 
 | name | module | what it says | use it when |
 |---|---|---|---|
@@ -1123,13 +1154,16 @@ Today's limits of the tools, as the proofs on the board met them: not rules of t
   ("Timeouts", above). A `whnf` timeout in a clocked run lemma has its own fix (section 19.3).
 * **`instExpr2`'s `resize` equation.** In an instantiation lemma `simp`, and so `sv2_inst_simp`, cannot use it. Where
   your `sv2_inst_simp` call stops at an `instExpr2` term, unfold it by hand, `repeat (unfold instExpr2; <the same
-  sv2_inst_simp call>)`, as `pe_inst` in `tasks/matmul/reference/matmul_g1.lean` does (16 of the 18 matmul proofs do).
-* **What the `sv_comb` tactics do not read yet**: a conditional generate (`if`) inside a generate loop; `**` in a
-  localparam (a `$clog2` localparam is read, as an opaque value: section 4); an inner loop bound computed from the
-  outer genvar (`tests/mul/baselines/dadda_rc.sv`); an index or bound that is not affine in the parameters and the
-  genvars (`i*j`, `i >> l`, a prefix adder's partner index). Know this before you design: the checker still accepts
-  such a design, and the fallback is a by-hand proof (section 5; the Kogge-Stone, Sklansky, Dadda and Karatsuba
-  baselines took it, about 1,000 to 3,200 code lines each). Section 4 lists every refusal with its message, and the
+  sv2_inst_simp call>)`, as `pe_inst` in the matmul records' proofs does (16 of the 18 matmul proofs; since 2026-11-14
+  `tasks/matmul/reference/matmul_g1.lean` takes its instantiation from `sv_mirror` instead, section 19.4).
+* **What the `sv_comb` tactics do not read yet** (measured at Proglib 76afe721, 2026-11-15; at the pin 4fcda4c8 of
+  2026-11-16 the first three items below are read, section 4's first paragraph):
+  a 3-D packed declaration (`tests/mul/baselines/dadda_rc.sv`); a genvar times an atom and a shift by an affine
+  amount (the Karatsuba baseline's slot bases `(3*t)*(P>>(l+1))`); an atom in a replication count; an index or bound
+  that is otherwise not affine in the parameters and the genvars (`i*j`). A conditional generate inside a loop, the
+  shift and power atoms of a prefix adder and a loop bound from the outer genvar are read since that pin. Know this
+  before you design: the checker still accepts such a design, and the fallback is a by-hand proof (section 5; the
+  Dadda and Karatsuba baselines took it, about 1,000 to 3,200 code lines each). Section 4 lists every refusal with its message, and the
   [Refusals page](REFUSALS.md) what the checker and the language refuse.
 * **Clocked designs need `always_ff` with fixed register windows.** The library's clock step (`cycleStep2_profile`)
   covers a design whose every process is an `always_ff` on one clock, with nonblocking writes to windows fixed at
@@ -1140,9 +1174,9 @@ Today's limits of the tools, as the proofs on the board met them: not rules of t
 
 * **Fragment.** See section 4. In particular no operators beyond those of sections 14 and 17, no `localparam` beyond
   the integer constant expressions of section 4,
-  no conditional generate, no instances, no edge-triggered processes, and `always_comb` only in the first fragment of section 13. The prefix
-  adders of `tests/add/baselines/` are refused today (conditional generate, non-affine indices); they are proved by
-  hand (section 5). A design generated for one width (a flat netlist whose every width and index is a literal of that
+  no instances, no edge-triggered processes, and `always_comb` only in the first fragment of section 13 (a conditional
+  generate inside a generate loop is read since the pin of 2026-11-15, section 4). The prefix adders of
+  `tests/add/baselines/` are tactic proofs since that pin; they were proved by hand before (section 5). A design generated for one width (a flat netlist whose every width and index is a literal of that
   `N`) has no proof of a for-all-`N` statement at all: a multiplier proof needs a parametric design. What the tactics do not read yet is on the [refusals page](REFUSALS.md) as `later`, each row with what has to exist first
   (`sv_structure: outside the v1 fragment`).
   A parametric carry-save TREE (not a column-wise Wallace/Dadda tree) is inside the fragment after
@@ -1829,26 +1863,28 @@ and their syntax are the same, and `import LeanModels.Sv.CombProcTactic` and `im
 are the extra lines:
 
 ```lean
-theorem add_struct (N : Nat) (hN : 1 ≤ N) :
+theorem add_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     ∃ d', (design.sem N).lowerComb = some d' ∧ CombDesign d' ∧ Acyclic d' := by
   sv_structure (rank := rippleRank (fun p => if p = 0 then 0 else N + 1)
     (fun _ pos i => if pos = 0 then 0 else i.toNat + 1))
   all_goals (intros; omega)
 
-theorem add_interface (N : Nat) (hN : 1 ≤ N) {d'} (hl : (design.sem N).lowerComb = some d') :
+theorem add_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) {d'} (hl : (design.sem N).lowerComb = some d') :
     SvGolf.Tasks.Add.task.Interface N (design.sem N) := by
   sv_interface
 
 -- in `solution`:
-  obtain ⟨d', hl, hc, ha⟩ := add_struct N hN'
-  refine CombTask.satisfiedAt_of_lowered (add_interface N hN' hl) hl hc ha (NoQ.sem_noQ (by decide) _) ?_
+  obtain ⟨d', hl, hc, ha⟩ := add_struct N hN' hR
+  refine CombTask.satisfiedAt_of_lowered (add_interface N hN' hR hl) hl hc ha
+    (NoQ.semAlias_noQ (d := design.pdesign) (by decide) _) ?_
   intro st heqs hs v hv        -- heqs : CombEqs d' st, hs : StateShape d' st
   ...
   sv_equations                 -- finds hl, hc, ha, heqs, hs by type
 ```
 
 * `CombTask.satisfiedAt_of_lowered` (`SvGolf.Comb`) is `CombTask.satisfiedAt_of_comb` for a design that lowers; its
-  argument `hnq` (no `unique` or `priority` `case`) is `NoQ.sem_noQ (by decide) _`. The reference keeps a ten-line copy
+  argument `hnq` (no `unique` or `priority` `case`) is `NoQ.semAlias_noQ (d := design.pdesign) (by decide) _` (`NoQ.sem_noQ`
+  before `design.sem` became the alias-guarded family). The reference keeps a ten-line copy
   of its own; a new proof uses the library's.
 * `sv_structure` returns one more obligation, `noSelfRead` (no read of the body overlaps the window it
   writes), closed by `intros; omega` like the others; a violation at a sampled `N` is reported with the
@@ -1969,7 +2005,7 @@ equation is matched against `tbl.map …` by unification (`exact`/`eq_y_1`), the
 2026-11-03 (generated from `reference/sbox_table.sv`: structure, ports, equations, one 256-input kernel
 evaluation, 4 s). The reference is now one line, `theorem solution : Goal := by sv_exhaustive`
 (`LeanModels/Sv/CombExhaustiveTactic.lean`): the design is read through its lowering
-(`CombTask.satisfiedAt_of_lowered`, `hnq` by `NoQ.sem_noQ`), the `case` of an access over literals is compiled
+(`CombTask.satisfiedAt_of_lowered`, `hnq` by `NoQ.semAlias_noQ`), the `case` of an access over literals is compiled
 once into a word-level table lookup (one bitmap per output bit, built in one pass over the table, so the kernel
 never scans the table per input), and the 256 inputs are decided by kernel evaluation, as their own auxiliary
 theorem. Three cold `check.py` runs, `solution` stage 26.1, 25.0 and 24.7 s (load average 8 to 11); 278 M
@@ -2428,7 +2464,8 @@ theorems, 34 definitions), 739 generated equation lemmas and 199 auxiliary decla
 ### 19.1 A probe: what the loader made of your design
 
 Step 1's hand-built design must equal the loaded one, and where the two differ, an instantiation lemma (`mm_ctrl`,
-`pe_inst` in `matmul_g1.lean`; `so_static`, `cell_inst` in `sorter_ins.lean`) fails without saying where. For a
+`pe_inst` in the matmul records; `so_static`, `cell_inst` in `sorter_ins.lean`) fails without saying where (since
+2026-11-14 `matmul_g1.lean` compares its hand-built design with `sv_mirror`'s, `mmG_D`, section 19.4). For a
 mirror of a changed control process, `mm_ctrl` printed nothing but
 
 ```
@@ -2495,10 +2532,12 @@ the references, unless another proof is named):
 Measured on accepted variants of the two references (2026-11-10), declaration by declaration: a declaration counts
 as changed when its text differs, a name added to a `simp` list included; lines are those `diff` removes plus those
 it adds. The names are the references'; a row "on the row above" (or "against the four-step proof") is measured
-against that proof. The variants' proofs are records on the board: `61bf6f8d17f7` (the sorter's cell rule),
+against that proof. The variants' proofs are records' proofs as submitted: `61bf6f8d17f7` (the sorter's cell rule),
 `1ffe71156e90` (the k loop), `abdd0afdf025` (two steps), `9fdf50f9ae02` (the accumulators free-running) and
-`263ce18b31ab` (the product register). The variant of the row "the operand registers and `k` free-running" is not on
-the board; against the reference, `9fdf50f9ae02` (that row's change and the next row's together) changes 13 of the 86
+`263ce18b31ab` (the product register); re-made on 2026-11-16 with the maintainers' ports of those proofs, they are now
+`3b1ec4b16d7a`, `0ac973a13a52`, `f0b6b743679d`, `688b1fea9d3d` and `bade2c48d3c0`. The variant of the row "the operand
+registers and `k` free-running" is not on the board; against the reference, `9fdf50f9ae02` (that row's change and the
+next row's together) changes 13 of the 86
 declarations and adds 5, in 242 lines.
 
 | the change | what changed in the proof | new declarations | lines |
@@ -2560,6 +2599,7 @@ import SvGolf.Cycle
 open LeanModels.Sv SvGolf
 
 sv_mirror mm := design (N W AccW : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hA : 1 ≤ AccW)
+  (hN32 : N < 2147483648) (hW32 : W < 2147483648) (hA32 : AccW < 2147483648)
 
 theorem mm_disj (N W AccW : Nat) : (mm.procs N W AccW).Pairwise ProcDisj := by
   refine List.Pairwise.cons (fun p hp => ?_) (pairwise_rowMajor fun i j i' j' _ _ _ _ h => ?_)
@@ -2574,6 +2614,14 @@ theorem mm_disj (N W AccW : Nat) : (mm.procs N W AccW).Pairwise ProcDisj := by
 sv_cycle mm using mm_disj N W AccW
 ```
 
+Every `int` parameter takes a range hypothesis below `2^31` (`hN32`, `hW32`, `hA32` above): the pinned ls-sv
+instantiates a design with exact 32-bit `int` arithmetic (IEEE 1800-2023 §6.11), so a parameter is its own value only
+in that range, and an `int` localparam computed from the parameters must stay in it too (`omega` places it, from the
+hypotheses). Without them `sv_mirror` refuses, printing the first value it reads at its 32-bit reading
+(`canonInt 32 true …`). The task statements bound their parameters (matmul's `N < 2 ^ 5`, `W < 2 ^ 10`,
+`AccW < 2 ^ 12`, the sorter's `N * W < 2 ^ 31`, ...), and `solution` derives the hypotheses from them (`omega`, or
+`Nat.lt_of_le_of_lt (Nat.mul_le_mul …) (by decide)` for a product).
+
 `sv_mirror` defines `mm.p0` (the module's first process), `mm.g_col N W AccW i j` (the process of generate
 block `g_col`, the genvars as arguments), `mm.procs` (the static processes, then each generate loop as a
 `List.range` family, never unrolled), `mm.decls`, `mm.D`, and proves `mm.instantiate`. The one fact it needs from
@@ -2587,7 +2635,10 @@ process order), and proves **`mm.cycle`**: `cycleStep2 (design.sem N W AccW) σ 
 it prints), with `mm.powerUp` (every power-up state is `mm.St x₁ … xₙ`, each value at its declared width) and
 `mm.init`. `#print mm.g_colQ` shows what to reason with; steps 3 to 5 are unchanged. A proof that keeps its own
 queues relates them to the generated ones once, per process (`unfold` both, a `by_cases` on each condition, then
-`simp_all`).
+`simp_all`). A proof that keeps its whole hand-built mirror `D` (every proof written before the generator) needs only
+`sv_mirror`: `SvGolf.Cycle.sem_eq_of_mirror (X.instantiate …) (hD : X.D … = D …) hok hag` is its agreement theorem,
+from the one-driver rule on `D` and the alias guard leaving `D` unchanged (`aliasGuard_of_allNotComb`), and
+`X.D … = D …` is one `simp` over both sides' definitions (`tasks/matmul/reference/matmul_g1.lean`, `mmG_D`).
 
 The side conditions of the instantiation (a part select inside its vector, a declared range not empty) are
 proved by `sv_disch`: positivity of the parameters, `omega`, and `sv_window`, which proves a window
@@ -2624,11 +2675,16 @@ arbiter's reference keeps its own `rrD` and `rrNext` and relates them once (`rr_
 two `by_cases`).
 
 A `localparam` chosen by a comparison of the parameters (`localparam int X = (AccW > W) ? AccW - W : 1`, matmul's
-broadcast record `4a4d9cd685ac`) makes the parameter environment a case split: `sv_mirror` refuses it with the
-comparison printed, and proceeds under the case as a hypothesis, one mirror per case:
-`sv_mirror mmA := design (N W AccW : Nat) … (h : W < AccW)` and `sv_mirror mmB := design … (h : ¬ W < AccW)`
-(`simp` decides the comparison with the hypothesis; the rest of the instantiation reads the case's value). The
-player combines the two cases in the final proof.
+broadcast record `459de9121bdd`) is refused with the comparison printed; under the case as a hypothesis
+(`(h : W < AccW)`, and a second `sv_mirror` under `(h : ¬ W < AccW)`) the parameter environment evaluates. The pinned
+ls-sv computes such a localparam on the width-exact path (`evalSized`, the constant evaluator `ctype`/`evalAt`), which
+`sv_mirror` normalizes at symbolic parameters, the comparison included.
+
+**Termination** (`Terminates2.of_invariant`) takes the one-clock guard of the pinned `run2`,
+`run2ClockGuard d = .ok ()`, as a premise: `SvGolf.run2ClockGuard_ok_of_profile` gives it from the FF-only profile
+(`mm.profile`, or a hand-written proof's own `profile` theorem, rewritten by its agreement),
+`SvGolf.run2ClockGuard_ok_of_clock clk` from "every process has the clock `clk` or none" (one comb process beside the
+registers).
 
 What they refuse, by name: two comb processes, or one in a generate loop (their settle in every schedule order needs
 a lemma that every order of the passes reaches one fixpoint, not proved yet), an

@@ -16,7 +16,7 @@ clock period, times the latency in cycles where the task has one). Lower is bett
    the circuit as [ls-sv](site:index.html#how-a-design-becomes-lean), the formal semantics of SystemVerilog
    in Lean, runs it. `Goal` is the task's [trusted statement](site:tasks/add/index.html#spec) about it
    (trusted: you read it, and Lean's kernel checks your proof against it): for every `N` with
-   `1 ≤ N < 2^31`, whenever the inputs are known, `{cout, s} = a + b + cin`.
+   `1 ≤ N < 2^20`, whenever the inputs are known, `{cout, s} = a + b + cin`.
 
    ```lean
    import Submission.Design   -- written by the checker: `design`, `Goal`

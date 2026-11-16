@@ -24,7 +24,7 @@ named there, not deep in a proof), says whether the proof tactics read the desig
 and leaves it staged in `stage/` for probe files ([PROVING.md, section 0](../../PROVING.md#0-the-loop)).
 
 **The route: the `sv_comb` tactics, then the XOR arithmetic of your rows** ([PROVING.md, section
-1](../../PROVING.md#1-the-shape-of-a-proof); `reference/clmul_n.lean` is a complete proof, 238 code lines):
+1](../../PROVING.md#1-the-shape-of-a-proof); `reference/clmul_n.lean` is a complete proof, 239 code lines):
 
 1. `sv_structure (lexRank := key N)`: one driver per bit and no combinational loop (`CombDesign ∧ Acyclic`),
    ordered by your key, a lexicographic triple per site (`clmulKey`: the row first, the output bits last).
@@ -62,12 +62,12 @@ open LeanModels.Sv LeanModels.Sv.CombView LeanModels.Sv.CombLib LeanModels.Sv.Co
 open SvGolf.Tasks.Clmul
 
 set_option maxHeartbeats 400000 in
-theorem my_struct (N : Nat) (hN : 1 ≤ N) :
+theorem my_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) ∧ SharedObl design.pdesign [N] := by
   sv_structure (lexRank := myKey N)           -- your key, a `def` above (clmul_n.lean's `clmulKey`)
   all_goals (intros; sv_rowmajor; omega)
 
-theorem my_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
+theorem my_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) (hc : CombDesign (design.sem N)) :
     SvGolf.Tasks.Clmul.task.Interface N (design.sem N) := by
   sv_interface
 
@@ -77,8 +77,9 @@ set_option maxHeartbeats 400000 in
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha, hso⟩ := my_struct N hN'
-  refine CombTask.satisfiedAt_of_comb (my_interface N hN' hc) hc ha ?_
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨hc, ha, hso⟩ := my_struct N hN' hR
+  refine CombTask.satisfiedAt_of_comb (my_interface N hN' hR hc) hc ha ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ⟨⟩⟩ := v
   simp only [SvGolf.Tasks.Clmul.task, HoldAll_cons, HoldAll_nil, and_true] at hv ⊢
@@ -99,7 +100,8 @@ end Submission
   before the library had them;
 * `SvGolf.CombLemmas` (`open SvGolf.XorSum`): `bx_congr`, `bx_trunc`, `bx_false`, `bx_pair`, `bx_add`, `bx_xor`,
   `bx_and`, the carry-less product `cl` with `cl_trunc`, `cl_congr`, and one Karatsuba step (`karatsuba_full`,
-  `karatsuba_cols`); `SvGolf.SpecFacts`: `coeff_eq` (the Spec's double sum as a nested `bx`), `getLsbD_ofBits`,
+  `karatsuba_cols`); `tasks.clmul.Facts`, this task's own facts beside its statement (`tasks/clmul/Facts.lean`,
+  untrusted, kernel-checked): `coeff_eq` (the Spec's double sum as a nested `bx`), `getLsbD_ofBits`,
   `getLsbD_ofBits_lt`, in the Spec's namespace; the reference's `view_row`, `view_spec` are its design's own;
 * `LeanModels.Sv.CombLib`: the bit-function value `bfVal` and its lemmas, `rowMajor_inj`, `lexLt`;
 * `SvState.cell`, `sv_bridge` and `sv_rowmajor`; `rmN` and `Key` (`LeanModels/Sv/CombViewArith.lean`) and
@@ -137,7 +139,7 @@ def coeff (N : Nat) (a b : BitVec N) (k : Nat) : Bool :=
     (List.range N).foldl (fun acc j => acc ^^ (decide (i + j = k) && a.getLsbD i && b.getLsbD j)) acc) false
 
 def task : CombTask where
-  inRange N := 1 ≤ N ∧ N < 2 ^ 30
+  inRange N := 1 ≤ N ∧ N < 2 ^ 20
   inputs N := [("a", N), ("b", N)]
   outputs N := [("p", 2 * N - 1)]
   fn N := fun (a, b, ()) => (ofBits (2 * N - 1) (coeff N a b), ())
@@ -145,7 +147,7 @@ def task : CombTask where
 abbrev Statement : (Nat → LeanModels.Sv.Design2) → Prop := task.Statement
 ```
 
-(`ofBits n f` is the `n`-bit vector whose bit `k` is `f k`.) For every `N` with `1 ≤ N < 2^30`: the design's ports are exactly
+(`ofBits n f` is the `n`-bit vector whose bit `k` is `f k`.) For every `N` with `1 ≤ N < 2^20`: the design's ports are exactly
 `a`, `b` (inputs, `N` bits) and `p` (output, `2N-1` bits); no process is clocked (`Unclocked`) and there is no combinational loop; every run
 terminates under every schedule and stimulus; and every cycle whose stimulus drives `a` and `b` with known
 values ends with `p` holding `coeff`, the XOR of `a_i AND b_j` over `i + j = k`, at every bit `k`.
@@ -153,10 +155,11 @@ values ends with `p` holding `coeff`, the XOR of `a_i AND b_j` over `i + j = k`,
 the statement's review (what it says, where it is checked, the cheating surfaces and the questions for the
 project owner).
 
-The range ends below `2^30`, not `2^31` (decided 2026-11-06): the port widths are `int` expressions of
-`N` (`[2*N-2:0]`), and an `int` holds no value of `2^31` or more, so at `N ≥ 2^30` the elaborated
-`2*N` wraps and the output port is not `2N-1` bits wide. Every task's range keeps every width it implies
-below `2^31`.
+The range ends below `2^20` (decided 2026-11-14; from 2026-11-06 it ended below `2^30`, where the elaborated
+`2*N` of the output port `[2*N-2:0]` wraps): the port widths are `int` expressions of `N`, and so is every
+index or localparam a design computes from `N`. Every family task's range keeps the `int` arithmetic a design does on its parameters (its widths, and the
+indices and localparams it computes from them, such as a `localparam int P = 2*N + 4`) below `2^31`, where an
+`int` wraps.
 
 ## Rules for this task
 

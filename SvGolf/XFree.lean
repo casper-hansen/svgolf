@@ -743,20 +743,30 @@ theorem xfree_expr {d : Design2} {st : SvState} (hst : KnownState d st) : ∀ fu
             exact h0
           split at hw'
           · rename_i hin
+            have hsg : idx.indexSigned = false := by
+              have h1 := hin.1
+              simp only [unsignedIdx, Bool.and_eq_true, Bool.not_eq_true'] at h1
+              exact h1.1
             have hin := hin.2
             have hw2 : ew = w := Option.some.inj hw'
             rw [← hw2]
             have kb := ihE base wb vb hbw hb
             obtain ⟨g, rfl⟩ := (ihE idx wi vi hiw hi).ex
-            rw [LVec.toNat?_ofBoolFn] at h
+            rw [indexInt?, hsg, if_neg Bool.false_ne_true, LVec.toNat?_ofBoolFn, Option.map_some,
+              Int.ofNat_eq_coe] at h
             have hlt := XF.val_lt g wi
             have hrange : (XF.val g wi + 1) * ew ≤ vb.width := by
               rw [kb.2]
               exact Nat.le_trans (Nat.mul_le_mul_right ew hlt) hin
-            have h' : (if (XF.val g wi + 1) * ew ≤ vb.width then
-                (pure (vb.extract (XF.val g wi * ew) ew) : Res LVec)
+            have hc : (decide (0 ≤ ((XF.val g wi : Nat) : Int)) &&
+                decide ((((XF.val g wi : Nat) : Int) + 1) * (ew : Int) ≤ (vb.width : Int))) = true := by
+              simp only [Bool.and_eq_true, decide_eq_true_eq]
+              exact ⟨Int.natCast_nonneg _, by exact_mod_cast hrange⟩
+            have h' : (if (decide (0 ≤ ((XF.val g wi : Nat) : Int)) &&
+                decide ((((XF.val g wi : Nat) : Int) + 1) * (ew : Int) ≤ (vb.width : Int))) = true then
+                (pure (vb.extract (((XF.val g wi : Nat) : Int).toNat * ew) ew) : Res LVec)
               else pure (LVec.xVec ew)) = .ok v := h
-            rw [if_pos hrange, Res.pure_eq, Res.ok.injEq] at h'
+            rw [if_pos hc, Int.toNat_natCast, Res.pure_eq, Res.ok.injEq] at h'
             subst h'
             refine KV.extract kb ?_
             have e1 : XF.val g wi * ew + ew = (XF.val g wi + 1) * ew := by rw [Nat.succ_mul]

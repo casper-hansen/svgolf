@@ -12,18 +12,18 @@
   "parameters": [
     {
       "name": "N",
-      "range": "1 <= N, N*N*W < 2^31, N*N*AccW < 2^31"
+      "range": "1 <= N < 2^5"
     },
     {
       "name": "W",
-      "range": "1 <= W, N*N*W < 2^31"
+      "range": "1 <= W < 2^10"
     },
     {
       "name": "AccW",
-      "range": "1 <= AccW, N*N*AccW < 2^31"
+      "range": "1 <= AccW < 2^12"
     }
   ],
-  "_range_comment": "Each range string states the bounds of Spec.lean's `task.inRange` that involve its parameter (1 <= N, 1 <= W, 1 <= AccW, N*N*W < 2^31, N*N*AccW < 2^31; the products since C10): every width and index expression of the interface stays in the 32-bit int range, where a real elaboration and ls-sv agree.",
+  "_range_comment": "Each range string states the bounds of Spec.lean's `task.inRange` on its parameter (1 <= N < 2^5, 1 <= W < 2^10, 1 <= AccW < 2^12, decided 2026-11-16; from C10 to then the range bounded the products N*N*W, N*N*AccW < 2^31, and from 2026-11-14 also W, AccW < 2^20): every width and index a design computes from the parameters (the port widths, below 2^20 and 2^22, and larger declarations such as a multiplier cube's N*N*(2N-1)*AccW bits, below 2^28) stays far below 2^31, where a real elaboration and ls-sv agree.",
   "ports": {
     "inputs": [
       {

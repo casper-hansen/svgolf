@@ -8,6 +8,10 @@ Reference solutions are not in this library: `tests/run.py` checks them with
 `check.py`, exactly as submissions are checked. The refutations of the
 negative designs are the `tests` library (`tests.lean`).
 
+A task's `Facts.lean` (`tasks/clmul/Facts.lean`) is NOT trusted either: lemmas about the definitions its
+`Spec.lean` states the function with, which every proof of the task needs; a proof imports it, the kernel checks
+it, and nothing in it changes the statement.
+
 Each task's `Properties.lean` (imported last) is NOT trusted: it names the
 parts of the statement, one definition per property a design must satisfy,
 and proves `statement_iff_properties` (the statement holds exactly when every
@@ -25,6 +29,9 @@ import tasks.aes_sbox.Spec
 import tasks.clmul.Spec
 -- the reactive tasks (ReactTask, SvGolf/TaskReact.lean, 2026-11-05; txtask-v2's rules 2026-11-06; final trusted text, decided 2026-11-07): the arbiter (ready, reference proved)
 import tasks.arbiter.Spec
+-- a task's own facts about its statement's definitions (proved, not trusted; decided 2026-11-14: they sit beside the
+-- statement, not in svGolf's shared library)
+import tasks.clmul.Facts
 -- the statements as named properties (proved, not trusted)
 import tasks._example.Properties
 import tasks.add.Properties

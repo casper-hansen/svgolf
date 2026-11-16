@@ -386,7 +386,7 @@ class PdkTest(unittest.TestCase):
         # without fernladder's Sklansky adder): on the sky130 board, not on the routed one, listed under "Not ranked"
         # with the reason and no routed number
         mine = [r for r in self.records if r["task"] == "add" and r["player"] != self.config["reference_player"]]
-        skl = next(r for r in mine if r["record_hash"].startswith("f5ecef0e"))
+        skl = next(r for r in mine if r["files"]["sv"]["sha256"].startswith("f274cc95"))   # by its design
         pnr = lb.load_asap7pnr("add")
         cut = dict(pnr, designs=[e for e in pnr["designs"] if e["sv_sha256"] != skl["files"]["sv"]["sha256"]])
         a7cut = lb.build_board(task, mine, flow=pinned_flow(task), statement=lb.current_statement_or_none(task), pdk=R,
@@ -753,7 +753,7 @@ class PdkTest(unittest.TestCase):
         pages, and the other tasks are untouched."""
         real = lb.load_asap7pnr
         recs = [r for r in self.records if r["task"] == "add"]
-        skl = next(r for r in recs if r["record_hash"].startswith("f5ecef0e"))
+        skl = next(r for r in recs if r["files"]["sv"]["sha256"].startswith("f274cc95"))   # by its design
         sha = skl["files"]["sv"]["sha256"]
         e = lb.asap7pnr_entry(real("add"), sha)
         self.assertIsNotNone(e)

@@ -12,7 +12,6 @@ import SvGolf.CoreSimp
 import SvGolf.Clocked
 import SvGolf.Cycle
 import SvGolf.CombLemmas
-import SvGolf.SpecFacts
 -- The ls-sv proof libraries the references import (see the last paragraph below).
 import LeanModels.Sv.Comb2
 import LeanModels.Sv.CombEqTactic
@@ -27,6 +26,8 @@ import LeanModels.Sv.Mono2
 import LeanModels.Sv.ProcNoQualified
 import LeanModels.Sv.SeqFamily
 import LeanModels.Sv.SeqProfile
+-- Proglib's IEEE 754 library (the fdivp statement names its function from it; its proofs import it)
+import LeanModels.SoftFloat.Binary
 
 /-!
 # svGolf — the framework library
@@ -86,8 +87,6 @@ import LeanModels.Sv.SeqProfile
   by-hand route: `LeafProcs` (every process an assign to one window) gives the comb profile and acyclicity
   (`LeafProcs.combDesign`, `LeafProcs.acyclic`), with the `Bool`-form gates (`evalPure2_and_bool`, …) and
   `CombEqs.readback1`.
-* `SvGolf.SpecFacts` — untrusted, kernel-checked facts about the tasks' own definitions: `clmul`'s `coeff_eq` (the
-  Spec's double fold is the nested XOR sum) and `getLsbD_ofBits`, in the task's namespace.
 * `SvGolf.Cycle` — untrusted, kernel-checked: the commands `sv_mirror` and `sv_cycle` (added 2026-11-14), which
   write the opening block of a proof about an FF-only design from the loaded design at symbolic parameters (the
   instantiated design and its agreement with `design.sem`, the profile, the positional state, each process's

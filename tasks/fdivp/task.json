@@ -7,14 +7,14 @@
   "parameters": [
     {
       "name": "W",
-      "range": "2 <= W, W + P + 1 < 2^31"
+      "range": "2 <= W, W + P < 2^20"
     },
     {
       "name": "P",
-      "range": "2 <= P, W + P + 1 < 2^31"
+      "range": "2 <= P, W + P < 2^20"
     }
   ],
-  "_range_comment": "Each range string states the bounds of Spec.lean's `inRange` that involve its parameter (2 <= W, 2 <= P, W + P + 1 < 2^31; the sum decided 2026-11-06): the port width W + P and the exponent width W + P + 1 a design computes in are int expressions of the module, and every such width stays in the 32-bit int range, where a real elaboration and ls-sv agree.",
+  "_range_comment": "Each range string states the bounds of Spec.lean's `inRange` that involve its parameter (2 <= W, 2 <= P, W + P < 2^20; the sum decided 2026-11-06 as W + P + 1 < 2^31 and reduced on 2026-11-14): the port width W + P, the exponent width W + P + 1 and the localparams a design computes from W and P are int expressions of the module, and every such value stays in the 32-bit int range, where a real elaboration and ls-sv agree.",
   "ports": {
     "inputs": [
       {

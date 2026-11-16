@@ -1,7 +1,10 @@
-# Validation of the trusted IEEE 754 spec (`tasks/fdivp/IEEE754.lean`)
+# Validation of the IEEE 754 division the fdivp statement names
 
-Untrusted tooling: the differential validation of `SvGolf.IEEE754.divide`, the trusted spec of the task `fdivp`
-(`../IEEE754.lean`; what it says is in `../README.md`, "The trusted spec"). The spec was validated as `spec/` and
+Untrusted tooling: the differential validation of the function the statement of the task `fdivp` names,
+`LeanModels.SoftFloat.Binary.divide` from Proglib's IEEE 754 library (what it says is in `../README.md`, "IEEE 754
+division"). Until 2026-11-14 that function was the task's own `IEEE754.lean`, `SvGolf.IEEE754.divide`, which the
+full run below was measured on; the runner now evaluates the library's, and the quick run on the library ("Re-run on
+the library", below) agreed with every oracle. The spec was validated as `spec/` and
 moved into the task on 2026-11-03 with its content unchanged; the five characterization theorems it states are proved
 in the task's reference proof (`../reference/fdivp.lean`, section `IEEE754Proofs`, checked by `check.py` like any
 submission).
@@ -11,14 +14,15 @@ submission).
 | `oracle.py` | independent Python oracles (standard library only); not the task's advisory `../oracle.py` |
 | `validate.py` | differential test driver |
 | `Run.lean` | batch runner: evaluates the spec (or Lean core's float model) on a file of operand pairs |
-| `check.sh` | Lean checks: `lake build tasks.fdivp.IEEE754` (the spec, its golden vectors and `decide`s) and the runner |
+| `check.sh` | Lean checks: `lake build tasks.fdivp.Spec` (the statement, its golden vectors and `decide`s, and the library's definitions) and the runner |
 
 ## How it was validated
 
 There are four implementations, and every comparison is bit-exact (NaN results are canonical
 in all four).
 
-* **spec**: `SvGolf.IEEE754.divide`, evaluated by `Run.lean` (`lean --run`).
+* **spec**: `LeanModels.SoftFloat.Binary.divide` (until 2026-11-14 the task's own `SvGolf.IEEE754.divide`), evaluated by
+  `Run.lean` (`lean --run`).
 * **core**: Lean core's logical float model, `Float.Model.UnpackedFloat.div` (Lean FRO, in
   the v4.33.0-rc1 toolchain). It is an independent implementation, used only as an
   oracle and never imported by the spec. It supports roundTiesToEven only.
@@ -39,6 +43,12 @@ repeated after the last change to the spec's code (the named `zero` encoder):
 **57,366,801 spec evaluations, 0 mismatches** in every comparison, and every mutant caught.
 Later edits were docstring-only; the final build gives byte-identical results to the validated
 build on 1M random binary16 pairs in both roundTiesToEven and roundTowardZero.
+
+Re-run on the library (2026-11-14, when the statement moved to it): `validate.py --quick` with the spec
+`LeanModels.SoftFloat.Binary.divide` and **core** the Lean v4.35.0 toolchain's model: **13,623,416 spec evaluations,
+0 mismatches**, every mutant caught. The task's advisory `../oracle.py` agrees with the library's division on every
+pair of the 15 formats with `W + P <= 8` and on 20,000 corner and random pairs at `(5, 11)`, `(8, 8)` and `(8, 24)`
+(467,808 pairs, 0 mismatches).
 
 | group | vectors | comparisons |
 |---|---|---|
@@ -77,13 +87,14 @@ clause, and 4 kernel-`decide` checks.
 
 ### Re-running
 
-The spec is the module `tasks.fdivp.IEEE754` of the svgolf Lake project (library `tasks`), so the Lean side is an
-ordinary build; its five characterization theorems are proved in the reference proof, which `check.py` checks
-(`tests/run.py --only fdivp`, step `references`). From svGolf's root (Python 3.9 matches the repo's harness pin;
+The spec is the module `LeanModels.SoftFloat.Binary.Defs` of the pinned Proglib, which the svgolf Lake project requires, so
+the Lean side is an ordinary build; the library proves its five characterization theorems itself
+(`LeanModels/SoftFloat/Binary/Characterization.lean`), and until 2026-11-14 they were proved for the task's own copy in
+the reference proof. From svGolf's root (Python 3.9 matches the repo's harness pin;
 any Python 3 works; the scripts find the Lake project from their own path):
 
 ```bash
-lake build tasks.fdivp.IEEE754                                   # spec + golden vectors + kernel decides
+lake build tasks.fdivp.Spec                                      # statement + golden vectors + kernel decides
 tasks/fdivp/spec_validate/check.sh                               # the same build, plus compiling the runner
 python3 tasks/fdivp/spec_validate/validate.py --quick            # smoke test, ~11 min, ~13M spec evaluations
 python3 tasks/fdivp/spec_validate/validate.py                    # full run, ~30 min, ~57M spec evaluations
@@ -92,8 +103,9 @@ python3 tasks/fdivp/spec_validate/validate.py                    # full run, ~30
 Both scripts accept `LEAN_WRAP` (a prefix for every `lake` call, such as a slot-limiting
 wrapper); `validate.py` also accepts `FPSPEC_OUT` (a scratch directory for the vector files;
 the default is `<tmpdir>/fpspec_out`). `validate.py --only oracle,toy,b16,b16modes,b32,mutants`
-selects groups. `validate.py` builds `tasks.fdivp.IEEE754` with `lake build` and runs
-`lake env lean --run tasks/fdivp/spec_validate/Run.lean` from svGolf's root. The module was `spec.IEEE754`
+selects groups. `validate.py` builds `LeanModels.SoftFloat.Binary.Defs` with `lake build` and runs
+`lake env lean --run tasks/fdivp/spec_validate/Run.lean` from svGolf's root. The task's former copy, module
+`tasks.fdivp.IEEE754` (removed: until 2026-11-16 kept as test material, `tests/fdivp/OldIEEE754.lean`), was `spec.IEEE754`
 (`spec/IEEE754.lean`) until 2026-11-03, and `svgolf.spec.IEEE754` while the spec was compiled by hand from the
 repository root; the file has no import, and each move changed only the importers' import lines, no byte of it (sha256
 `4819c7290aa152f18c16706da82f086c0994cc285bde3fb6e6391449ae6c987b`, `REVIEW.md`). On 2026-11-04 the binary16 and binary32 instances were

@@ -815,7 +815,8 @@ class PropsLoadTest(unittest.TestCase):
         closure = [("tasks.add.Spec", "svgolf/tasks/add/Spec.lean"), ("SvGolf.Task", "svgolf/SvGolf/Task.lean"),
                    ("LeanModels.Sv.Spec2", "LeanModels/Sv/Spec2.lean"),
                    ("LeanModels.Sv.Semantics", "LeanModels/Sv/Semantics.lean"),
-                   ("LeanModels.Sv.Sem2", "LeanModels/Sv/Sem2.lean")]
+                   ("LeanModels.Sv.Sem2", "LeanModels/Sv/Sem2.lean"),
+                   ("LeanModels.Sv.Sem2Ast", "LeanModels/Sv/Sem2Ast.lean")]
 
         def read(rel):
             if rel.endswith("properties.json"):

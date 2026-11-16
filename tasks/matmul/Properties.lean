@@ -24,9 +24,11 @@ namespace SvGolf.Tasks.Matmul.Properties
 
 open SvGolf LeanModels.Sv
 
-/-- The parameters the statement covers: `N, W, AccW ≥ 1`, and both port widths below `2^31`. -/
+/-- The parameters the statement covers: `1 ≤ N < 2^5`, `1 ≤ W < 2^10`, `1 ≤ AccW < 2^12` (decided
+2026-11-16: capped at a reasonable size, so that the `int` arithmetic a design does on them stays far below
+`2^31`). -/
 def ParamsInRange (N W AccW : Nat) : Prop :=
-  1 ≤ N ∧ 1 ≤ W ∧ 1 ≤ AccW ∧ N * N * W < 2 ^ 31 ∧ N * N * AccW < 2 ^ 31
+  1 ≤ N ∧ N < 2 ^ 5 ∧ 1 ≤ W ∧ W < 2 ^ 10 ∧ 1 ≤ AccW ∧ AccW < 2 ^ 12
 
 /-- Exactly these ports, in this order, with these widths; no two declarations share a name. -/
 def Interface (N W AccW : Nat) (d : Design2) : Prop :=

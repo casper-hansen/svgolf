@@ -30,9 +30,9 @@ named there, not deep in a proof), says whether the proof tactics read the desig
 and leaves it staged in `stage/` for probe files ([PROVING.md, section 0](../../PROVING.md#0-the-loop)).
 
 **The route: the `sv_comb` tactics, then the arithmetic of your rows** ([PROVING.md, sections
-1 to 3](../../PROVING.md#1-the-shape-of-a-proof); complete proofs: `reference/mul_n.lean`, the array, 70 code
-lines; `reference/mul_wallace.lean`, a Wallace tree as a tape of rows, 264; `reference/mul_tree_h.lean`,
-307):
+1 to 3](../../PROVING.md#1-the-shape-of-a-proof); complete proofs: `reference/mul_n.lean`, the array, 71 code
+lines; `reference/mul_wallace.lean`, a Wallace tree as a tape of rows, 265; `reference/mul_tree_h.lean`,
+308):
 
 1. `sv_structure (lexRank := key N)`: one driver per bit and no combinational loop (`CombDesign ∧ Acyclic`),
    ordered by your key, a lexicographic triple per site (`mulKey` in `mul_n.lean`: row, column, phase).
@@ -79,12 +79,12 @@ namespace Submission
 open LeanModels.Sv LeanModels.Sv.CombView LeanModels.Sv.CombLib LeanModels.Sv.CombEq SvGolf
 
 set_option maxHeartbeats 400000 in
-theorem my_struct (N : Nat) (hN : 1 ≤ N) :
+theorem my_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) ∧ SharedObl design.pdesign [N] := by
   sv_structure (lexRank := myKey N)           -- your key, a `def` above (mul_n.lean's `mulKey`)
   all_goals (intros; sv_rowmajor; omega)
 
-theorem my_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
+theorem my_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) (hc : CombDesign (design.sem N)) :
     SvGolf.Tasks.Mul.task.Interface N (design.sem N) := by
   sv_interface
 
@@ -94,8 +94,9 @@ set_option maxHeartbeats 400000 in
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha, hso⟩ := my_struct N hN'
-  refine CombTask.satisfiedAt_of_comb (my_interface N hN' hc) hc ha ?_
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨hc, ha, hso⟩ := my_struct N hN' hR
+  refine CombTask.satisfiedAt_of_comb (my_interface N hN' hR hc) hc ha ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ⟨⟩⟩ := v
   simp only [SvGolf.Tasks.Mul.task, HoldAll_cons, HoldAll_nil, and_true] at hv ⊢
@@ -147,7 +148,7 @@ of two `N`-bit numbers fits.
 
 ```lean
 def task : CombTask where
-  inRange N := 1 ≤ N ∧ N < 2 ^ 30
+  inRange N := 1 ≤ N ∧ N < 2 ^ 20
   inputs N := [("a", N), ("b", N)]
   outputs N := [("p", 2 * N)]
   fn N := fun (a, b, ()) => (BitVec.ofNat (2 * N) (a.toNat * b.toNat), ())
@@ -155,7 +156,7 @@ def task : CombTask where
 abbrev Statement : (Nat → LeanModels.Sv.Design2) → Prop := task.Statement
 ```
 
-For every `N` with `1 ≤ N < 2^30`: the design's ports are exactly `a`, `b` (inputs, `N`
+For every `N` with `1 ≤ N < 2^20`: the design's ports are exactly `a`, `b` (inputs, `N`
 bits) and `p` (output, `2N` bits); no process is clocked (`Unclocked`) and
 there is no combinational loop; every run terminates under every schedule and stimulus; and every cycle whose stimulus drives `a` and `b` with known
 values ends with `p` holding the natural-number product `a * b` as a
@@ -164,10 +165,12 @@ product (`fn_toNat`) and that it equals `BitVec` multiplication at double
 width (`fn_eq_mul`). `SvGolf/Task.lean` defines `CombTask` and explains
 why the statement cannot be met vacuously.
 
-The range ends below `2^30`, not `2^31` (decided 2026-11-06): the port widths are `int` expressions of
-`N` (`[2*N-1:0]`), and an `int` holds no value of `2^31` or more, so at `N ≥ 2^30` the elaborated
-`2*N` wraps and the output port is not `2N` bits wide. Every task's range keeps every width it implies
-below `2^31`.
+The range ends below `2^20` (decided 2026-11-14; from 2026-11-06 it ended below `2^30`, where the elaborated
+`2*N` of the output port `[2*N-1:0]` wraps): the port widths are `int` expressions of `N`, and so is every
+index or localparam a design computes from `N` (a Booth multiplier's `localparam int P = 2*N + 4` wraps from
+`N = 2^30 - 2`). Every family task's range keeps the `int` arithmetic a design does on its parameters (its widths, and the
+indices and localparams it computes from them, such as a `localparam int P = 2*N + 4`) below `2^31`, where an
+`int` wraps.
 
 ## Rules for this task
 

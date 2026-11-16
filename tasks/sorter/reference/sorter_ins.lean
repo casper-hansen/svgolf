@@ -1,5 +1,6 @@
 -- svgolf-latency: 16
 import Submission.Design
+import SvGolf.Cycle
 import LeanModels.Sv.Gen2
 import LeanModels.Sv.Hier2Gen
 import LeanModels.Sv.SeqProfile
@@ -84,115 +85,6 @@ def soD (N W : Nat) : Design2 where
   decls := (soDecls N W).toArray
   processes := (topP N W :: outP W :: (List.range (N - 1)).map (cellP W)).toArray
 
-def soScope (N W : Int) : IEnv := { vals := [("N", N), ("W", W)], pwidths := [("N", 32), ("W", 32)] }
-
-def soEnv (N W : Int) : IEnv := { soScope N W with dims := dimTable (soScope N W) design.pdesign.decls }
-
-theorem so_paramEnv (N W : Int) : design.pdesign.paramEnv2 [N, W] = .ok (soEnv N W) := rfl
-
-def soElems : List (String × Nat) :=
-  ["clk", "rst", "start", "in_valid", "in_data", "out_valid", "out_data", "data", "tok"].map (·, 1)
-
-theorem so_decls (N W : Int) : buildDecls (soEnv N W) design.pdesign.decls =
-    .ok (soDeclsW ((W - 1).natAbs + 1) ((N * W - 1).natAbs + 1) ((N - 1).natAbs + 1)) := by
-  simp [design.pdesign, buildDecls, instDecl, PType.width_packed_cons, PDim.width, evalInt,
-    soEnv, soScope, List.lookup, soDeclsW, Gen2.except_ok_bind]
-
-theorem so_elems (N W : Int) : buildElems (soEnv N W) design.pdesign.decls = .ok soElems := by
-  simp [design.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, soEnv,
-    soScope, List.lookup, soElems, Gen2.except_ok_bind]
-
-/-- The instantiation environment. -/
-abbrev soE (N W : Nat) : IEnv := (soEnv N W).withDecls (soDecls N W)
-
-/-- The cell template (the process inside `gen_cell`). -/
-def cellT : PProcess :=
-  match design.pdesign.generates with
-  | [.genFor _ _ _ _ _ _ [.process p]] => p
-  | _ => .alwaysFF "" (.block [])
-
-macro "so_simp" : tactic => `(tactic| sv2_inst_simp [evalSized, ctype, evalAt, ctypeList, evalAtList,
-  SymBinOp.constClass, PExpr.pushedTarget, PExpr.readsSignal, PExpr.readsSignalList, Gen2.except_pure,
-  Lib.min_add_sub_one_self, Lib.max_add_sub_one_self, Lib.add_sub_one_sub_add_one, instStmt2, instStmts2,
-  design.pdesign, soEnv, soScope, soDeclsW, soElems,
-  topP, outP, cellP, cellT, dimTable, dimTableStep, PType.width_packed_cons, PDim.width, ctxOpWidth2, rigidMax2,
-  PExpr.ctxPropagates, PExpr.constLeaf, PExpr.negGenvarWidened, LVec.width, *])
-
-/-- Window facts of `data[lo +: W]` inside `N·W` bits, for the instantiation `simp`. -/
-theorem so_win {N W lo : Nat} (h : lo + W ≤ N * W) (hW : 1 ≤ W) (x : Int) (hx : (lo : Int) = x) :
-    0 ≤ x ∧ x.toNat = lo ∧ x + W - 1 < N * W ∧ 1 ≤ x + W ∧ (x + W).toNat = lo + W :=
-  Lib.window_bounds_of_natCast x (N * W) h hW hx (by simp)
-
-/-- The facts every instantiation `simp` here needs. -/
-theorem inst_facts {N W : Nat} (hN : 1 ≤ N) (hW : 1 ≤ W) : ((0 : Int) < W ∧ 0 < W ∧ (1 : Int) ≤ N * W) ∧
-    ((N : Int) * W - 1).natAbs + 1 = N * W ∧ (PartMode.up == PartMode.range) = false ∧
-    ((N : Int) - 1).natAbs + 1 = N :=
-  ⟨⟨by omega, hW, by have := Nat.mul_pos hN hW; omega⟩,
-    by rw [← Int.natCast_mul]; exact Lib.natAbs_sub_one_add_one (Nat.mul_pos hN hW), rfl, Lib.natAbs_sub_one_add_one hN⟩
-
-theorem so_static (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) :
-    design.pdesign.processes.map (instProcess2 (soE N W) soElems) = [topP N W, outP W] := by
-  obtain ⟨⟨h1, h2, h3⟩, h4, h5, h6⟩ := inst_facts hN hW
-  obtain ⟨h7, h8, h9, h10, h11⟩ : ((1 : Int) ≤ N ∧ 0 < N ∧ (0 : Int) ≤ N - 1 ∧ (N : Int) - 1 < N) ∧
-      ((N : Int) - 1).toNat = N - 1 ∧ max ((W : Int) - 1) 0 = W - 1 ∧ min ((W : Int) - 1) 0 = 0 ∧
-      ((W : Int) - 1 - 0 + 1).toNat = W := by omega
-  have hd := so_win (N := N) (W := W) (lo := (N - 1) * W)
-    (Nat.le_of_eq (by rw [← Nat.succ_mul, Nat.succ_eq_add_one, Nat.sub_add_cancel hN])) hW
-    (((N : Int) - 1) * W) (by rw [Int.natCast_mul, Int.ofNat_sub hN]; rfl)
-  so_simp
-  try and_intros
-  all_goals first | rfl | decide | omega | skip
-
-theorem cell_inst (N W k : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hk : k + 1 < N) :
-    instProcess2 ((soE N W).bindVal "k" k) soElems cellT = cellP W k := by
-  obtain ⟨⟨h1, h2, h3⟩, h4, h5, h6⟩ := inst_facts hN hW
-  have hk : (k : Int) + 1 < N ∧ (k : Int) < N := by omega
-  have hle := Nat.mul_le_mul_right W (show k + 1 + 1 ≤ N by omega)
-  rw [Nat.add_mul, Nat.add_mul, Nat.one_mul] at hle
-  have ha := so_win (N := N) (W := W) (lo := (k + 1) * W) (by rw [Nat.add_mul, Nat.one_mul]; omega) hW
-    (((k : Int) + 1) * W) (by simp)
-  have hb := so_win (N := N) (W := W) (lo := k * W) (by omega) hW ((k : Int) * W) (by simp)
-  so_simp
-  try and_intros
-  all_goals first | rfl | decide
-
-/-- `for (k = 0; k < N - 1; k++)` over the cell template. -/
-theorem so_gens_src : design.pdesign.generates = [.genFor (some "gen_cell") "k" (.int 0)
-    (.binary .slt (.genvarRef "k") (.binary (.m0 .sub) (.paramRef "N" none) (.int 1)))
-    (.unary .inc (.genvarRef "k")) (some 7) ([cellT].map .process)] := rfl
-
-/-- **The generate expands to the cells `0 … N-2`** (none at `N = 1`). -/
-theorem so_gens (N W F : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hF : N < F) :
-    expandList2 (soE N W) soElems F design.pdesign.generates = .ok ((List.range (N - 1)).map (cellP W)) := by
-  have hNv : ∀ i : Int, ((soE N W).bindVal "k" i).vals.lookup "N" = some (N : Int) := fun i => rfl
-  rw [so_gens_src]
-  apply expandList2_singleton_ok
-  rw [GenItem.expand2_genFor_ascending_processes (N := (N : Int) - 1) (evalInt_int 0)
-    (fun i => isInt_binary_of rfl (isInt_paramRef_of (hNv i)) rfl)
-    (fun i => evalInt_sub_of (isInt_paramRef_of (hNv i)) rfl (evalInt_paramRef_of (hNv i)) rfl) (by omega)]
-  have ht : ((N : Int) - 1 - 0).toNat = N - 1 := by omega
-  simp only [ht, intRange_zero, List.flatMap_map, List.map_cons, List.map_nil, Gen2.flatMap_singleton_map]
-  congr 1
-  exact List.map_congr_left fun k hk => cell_inst N W k hN hW (by have := List.mem_range.mp hk; omega)
-
-theorem so_instantiate2 (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) :
-    design.pdesign.instantiate2 [(N : Int), W] (PDesign.surfaceFuel [(N : Int), W]) =
-      .ok (design.pdesign.assemble2 (soEnv N W) (soDecls N W) soElems ((List.range (N - 1)).map (cellP W))) := by
-  have hd := so_decls N W
-  rw [Lib.natAbs_sub_one_add_one hW, ← Int.natCast_mul, Lib.natAbs_sub_one_add_one (Nat.mul_pos hN hW),
-    Lib.natAbs_sub_one_add_one hN] at hd
-  refine PDesign.instantiate2_of_ok rfl (so_paramEnv _ _) hd (so_elems _ _) (so_gens N W _ hN hW ?_)
-  simp only [PDesign.surfaceFuel, List.map, List.sum_cons, List.sum_nil, Int.natAbs_natCast]
-  have := Nat.le_mul_self (N + (W + 0) + 2)
-  omega
-
-theorem so_processes (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) :
-    (design.pdesign.instantiateD2 [(N : Int), W]).processes.toList =
-      topP N W :: outP W :: (List.range (N - 1)).map (cellP W) := by
-  rw [PDesign.instantiateD2_of_ok (so_instantiate2 N W hN hW), PDesign.assemble2_processes,
-    so_static N W hN hW]
-  simp [design.pdesign]
-
 /-- Two cells drive disjoint windows. -/
 theorem cell_disj {W k k' : Nat} (h : k < k') :
     ∀ a ∈ (cellP W k).procWins, ∀ b ∈ (cellP W k').procWins, a.overlaps b = false := by
@@ -240,14 +132,31 @@ theorem so_driversOk (N W : Nat) :
     all_goals revert n; simp [topP, outP, cellP, Process2.procWrites, Process2.procWins, Stmt2.drvWins,
       Stmt2.drvWinsOpt, Stmt2.drvWinsList, Lhs2.drvWins]; all_goals decide
 
-/-- **The loaded family is `soD`**, at every `(N, W)` with positive parameters. -/
-theorem so_sem_eq (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) : design.sem N W = soD N W := by
-  have h1 : design.sem N W = design.pdesign.instantiateD2 [(N : Int), W] := by
-    show design.pdesign.instantiateGD2 [(N : Int), W] = _
-    exact PDesign.instantiateGD2_of_driversOk (by rw [so_processes N W hN hW]; exact so_driversOk N W)
-  rw [h1, PDesign.instantiateD2_of_ok (so_instantiate2 N W hN hW)]
-  simp only [PDesign.assemble2, so_static N W hN hW, soD]
-  simp [design.pdesign]
+/-- (port) The exact 32-bit `int` instantiation: every parameter below `2^31`. -/
+abbrev Rng32 (N W : Nat) : Prop := N < 2147483648 ∧ W < 2147483648
+
+/-- (port) The statement's range gives it. -/
+theorem rng32_of {N W : Nat} (hN : 1 ≤ N) (hW : 1 ≤ W) (hNW : N * W < 2 ^ 31) : Rng32 N W := by
+  have h1 := Nat.le_mul_of_pos_right N hW
+  have h2 := Nat.le_mul_of_pos_left W hN
+  exact ⟨by omega, by omega⟩
+
+-- (port) The instantiation, generated.
+sv_mirror soG := design (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+
+/-- (port) The generated mirror is the hand-built one. -/
+theorem soG_D (N W : Nat) : soG.D N W = soD N W := by
+  have h01 : LVec.ofBitVec 0#1 = (⟨#[.l0]⟩ : LVec) := by decide
+  have hg : soG.gen_cell N W = fun k => cellP W k := by
+    funext k; simp (config := { decide := true }) [soG.gen_cell, cellP, dw, zW, h01]
+  simp (config := { decide := true }) [soG.D, soD, soG.decls, soDeclsW, soG.procs, soG.p0, topP, soG.p1, outP, dw, zW, h01, hg]
+
+/-- **The loaded family is `soD`**, at every `(N, W)` with positive parameters below `2^31`. -/
+theorem so_sem_eq (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) : design.sem N W = soD N W :=
+  SvGolf.Cycle.sem_eq_of_mirror (soG.instantiate N W hN hW hR32.1 hR32.2) (soG_D N W)
+    (by simpa [soD] using so_driversOk N W)
+    (SvGolf.Cycle.aliasGuard_of_allNotComb (by simp [soD, topP, outP, cellP, SvGolf.Cycle.notComb]))
+
 
 /-! ## 2. G0's clock step for the loaded family -/
 
@@ -339,7 +248,7 @@ def soNext (N W : Nat) (ck r s iv id ov od dt tk : LVec) : SvState :=
 
 /-- **One cycle of the loaded design is G0's clock step**, evaluated (any schedule, any stimulus
 entry, any state of the design's shape, every fuel from 30). -/
-theorem so_cycle (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (σ : ScheduleOracle) (e : SvState)
+theorem so_cycle (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) (σ : ScheduleOracle) (e : SvState)
     (ck r s iv id ov od dt tk : LVec) (kk F : Nat) (hF : 30 ≤ F) :
     cycleStep2 (design.sem N W) σ F e (SS ck r s iv id ov od dt tk) kk =
       .ok (soNext N W (appIn e "clk" ck) (appIn e "rst" r) (appIn e "start" s) (appIn e "in_valid" iv)
@@ -351,7 +260,7 @@ theorem so_cycle (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (σ : ScheduleOracle)
       first | exact .inl rfl | exact .inr (.inl rfl) | exact .inr (.inr ⟨_, rfl⟩)
   have hedge : ∀ p ∈ (soD N W).processes.toList, p.isEdgePhase = true := by
     intro p hp; rcases hmem p hp with rfl | rfl | ⟨k, rfl⟩ <;> rfl
-  rw [so_sem_eq N W hN hW, cycleStep2_profile (so_profile N W hN) σ e _ kk ?_ ?_ (by omega),
+  rw [so_sem_eq N W hN hW hR32, cycleStep2_profile (so_profile N W hN) σ e _ kk ?_ ?_ (by omega),
     apply_so, clockStep, flatMap_ffUpd F _ hedge]
   · simp only [soD, List.toList_toArray, List.flatMap_cons, top_run F hF, out_run F hF, List.flatMap_map,
       cell_run F hF, soNext, Q, List.append_assoc]
@@ -579,17 +488,18 @@ theorem next_I {N W : Nat} (ck r s iv id ov od dt tk : LVec)
   rw [soNext, commit_SS _ _ _ _ _ (so_names _ _ _ _ _ _ _ _ _)]
   exact ⟨_, _, _, _, _, _, _, _, _, rfl, by simp [width_nbaFold, hw]⟩
 
-theorem so_init (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) : I N W (initState2 (design.sem N W)) := by
-  rw [so_sem_eq N W hN hW]
+theorem so_init (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) : I N W (initState2 (design.sem N W)) := by
+  rw [so_sem_eq N W hN hW hR32]
   exact ⟨.xVec 1, .xVec 1, .xVec 1, .xVec 1, .xVec W, .xVec 1, .xVec W, .xVec (N * W), .xVec N,
     by simp [initState2, soD, soDeclsW, SS], by simp⟩
 
 /-- **Termination**: every schedule and every stimulus completes. -/
-theorem so_terminates (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) : Terminates2 (design.sem N W) := by
-  refine Terminates2.of_invariant (I N W) (so_init N W hN hW) (fun σ => ⟨30, ?_⟩) ?_
+theorem so_terminates (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) : Terminates2 (design.sem N W) := by
+  refine Terminates2.of_invariant (I N W) (so_init N W hN hW hR32) (fun σ => ⟨30, ?_⟩) ?_
+    (run2ClockGuard_ok_of_profile (by rw [so_sem_eq N W hN hW hR32]; exact so_profile N W hN))
   · rintro e _ kk ⟨ck, r, s, iv, id, ov, od, dt, tk, rfl, hw⟩
-    exact ⟨_, _, so_cycle N W hN hW σ e ck r s iv id ov od dt tk kk 30 (Nat.le_refl _), next_I _ _ _ _ _ _ _ _ _ hw⟩
-  · rw [so_sem_eq N W hN hW]
+    exact ⟨_, _, so_cycle N W hN hW hR32 σ e ck r s iv id ov od dt tk kk 30 (Nat.le_refl _), next_I _ _ _ _ _ _ _ _ _ hw⟩
+  · rw [so_sem_eq N W hN hW hR32]
     simp [soD, topP, outP, cellP, Process2.hasQualifiedCase, Stmt2.hasQualifiedCase, Stmt2.listHasQualifiedCase]
 
 /-! ## 6. The sort: `insertAsc` and `sortAsc` (core Lean only) -/
@@ -751,7 +661,7 @@ theorem at_step {N W : Nat} (hN : 1 ≤ N) (b : Bool) (x : BitVec W) (ys ys' : L
         (.ofBitVec (packBV W N (cv N ys' (j + 1)))) (.ofBitVec (packBV 1 N (tokv N (j + 1)))) ∧
       (ovb N (j + 1) = true → od' = .ofBitVec ((sortAsc ys').getD (j + 1 - N - 1) 0)) := by
   have h0 : tokv N j 0 = BitVec.ofBool (ovb N (j + 1)) := by
-    simp only [tokv, ovb]; congr 1; simp only [decide_eq_decide]; omega
+    simp only [tokv, ovb]; congr 1
   rw [next_run hN b x _ _ ck s id ov od hid hov hod, packBV_congr hc, packBV_congr fun k hk => tok_step b hb hk, h0]
   exact ⟨_, rfl, fun h => by rw [ho h]⟩
 
@@ -803,14 +713,14 @@ theorem out_spec_eq {N W : Nat} (xs : List (BitVec W)) (hx : xs.length = N) :
 open Tasks.Sorter in
 /-- **The phase model** at `(N, W)`, latency `2N`: `Ready` the zero state after a reset; `At ys j` the
 cells, tokens and output `j` cycles after a start that received `ys` (`cv`, `tokv`, `ovb`). -/
-def model (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) : task.PhaseModel (N, W) (lat N W) (design.sem N W) where
+def model (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) : task.PhaseModel (N, W) (lat N W) (design.sem N W) where
   Shape := I N W
   Step := Stp N W
-  init := so_init N W hN hW
+  init := so_init N W hN hW hR32
   cycle := by
     rintro σ F e prev k st k' ⟨ck, r, s, iv, id, ov, od, dt, tk, rfl, hw⟩ hc
     exact ⟨ck, r, s, iv, id, ov, od, dt, tk, rfl, hw, (Prod.mk.inj (cycleStep2_det hc
-      (so_cycle N W hN hW σ e ck r s iv id ov od dt tk k 30 (Nat.le_refl _)))).1⟩
+      (so_cycle N W hN hW hR32 σ e ck r s iv id ov od dt tk k 30 (Nat.le_refl _)))).1⟩
   shape := by
     rintro e prev st - ⟨ck, r, s, iv, id, ov, od, dt, tk, -, hw, rfl⟩
     exact next_I _ _ _ _ _ _ _ _ _ hw
@@ -888,16 +798,16 @@ def model (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) : task.PhaseModel (N, W) (la
       (fun _ => by simp [cv, Nat.sub_eq_zero_of_le hj', show j + 1 - N - 1 = j - N by omega])
     exact ⟨_, _, _, _, _, _, h, ho⟩
 
-theorem so_interface (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) :
+theorem so_interface (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) :
     Tasks.Sorter.task.Interface (N, W) (design.sem N W) := by
-  rw [so_sem_eq N W hN hW]
+  rw [so_sem_eq N W hN hW hR32]
   exact ⟨rfl, rfl, by
     show (["clk", "rst", "start", "in_valid", "in_data", "out_valid", "out_data", "data", "tok"] :
       List String).Nodup
     decide⟩
 
-theorem so_disciplined (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) : Tasks.Sorter.task.Disciplined (design.sem N W) := by
-  rw [so_sem_eq N W hN hW]
+theorem so_disciplined (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) : Tasks.Sorter.task.Disciplined (design.sem N W) := by
+  rw [so_sem_eq N W hN hW hR32]
   refine ⟨by simp [Tasks.Sorter.task, soD, soDeclsW, Design2.inputNames], fun p hp => ?_⟩
   have hm : p ∈ topP N W :: outP W :: (List.range (N - 1)).map (cellP W) := by simpa [soD] using hp
   simp only [List.mem_cons, List.mem_map] at hm
@@ -916,16 +826,16 @@ every process is an `always_ff` (`so_profile`), so the design has no combination
 an in-range window of `data` or `tok`, or a comparison. -/
 
 /-- **Rule 1.** -/
-theorem so_moore (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) :
+theorem so_moore (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) :
     MooreOutDep (design.sem N W) [] := by
-  rw [so_sem_eq N W hN hW]
+  rw [so_sem_eq N W hN hW hR32]
   exact MooreOutDep.of_noComb (combDeps_of_ffOnly (FFOnly.ofProfile (so_profile N W hN)))
     (by simp [soD, soDeclsW, Design2.outputNames, Design2.inputNames])
 
 /-- Every power-up state of the design has its shape. -/
-theorem so_powerUp (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (st : SvState)
+theorem so_powerUp (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) (st : SvState)
     (h : PowerUp (design.sem N W) st) : I N W st := by
-  rw [so_sem_eq N W hN hW] at h
+  rw [so_sem_eq N W hN hW hR32] at h
   obtain ⟨ck, r1, rfl, -, -, h1⟩ := powerUp_cons.mp h
   obtain ⟨r, r2, rfl, -, -, h2⟩ := powerUp_cons.mp h1
   obtain ⟨s, r3, rfl, -, -, h3⟩ := powerUp_cons.mp h2
@@ -939,18 +849,18 @@ theorem so_powerUp (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (st : SvState)
   exact ⟨ck, r, s, iv, id, ov, od, dt, tk, rfl, w6, w7, w8, w9⟩
 
 /-- **Termination from every power-up** (the cycle of `so_terminates`). -/
-theorem so_terminatesPU (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) : TerminatesPU (design.sem N W) := by
-  refine TerminatesPU.of_invariant (I N W) (so_powerUp N W hN hW) (fun σ => ⟨30, ?_⟩) ?_
+theorem so_terminatesPU (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) : TerminatesPU (design.sem N W) := by
+  refine TerminatesPU.of_invariant (I N W) (so_powerUp N W hN hW hR32) (fun σ => ⟨30, ?_⟩) ?_
   · rintro e _ kk ⟨ck, r, s, iv, id, ov, od, dt, tk, rfl, hw⟩
-    exact ⟨_, _, so_cycle N W hN hW σ e ck r s iv id ov od dt tk kk 30 (Nat.le_refl _),
+    exact ⟨_, _, so_cycle N W hN hW hR32 σ e ck r s iv id ov od dt tk kk 30 (Nat.le_refl _),
       next_I _ _ _ _ _ _ _ _ _ hw⟩
-  · rw [so_sem_eq N W hN hW]
+  · rw [so_sem_eq N W hN hW hR32]
     simp [soD, topP, outP, cellP, Process2.hasQualifiedCase, Stmt2.hasQualifiedCase,
       Stmt2.listHasQualifiedCase]
 
 /-- **Rule 3.** -/
-theorem so_xsafe (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) : XSafe (design.sem N W) := by
-  rw [so_sem_eq N W hN hW]
+theorem so_xsafe (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hR32 : Rng32 N W) : XSafe (design.sem N W) := by
+  rw [so_sem_eq N W hN hW hR32]
   have hTop : (N - 1) * W + W ≤ N * W := rowMajor_le (K := W) (show N - 1 < N by omega)
   have hOut : 0 + W ≤ N * W := by
     have := rowMajor_le (K := W) (show 0 < N by omega); simpa using this
@@ -975,9 +885,10 @@ scoring point). -/
 theorem solution : Goal lat := by
   refine ⟨fun p hp => ?_, rfl⟩
   obtain ⟨N, W⟩ := p
-  obtain ⟨hN, hW, -⟩ := hp
-  exact Tasks.Sorter.task.satisfiedAtV2_of_phases (so_interface N W hN hW) (so_disciplined N W hN hW)
-    (so_terminatesPU N W hN hW) hN (show N ≤ 2 * N by omega) (fun xs h => (len_sort xs).trans h)
-    (model N W hN hW) (so_powerUp N W hN hW) (so_moore N W hN hW) (so_xsafe N W hN hW)
+  obtain ⟨hN, hW, hNW32⟩ := hp
+  have hR32 : Rng32 N W := rng32_of hN hW hNW32
+  exact Tasks.Sorter.task.satisfiedAtV2_of_phases (so_interface N W hN hW hR32) (so_disciplined N W hN hW hR32)
+    (so_terminatesPU N W hN hW hR32) hN (show N ≤ 2 * N by omega) (fun xs h => (len_sort xs).trans h)
+    (model N W hN hW hR32) (so_powerUp N W hN hW hR32) (so_moore N W hN hW hR32) (so_xsafe N W hN hW hR32)
 
 end Submission

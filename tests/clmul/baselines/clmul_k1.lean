@@ -435,12 +435,12 @@ def kKey (N : Nat) : SiteId → Key
   | _ => (2, 0, N * 0)
 
 set_option maxHeartbeats 0 in
-theorem k_struct (N : Nat) (hN : 1 ≤ N) :
+theorem k_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) := by
   sv_structure (lexRank := kKey N)
   all_goals (intros; sv_rowmajor; first | omega | (simp; omega))
 
-theorem k_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
+theorem k_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) (hc : CombDesign (design.sem N)) :
     SvGolf.Tasks.Clmul.task.Interface N (design.sem N) := by
   sv_interface
 
@@ -448,8 +448,9 @@ set_option maxHeartbeats 0 in
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha⟩ := k_struct N hN'
-  refine CombTask.satisfiedAt_of_comb (k_interface N hN' hc) hc ha ?_
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨hc, ha⟩ := k_struct N hN' hR
+  refine CombTask.satisfiedAt_of_comb (k_interface N hN' hR hc) hc ha ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ⟨⟩⟩ := v
   simp only [SvGolf.Tasks.Clmul.task, HoldAll_cons, HoldAll_nil, and_true] at hv ⊢

@@ -7,7 +7,7 @@
   "parameters": [
     {
       "name": "N",
-      "range": "1 <= N < 2^31"
+      "range": "1 <= N < 2^20"
     }
   ],
   "ports": {

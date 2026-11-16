@@ -2,6 +2,7 @@ import Submission.Design
 import SvGolf.Comb
 import LeanModels.Sv.Gen2
 import LeanModels.Sv.Hier2Gen
+import LeanModels.Sv.CombView
 import LeanModels.Sv.Known2
 
 /-!
@@ -137,7 +138,8 @@ def rippleDecls (N : Nat) : List Decl :=
 /-! ## 1c. The stages of `instantiate2` at symbolic `N` -/
 
 /-- The declaration scope: `N` bound, its declared type `int` 32 bits. -/
-def rippleScope (N : Int) : IEnv := { vals := [("N", N)], pwidths := [("N", 32)] }
+def rippleScope (N : Int) : IEnv :=
+  { nvals := [("N", (canonInt 32 true N, 32, true))], pwidths := [("N", 32)], int32 := true }
 
 /-- The parameter environment: the declaration scope plus the packed-array
 geometry table evaluated in it (`dimTable` — every `instantiate2`
@@ -168,7 +170,7 @@ theorem ripple_paramEnv (N : Int) : design.pdesign.paramEnv2 [N] = .ok (rippleEn
 `|N| + 1`. -/
 theorem ripple_decls (N : Int) :
     buildDecls (rippleEnv N) design.pdesign.decls =
-      .ok (rippleDeclsRaw ((N - 1).natAbs + 1) (N.natAbs + 1)) := by
+      .ok (rippleDeclsRaw ((canonInt 32 true N - 1).natAbs + 1) ((canonInt 32 true N).natAbs + 1)) := by
   simp [design.pdesign, buildDecls, instDecl, PType.width_packed_cons, PDim.width, evalInt,
     rippleEnv, rippleScope, List.lookup, rippleDeclsRaw, Gen2.except_ok_bind]
 
@@ -190,23 +192,25 @@ theorem ripple_carry_inst (env : IEnv) (i : Nat) :
   sv2_inst_simp [rippleElems, carryT, carryProc]
 
 /-- The static processes (`cout = c[N]` reads the PARAMETER-indexed bit). -/
-theorem ripple_static (N : Nat) (wv wc : Nat) :
+theorem ripple_static (N : Nat) (hR : N < 2 ^ 20) (wv wc : Nat) :
     design.pdesign.processes.map
         (instProcess2 ((rippleEnv N).withDecls (rippleDeclsRaw wv wc)) rippleElems) =
       [cinProc, coutProc N] := by
+  have hc : canonInt 32 true (N : Int) = N := CombView.canonInt32_of_range ⟨by omega, by omega⟩
   sv2_inst_simp [design.pdesign, rippleEnv, rippleScope, rippleDeclsRaw, rippleElems, cinProc,
-    coutProc, dimTable, dimTableStep, PType.width_packed_cons, PDim.width, Int.lt_add_one_iff]
+    coutProc, dimTable, dimTableStep, PType.width_packed_cons, PDim.width, Int.lt_add_one_iff, hc]
 
 /-- The generate expansion at the surface fuel: the bit-indexed family. -/
-theorem ripple_gens (N : Nat) (wv wc : Nat) :
+theorem ripple_gens (N : Nat) (hR : N < 2 ^ 20) (wv wc : Nat) :
     expandList2 ((rippleEnv N).withDecls (rippleDeclsRaw wv wc)) rippleElems
       (PDesign.surfaceFuel [(N : Int)]) design.pdesign.generates =
       .ok ((List.range N).flatMap fun i => [sumProc i, carryProc i]) := by
+  have hc : canonInt 32 true (N : Int) = N := CombView.canonInt32_of_range ⟨by omega, by omega⟩
   rw [ripple_generates]
   apply expandList2_singleton_ok
   rw [GenItem.expand2_genFor_ascending_processes (N := (N : Int)) (evalInt_int 0)
     (fun i => by simp [rippleEnv, rippleScope, List.lookup])
-    (fun i => by simp [evalInt, rippleEnv, rippleScope, List.lookup])
+    (fun i => by simp [evalInt, rippleEnv, rippleScope, List.lookup, hc])
     (by
       have := Nat.le_mul_self (N + 2)
       simp [PDesign.surfaceFuel]
@@ -216,48 +220,50 @@ theorem ripple_gens (N : Nat) (wv wc : Nat) :
 
 /-- **`instantiate2` at symbolic `N`**: succeeds, and is the assembled
 design of the stages above. -/
-theorem ripple_instantiate2 (N : Nat) :
+theorem ripple_instantiate2 (N : Nat) (hR : N < 2 ^ 20) :
     design.pdesign.instantiate2 [(N : Int)] (PDesign.surfaceFuel [(N : Int)]) =
       .ok (design.pdesign.assemble2 (rippleEnv N)
-        (rippleDeclsRaw (((N : Int) - 1).natAbs + 1) ((N : Int).natAbs + 1)) rippleElems
+        (rippleDeclsRaw ((canonInt 32 true (N : Int) - 1).natAbs + 1) ((canonInt 32 true (N : Int)).natAbs + 1))
+        rippleElems
         ((List.range N).flatMap fun i => [sumProc i, carryProc i])) :=
   PDesign.instantiate2_of_ok rfl (ripple_paramEnv N) (ripple_decls N) (ripple_elems N)
-    (ripple_gens N _ _)
+    (ripple_gens N hR _ _)
 
 /-! ## 1d. The instantiated design, for every `N` -/
 
 /-- **The instantiated process list, for every `N`** (no unrolling): `c[0] =
 cin`, `cout = c[N]`, then `s[i]`, `c[i+1]` for each `i < N`. -/
-theorem ripple_processes (N : Nat) :
+theorem ripple_processes (N : Nat) (hR : N < 2 ^ 20) :
     (design.pdesign.instantiateD2 [(N : Int)]).processes.toList = rippleProcs N := by
-  rw [PDesign.instantiateD2_of_ok (ripple_instantiate2 N), PDesign.assemble2_processes,
-    ripple_static]
+  rw [PDesign.instantiateD2_of_ok (ripple_instantiate2 N hR), PDesign.assemble2_processes,
+    ripple_static N hR]
   simp [rippleProcs, design.pdesign]
 
 /-- **Membership characterization, both directions**:
 a process of the instantiated adder is the carry-in, the carry-out, or the
 sum/carry cell of some bit `i < N`. -/
-theorem mem_ripple_processes (N : Nat) (p : Process2) :
+theorem mem_ripple_processes (N : Nat) (hR : N < 2 ^ 20) (p : Process2) :
     p ∈ (design.pdesign.instantiateD2 [(N : Int)]).processes.toList ↔
       p = cinProc ∨ p = coutProc N ∨ ∃ i < N, p = sumProc i ∨ p = carryProc i := by
-  rw [ripple_processes]
+  rw [ripple_processes N hR]
   simp [rippleProcs]
 
 /-- The process count: `2N + 2`. -/
-theorem ripple_processes_length (N : Nat) :
+theorem ripple_processes_length (N : Nat) (hR : N < 2 ^ 20) :
     (design.pdesign.instantiateD2 [(N : Int)]).processes.toList.length = 2 * N + 2 := by
-  rw [ripple_processes]
+  rw [ripple_processes N hR]
   simp only [rippleProcs, List.length_cons, List.length_flatMap, List.length_nil,
     List.map_const', List.sum_replicate_nat, List.length_range]
   omega
 
 /-- **The instantiated declarations** for `N ≥ 1`: `a`, `b`, `s` are `N`
 bits, `cin`/`cout` 1 bit, the carry chain `c` is `N + 1` bits. -/
-theorem ripple_decls_instantiated (N : Nat) (hN : 1 ≤ N) :
+theorem ripple_decls_instantiated (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     (design.pdesign.instantiateD2 [(N : Int)]).decls.toList = rippleDecls N := by
-  rw [PDesign.instantiateD2_of_ok (ripple_instantiate2 N), PDesign.assemble2_decls]
-  have hv : ((N : Int) - 1).natAbs + 1 = N := by omega
-  have hc : (N : Int).natAbs = N := Int.natAbs_natCast N
+  rw [PDesign.instantiateD2_of_ok (ripple_instantiate2 N hR), PDesign.assemble2_decls]
+  have hc0 : canonInt 32 true (N : Int) = N := CombView.canonInt32_of_range ⟨by omega, by omega⟩
+  have hv : (canonInt 32 true (N : Int) - 1).natAbs + 1 = N := by rw [hc0]; omega
+  have hc : (canonInt 32 true (N : Int)).natAbs = N := by rw [hc0]; exact Int.natAbs_natCast N
   rw [hv, hc]
   rfl
 
@@ -322,33 +328,41 @@ theorem ripple_driversOk (N : Nat) :
 
 /-- **`design.sem N` is the instantiated design**, for every `N` (the
 guard of `instantiateGD2` passes: `ripple_driversOk`). -/
-theorem ripple_sem_eq (N : Nat) :
+theorem ripple_sem_eq (N : Nat) (hR : N < 2 ^ 20) :
     design.sem N = design.pdesign.instantiateD2 [(N : Int)] := by
-  show design.pdesign.instantiateGD2 [(N : Int)] = _
-  apply PDesign.instantiateGD2_of_driversOk
-  rw [ripple_processes]
-  exact ripple_driversOk N
+  -- `design.sem` is the alias-guarded family (`PDesign.instantiateGDAlias2`); the guard touches `always_comb`
+  -- processes only, and this design has none
+  show (design.pdesign.instantiateGD2 [(N : Int)]).aliasGuard = _
+  have hgd : design.pdesign.instantiateGD2 [(N : Int)] = design.pdesign.instantiateD2 [(N : Int)] := by
+    apply PDesign.instantiateGD2_of_driversOk
+    rw [ripple_processes N hR]
+    exact ripple_driversOk N
+  rw [hgd]
+  refine Design2.aliasGuard_of_noComb fun p hp b => ?_
+  rw [ripple_processes N hR] at hp
+  simp only [rippleProcs, List.mem_cons, List.mem_flatMap, List.mem_range, List.not_mem_nil, or_false] at hp
+  rcases hp with rfl | rfl | ⟨k, _, rfl | rfl⟩ <;> simp [cinProc, coutProc, sumProc, carryProc]
 
 /-- The `load_design_sv2` family member `design.sem N` is the same
 design (`Int.ofNat N` is the binder encoding of `(N : Int)`; the one-driver
 guard passes, `ripple_sem_eq`). -/
-theorem ripple_sem_processes (N : Nat) :
+theorem ripple_sem_processes (N : Nat) (hR : N < 2 ^ 20) :
     (design.sem N).processes.toList = rippleProcs N := by
-  rw [ripple_sem_eq]
-  exact ripple_processes N
+  rw [ripple_sem_eq N hR]
+  exact ripple_processes N hR
 
 /-- `mem_ripple_processes` for the family member `design.sem N`. -/
-theorem mem_ripple_sem_processes (N : Nat) (p : Process2) :
+theorem mem_ripple_sem_processes (N : Nat) (hR : N < 2 ^ 20) (p : Process2) :
     p ∈ (design.sem N).processes.toList ↔
       p = cinProc ∨ p = coutProc N ∨ ∃ i < N, p = sumProc i ∨ p = carryProc i := by
-  rw [ripple_sem_eq]
-  exact mem_ripple_processes N p
+  rw [ripple_sem_eq N hR]
+  exact mem_ripple_processes N hR p
 
 /-- `ripple_decls_instantiated` for the family member `design.sem N`. -/
-theorem ripple_sem_decls (N : Nat) (hN : 1 ≤ N) :
+theorem ripple_sem_decls (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     (design.sem N).decls.toList = rippleDecls N := by
-  rw [ripple_sem_eq]
-  exact ripple_decls_instantiated N hN
+  rw [ripple_sem_eq N hR]
+  exact ripple_decls_instantiated N hN hR
 
 /-! ## 2a. The process table -/
 
@@ -379,17 +393,17 @@ theorem getElem?_flatMap_pair {α : Type} (N : Nat) : ∀ (f g : Nat → α) (m 
         simp only [h, h', if_false]
 
 /-- The process array of `design.sem N` is `rippleProcs N` (`ripple_sem_processes`). -/
-theorem ripple_getElem? (N j : Nat) :
+theorem ripple_getElem? (N j : Nat) (hR : N < 2 ^ 20) :
     (design.sem N).processes[j]? = (rippleProcs N)[j]? := by
-  rw [← Array.getElem?_toList, ripple_sem_processes]
+  rw [← Array.getElem?_toList, ripple_sem_processes N hR]
 
 /-- **The process table, by index** (every `N`): carry-in at 0, carry-out at
 1, then bit `i`'s sum cell at `2i + 2` and carry cell at `2i + 3`. -/
-theorem ripple_proc {N j : Nat} {p : Process2} :
+theorem ripple_proc {N j : Nat} {p : Process2} (hR : N < 2 ^ 20) :
     (design.sem N).processes[j]? = some p ↔
       (j = 0 ∧ p = cinProc) ∨ (j = 1 ∧ p = coutProc N) ∨
       ∃ i < N, (j = 2 * i + 2 ∧ p = sumProc i) ∨ (j = 2 * i + 3 ∧ p = carryProc i) := by
-  rw [ripple_getElem?]
+  rw [ripple_getElem? N j hR]
   match j with
   | 0 => simp [rippleProcs, eq_comm]
   | 1 => simp [rippleProcs, eq_comm]
@@ -419,51 +433,51 @@ theorem ripple_proc {N j : Nat} {p : Process2} :
         omega
 
 /-- Process 0 is the carry-in `c[0] = cin`. -/
-theorem ripple_proc_cin (N : Nat) : (design.sem N).processes[0]? = some cinProc :=
-  ripple_proc.mpr (Or.inl ⟨rfl, rfl⟩)
+theorem ripple_proc_cin (N : Nat) (hR : N < 2 ^ 20) : (design.sem N).processes[0]? = some cinProc :=
+  (ripple_proc hR).mpr (Or.inl ⟨rfl, rfl⟩)
 
 /-- Process 1 is the carry-out `cout = c[N]`. -/
-theorem ripple_proc_cout (N : Nat) : (design.sem N).processes[1]? = some (coutProc N) :=
-  ripple_proc.mpr (Or.inr (Or.inl ⟨rfl, rfl⟩))
+theorem ripple_proc_cout (N : Nat) (hR : N < 2 ^ 20) : (design.sem N).processes[1]? = some (coutProc N) :=
+  (ripple_proc hR).mpr (Or.inr (Or.inl ⟨rfl, rfl⟩))
 
 /-- Process `2i + 2` is bit `i`'s sum cell. -/
-theorem ripple_proc_sum {N i : Nat} (hi : i < N) :
+theorem ripple_proc_sum {N i : Nat} (hi : i < N) (hR : N < 2 ^ 20) :
     (design.sem N).processes[2 * i + 2]? = some (sumProc i) :=
-  ripple_proc.mpr (Or.inr (Or.inr ⟨i, hi, Or.inl ⟨rfl, rfl⟩⟩))
+  (ripple_proc hR).mpr (Or.inr (Or.inr ⟨i, hi, Or.inl ⟨rfl, rfl⟩⟩))
 
 /-- Process `2i + 3` is bit `i`'s carry cell. -/
-theorem ripple_proc_carry {N i : Nat} (hi : i < N) :
+theorem ripple_proc_carry {N i : Nat} (hi : i < N) (hR : N < 2 ^ 20) :
     (design.sem N).processes[2 * i + 3]? = some (carryProc i) :=
-  ripple_proc.mpr (Or.inr (Or.inr ⟨i, hi, Or.inr ⟨rfl, rfl⟩⟩))
+  (ripple_proc hR).mpr (Or.inr (Or.inr ⟨i, hi, Or.inr ⟨rfl, rfl⟩⟩))
 
 /-! ## 2b. Declarations, windows, driven signals (`1 ≤ N`) -/
 
 section Decls
 
-variable {N : Nat} (hN : 1 ≤ N)
-include hN
+variable {N : Nat} (hN : 1 ≤ N) (hR : N < 2 ^ 20)
+include hN hR
 
 /-- Declared widths are looked up in `rippleDecls N`. -/
 theorem ripple_declWidth (n : String) :
     (design.sem N).declWidth n =
       ((rippleDecls N).find? fun dc => dc.name == n).map Decl.width := by
-  simp only [Design2.declWidth, ripple_sem_decls N hN]
+  simp only [Design2.declWidth, ripple_sem_decls N hN hR]
 
 /-- `s` is `N` bits. -/
 theorem ripple_declWidth_s : (design.sem N).declWidth "s" = some N := by
-  simp [ripple_declWidth hN, rippleDecls]
+  simp [ripple_declWidth hN hR, rippleDecls]
 
 /-- `cout` is 1 bit. -/
 theorem ripple_declWidth_cout : (design.sem N).declWidth "cout" = some 1 := by
-  simp [ripple_declWidth hN, rippleDecls]
+  simp [ripple_declWidth hN hR, rippleDecls]
 
 /-- The carry chain `c` is `N + 1` bits. -/
 theorem ripple_declWidth_c : (design.sem N).declWidth "c" = some (N + 1) := by
-  simp [ripple_declWidth hN, rippleDecls]
+  simp [ripple_declWidth hN hR, rippleDecls]
 
 /-- The input ports, in declaration order. -/
 theorem ripple_inputNames : (design.sem N).inputNames.toList = ["a", "b", "cin"] := by
-  simp [Design2.inputNames, ripple_sem_decls N hN, rippleDecls]
+  simp [Design2.inputNames, ripple_sem_decls N hN hR, rippleDecls]
 
 /-- **The write windows**: carry-in writes `c[0]`, carry-out the whole 1-bit
 `cout`, bit `i`'s sum cell `s[i]` and its carry cell `c[i+1]`. -/
@@ -473,32 +487,32 @@ theorem ripple_writes {j : Nat} {wn : Win} : (design.sem N).Writes j wn ↔
       (j = 2 * i + 3 ∧ wn = ("c", i + 1, 1)) := by
   constructor
   · rintro ⟨t, e, hp, hw⟩
-    rcases ripple_proc.mp hp with ⟨rfl, h⟩ | ⟨rfl, h⟩ | ⟨i, hi, ⟨rfl, h⟩ | ⟨rfl, h⟩⟩ <;>
+    rcases (ripple_proc hR).mp hp with ⟨rfl, h⟩ | ⟨rfl, h⟩ | ⟨i, hi, ⟨rfl, h⟩ | ⟨rfl, h⟩⟩ <;>
       simp only [cinProc, coutProc, sumProc, carryProc, Process2.assign.injEq] at h <;>
       obtain ⟨rfl, rfl⟩ := h <;>
-      simp [ripple_declWidth_cout hN] at hw <;> subst hw
+      simp [ripple_declWidth_cout hN hR] at hw <;> subst hw
     · exact Or.inl ⟨rfl, rfl⟩
     · exact Or.inr (Or.inl ⟨rfl, rfl⟩)
     · exact Or.inr (Or.inr ⟨i, hi, Or.inl ⟨rfl, rfl⟩⟩)
     · exact Or.inr (Or.inr ⟨i, hi, Or.inr ⟨rfl, rfl⟩⟩)
   · rintro (⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨i, hi, ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩⟩)
-    · exact ⟨_, _, ripple_proc_cin N, by simp⟩
-    · exact ⟨_, _, ripple_proc_cout N, by simp [ripple_declWidth_cout hN]⟩
-    · exact ⟨_, _, ripple_proc_sum hi, by simp⟩
-    · exact ⟨_, _, ripple_proc_carry hi, by simp⟩
+    · exact ⟨_, _, ripple_proc_cin N hR, by simp⟩
+    · exact ⟨_, _, ripple_proc_cout N hR, by simp [ripple_declWidth_cout hN hR]⟩
+    · exact ⟨_, _, ripple_proc_sum hi hR, by simp⟩
+    · exact ⟨_, _, ripple_proc_carry hi hR, by simp⟩
 
 /-- The driven signals: the carry chain, the carry-out, the sum. -/
 theorem ripple_driven {n : String} : Driven (design.sem N) n ↔
     n = "c" ∨ n = "cout" ∨ n = "s" := by
   constructor
   · rintro ⟨j, lo, w, h⟩
-    rcases (ripple_writes hN).mp h with ⟨-, h⟩ | ⟨-, h⟩ | ⟨i, -, ⟨-, h⟩ | ⟨-, h⟩⟩ <;>
+    rcases (ripple_writes hN hR).mp h with ⟨-, h⟩ | ⟨-, h⟩ | ⟨i, -, ⟨-, h⟩ | ⟨-, h⟩⟩ <;>
       simp only [Prod.mk.injEq] at h <;> simp [h.1]
   · rintro (rfl | rfl | rfl)
-    · exact ⟨0, 0, 1, (ripple_writes hN).mpr (Or.inl ⟨rfl, rfl⟩)⟩
-    · exact ⟨1, 0, 1, (ripple_writes hN).mpr (Or.inr (Or.inl ⟨rfl, rfl⟩))⟩
+    · exact ⟨0, 0, 1, (ripple_writes hN hR).mpr (Or.inl ⟨rfl, rfl⟩)⟩
+    · exact ⟨1, 0, 1, (ripple_writes hN hR).mpr (Or.inr (Or.inl ⟨rfl, rfl⟩))⟩
     · exact ⟨2, 0, 1,
-        (ripple_writes hN).mpr (Or.inr (Or.inr ⟨0, hN, Or.inl ⟨rfl, rfl⟩⟩))⟩
+        (ripple_writes hN hR).mpr (Or.inr (Or.inr ⟨0, hN, Or.inl ⟨rfl, rfl⟩⟩))⟩
 
 end Decls
 
@@ -507,61 +521,61 @@ end Decls
 /-- **The ripple adder is in the comb profile** (every `N ≥ 1`): continuous
 assigns over 1-bit windows, in range, one driver per bit, no input driven,
 no loud node, every read declared, no initializers. -/
-theorem ripple_comb (N : Nat) (hN : 1 ≤ N) : CombDesign (design.sem N) where
+theorem ripple_comb (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) : CombDesign (design.sem N) where
   nodup := by
-    rw [ripple_sem_decls N hN]
+    rw [ripple_sem_decls N hN hR]
     simp only [rippleDecls, List.map_cons, List.map_nil]
     decide
   assign := by
     intro j p hp
-    rcases ripple_proc.mp hp with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨i, hi, ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩⟩
+    rcases (ripple_proc hR).mp hp with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨i, hi, ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩⟩
     · exact ⟨_, _, _, rfl, rfl⟩
-    · exact ⟨_, _, [("cout", 0, 1)], rfl, by simp [ripple_declWidth_cout hN]⟩
+    · exact ⟨_, _, [("cout", 0, 1)], rfl, by simp [ripple_declWidth_cout hN hR]⟩
     · exact ⟨_, _, _, rfl, rfl⟩
     · exact ⟨_, _, _, rfl, rfl⟩
   inWidth := by
     intro j n lo w h
-    rcases (ripple_writes hN).mp h with ⟨-, h⟩ | ⟨-, h⟩ | ⟨i, hi, ⟨-, h⟩ | ⟨-, h⟩⟩ <;>
+    rcases (ripple_writes hN hR).mp h with ⟨-, h⟩ | ⟨-, h⟩ | ⟨i, hi, ⟨-, h⟩ | ⟨-, h⟩⟩ <;>
       simp only [Prod.mk.injEq] at h <;> obtain ⟨rfl, rfl, rfl⟩ := h
-    · exact ⟨_, ripple_declWidth_c hN, by omega⟩
-    · exact ⟨_, ripple_declWidth_cout hN, by omega⟩
-    · exact ⟨_, ripple_declWidth_s hN, by omega⟩
-    · exact ⟨_, ripple_declWidth_c hN, by omega⟩
+    · exact ⟨_, ripple_declWidth_c hN hR, by omega⟩
+    · exact ⟨_, ripple_declWidth_cout hN hR, by omega⟩
+    · exact ⟨_, ripple_declWidth_s hN hR, by omega⟩
+    · exact ⟨_, ripple_declWidth_c hN hR, by omega⟩
   notInput := by
     intro n hn
-    rw [ripple_inputNames hN]
-    rcases (ripple_driven hN).mp hn with rfl | rfl | rfl <;> decide
+    rw [ripple_inputNames hN hR]
+    rcases (ripple_driven hN hR).mp hn with rfl | rfl | rfl <;> decide
   disjoint := by
     intro j k wj wk hjk hj hk
-    rcases (ripple_writes hN).mp hj with
+    rcases (ripple_writes hN hR).mp hj with
       ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨i, hi, ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩⟩ <;>
-    rcases (ripple_writes hN).mp hk with
+    rcases (ripple_writes hN hR).mp hk with
       ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨i', hi', ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩⟩ <;>
       rw [Win.overlaps_eq_false] <;> first | (left; decide) | (right; omega) | omega
   selfDisjoint := by
     intro j t e hp
-    rcases ripple_proc.mp hp with ⟨-, h⟩ | ⟨-, h⟩ | ⟨i, -, ⟨-, h⟩ | ⟨-, h⟩⟩ <;>
+    rcases (ripple_proc hR).mp hp with ⟨-, h⟩ | ⟨-, h⟩ | ⟨i, -, ⟨-, h⟩ | ⟨-, h⟩⟩ <;>
       simp only [cinProc, coutProc, sumProc, carryProc, Process2.assign.injEq] at h <;>
       obtain ⟨rfl, -⟩ := h <;> exact Lhs2.wins_pairwise_of_leaf (fun _ h => by cases h) _
   rhsFree := by
     intro j t e hp
-    rcases ripple_proc.mp hp with ⟨-, h⟩ | ⟨-, h⟩ | ⟨i, -, ⟨-, h⟩ | ⟨-, h⟩⟩ <;>
+    rcases (ripple_proc hR).mp hp with ⟨-, h⟩ | ⟨-, h⟩ | ⟨i, -, ⟨-, h⟩ | ⟨-, h⟩⟩ <;>
       simp only [cinProc, coutProc, sumProc, carryProc, Process2.assign.injEq] at h <;>
       obtain ⟨-, rfl⟩ := h <;> rfl
   rhsDeclared := by
     intro j t e hp
-    rw [ripple_sem_decls N hN]
-    rcases ripple_proc.mp hp with ⟨-, h⟩ | ⟨-, h⟩ | ⟨i, -, ⟨-, h⟩ | ⟨-, h⟩⟩ <;>
+    rw [ripple_sem_decls N hN hR]
+    rcases (ripple_proc hR).mp hp with ⟨-, h⟩ | ⟨-, h⟩ | ⟨i, -, ⟨-, h⟩ | ⟨-, h⟩⟩ <;>
       simp only [cinProc, coutProc, sumProc, carryProc, Process2.assign.injEq] at h <;>
       obtain ⟨-, rfl⟩ := h <;> simp [Expr2.idents, rippleDecls]
   initWidth := by
     intro n _ dc hdc _ v hv
-    rw [ripple_sem_decls N hN] at hdc
+    rw [ripple_sem_decls N hN hR] at hdc
     simp [rippleDecls] at hdc
     rcases hdc with rfl | rfl | rfl | rfl | rfl | rfl <;> cases hv
   inFourState := by
     intro dc hdc _
-    rw [ripple_sem_decls N hN] at hdc
+    rw [ripple_sem_decls N hN hR] at hdc
     simp [rippleDecls] at hdc
     rcases hdc with rfl | rfl | rfl | rfl | rfl | rfl <;> rfl
 
@@ -574,11 +588,11 @@ def rippleRank (N : Nat) (j : Nat) : Nat :=
 never written) and `c[i]`, written by the carry-in (`i = 0`, rank 0) or by bit
 `i - 1`'s carry cell (rank `i`); the carry-out reads `c[N]`, written by bit
 `N - 1`'s carry cell (rank `N`). -/
-theorem ripple_acyclic (N : Nat) (hN : 1 ≤ N) : Acyclic (design.sem N) := by
+theorem ripple_acyclic (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) : Acyclic (design.sem N) := by
   refine ⟨rippleRank N, ?_⟩
   intro j k tj ej tk ek wk hj hk hw hex
-  have hWk := (ripple_writes hN).mp ⟨tk, ek, hk, hw⟩
-  rcases ripple_proc.mp hj with ⟨rfl, h⟩ | ⟨rfl, h⟩ | ⟨i, hi, ⟨rfl, h⟩ | ⟨rfl, h⟩⟩ <;>
+  have hWk := (ripple_writes hN hR).mp ⟨tk, ek, hk, hw⟩
+  rcases (ripple_proc hR).mp hj with ⟨rfl, h⟩ | ⟨rfl, h⟩ | ⟨i, hi, ⟨rfl, h⟩ | ⟨rfl, h⟩⟩ <;>
     simp only [cinProc, coutProc, sumProc, carryProc, Process2.assign.injEq] at h <;>
     obtain ⟨-, rfl⟩ := h <;>
     rcases hWk with ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩ | ⟨i', hi', ⟨rfl, rfl⟩ | ⟨rfl, rfl⟩⟩ <;>
@@ -636,7 +650,7 @@ end Gates
 design's equations and has the comb shape, known inputs `x y : BitVec N`,
 `ci : Bool` on `a b cin` give `x + y + ci` (mod `2^N`) on `s` and the carry-out
 `2^N ≤ x + y + ci` on `cout`. -/
-theorem ripple_settled {N : Nat} (hN : 1 ≤ N) {st : SvState}
+theorem ripple_settled {N : Nat} (hN : 1 ≤ N) (hR : N < 2 ^ 20) {st : SvState}
     (heqs : CombEqs (design.sem N) st) (hs : StateShape (design.sem N) st)
     {x y : BitVec N} {ci : Bool}
     (ha : SvState.lookup st "a" = some (LVec.ofBitVec x))
@@ -645,7 +659,7 @@ theorem ripple_settled {N : Nat} (hN : 1 ≤ N) {st : SvState}
     SvState.lookup st "s" = some (LVec.ofBitVec (x + y + (BitVec.ofBool ci).setWidth N)) ∧
       SvState.lookup st "cout" =
         some (LVec.ofBitVec (BitVec.ofBool (2 ^ N ≤ x.toNat + y.toNat + ci.toNat))) := by
-  obtain ⟨u, hu, -⟩ := hs.driven "c" ((ripple_driven hN).mpr (Or.inl rfl))
+  obtain ⟨u, hu, -⟩ := hs.driven "c" ((ripple_driven hN hR).mpr (Or.inl rfl))
   -- the carry chain, window by window: `c[k]` holds core's `carry k`
   have hcarry : ∀ k, k ≤ N →
       u.extract k 1 = LVec.ofBitVec (BitVec.ofBool (BitVec.carry k x y ci)) := by
@@ -654,33 +668,33 @@ theorem ripple_settled {N : Nat} (hN : 1 ≤ N) {st : SvState}
     | zero =>
       intro _
       obtain ⟨old, hold, hext⟩ :=
-        CombEqs.extract_slice heqs (ripple_proc_cin N) (evalPure2_ident_ofBitVec hc)
+        CombEqs.extract_slice heqs (ripple_proc_cin N hR) (evalPure2_ident_ofBitVec hc)
       rw [hu, Option.some.injEq] at hold
       subst hold
       rw [hext, LVec.resizeU_ofBitVec, BitVec.setWidth_eq, BitVec.carry_zero]
     | succ k ih =>
       intro hk
       have hkN : k < N := by omega
-      obtain ⟨old, hold, hext⟩ := CombEqs.extract_slice heqs (ripple_proc_carry hkN)
+      obtain ⟨old, hold, hext⟩ := CombEqs.extract_slice heqs (ripple_proc_carry hkN hR)
         (eval_carry (eval_bit ha hkN) (eval_bit hb hkN) (eval_win hu (ih (by omega))))
       rw [hu, Option.some.injEq] at hold
       subst hold
       rw [hext, LVec.resizeU_ofBitVec, BitVec.setWidth_eq, BitVec.carry_succ]
   -- the sum, from its 1-bit windows
-  obtain ⟨sv, hsv, hsw⟩ := hs.driven "s" ((ripple_driven hN).mpr (Or.inr (Or.inr rfl)))
-  rw [ripple_declWidth_s hN, Option.some.injEq] at hsw
+  obtain ⟨sv, hsv, hsw⟩ := hs.driven "s" ((ripple_driven hN hR).mpr (Or.inr (Or.inr rfl)))
+  rw [ripple_declWidth_s hN hR, Option.some.injEq] at hsw
   have hS : sv = LVec.ofBitVec (x + y + (BitVec.ofBool ci).setWidth N) := by
     apply LVec.eq_ofBitVec_of_extract_one hsw.symm
     intro i hi
-    obtain ⟨old, hold, hext⟩ := CombEqs.extract_slice heqs (ripple_proc_sum hi)
+    obtain ⟨old, hold, hext⟩ := CombEqs.extract_slice heqs (ripple_proc_sum hi hR)
       (eval_xor3 (eval_bit ha hi) (eval_bit hb hi) (eval_win hu (hcarry i (by omega))))
     rw [hsv, Option.some.injEq] at hold
     subst hold
     rw [hext, LVec.resizeU_ofBitVec, BitVec.setWidth_eq, BitVec.getLsbD_add_add_bool hi,
       Bool.xor_assoc]
   -- the carry-out: `c[N]` is the final carry
-  have hco := CombEqs.lookup_ident (ripple_comb N hN) heqs hs (ripple_proc_cout N)
-    (eval_win hu (hcarry N (Nat.le_refl N))) (ripple_declWidth_cout hN)
+  have hco := CombEqs.lookup_ident (ripple_comb N hN hR) heqs hs (ripple_proc_cout N hR)
+    (eval_win hu (hcarry N (Nat.le_refl N))) (ripple_declWidth_cout hN hR)
   rw [LVec.resizeU_ofBitVec, BitVec.setWidth_eq, BitVec.carry_width] at hco
   exact ⟨hS ▸ hsv, hco⟩
 
@@ -735,23 +749,24 @@ theorem carry_eq_ofNat {N : Nat} (t : Nat) (ht : t < 2 * 2 ^ N) :
     simp [h, hq]
 
 /-- The interface: inputs `a b : N`, `cin : 1`; outputs `s : N`, `cout : 1`. -/
-theorem add_interface (N : Nat) (hN : 1 ≤ N) :
+theorem add_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     SvGolf.Tasks.Add.task.Interface N (design.sem N) := by
-  simp [CombTask.Interface, inputPorts, outputPorts, ripple_sem_decls N hN, rippleDecls,
+  simp [CombTask.Interface, inputPorts, outputPorts, ripple_sem_decls N hN hR, rippleDecls,
     SvGolf.Tasks.Add.task]
 
 /-- **The reference solution**: the `add` statement, for every `N ≥ 1`. -/
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  refine CombTask.satisfiedAt_of_comb (add_interface N hN') (ripple_comb N hN')
-    (ripple_acyclic N hN') ?_
+  have hR : N < 2 ^ 20 := hN.2
+  refine CombTask.satisfiedAt_of_comb (add_interface N hN' hR) (ripple_comb N hN' hR)
+    (ripple_acyclic N hN' hR) ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ci, ⟨⟩⟩ := v
   obtain ⟨c0, rfl⟩ : ∃ c0, ci = BitVec.ofBool c0 := ⟨_, bv1_eq_ofBool ci⟩
   simp only [SvGolf.Tasks.Add.task, HoldAll_cons, HoldAll_nil, and_true] at hv ⊢
   obtain ⟨ha, hb, hc⟩ := hv
-  obtain ⟨hs', hco⟩ := ripple_settled hN' heqs hs ha hb hc
+  obtain ⟨hs', hco⟩ := ripple_settled hN' hR heqs hs ha hb hc
   have ht : x.toNat + y.toNat + c0.toNat < 2 * 2 ^ N := by
     have : x.toNat < 2 ^ N := x.isLt
     have : y.toNat < 2 ^ N := y.isLt

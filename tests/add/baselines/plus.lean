@@ -4,6 +4,7 @@ import LeanModels.Sv.Gen2
 import LeanModels.Sv.Hier2Gen
 import LeanModels.Sv.Known2
 import LeanModels.Sv.Comb2
+import LeanModels.Sv.CombView
 
 /-!
 # The `add` statement for the baseline `tests/add/negative/plus.sv`
@@ -82,8 +83,10 @@ def plusDecls (wv : Nat) : List Decl :=
    { name := "s", width := wv, isOutput := true },
    { name := "cout", width := 1, isOutput := true }]
 
-/-- The declaration scope: `N` bound, its declared type `int`, 32 bits. -/
-def plusScope (N : Int) : IEnv := { vals := [("N", N)], pwidths := [("N", 32)] }
+/-- The declaration scope: `N` bound at its exact 32-bit `int` value (`nvals`, `canonInt 32 true N`), its declared
+type `int`, 32 bits. -/
+def plusScope (N : Int) : IEnv :=
+  { nvals := [("N", (canonInt 32 true N, 32, true))], pwidths := [("N", 32)], int32 := true }
 
 /-- The parameter environment (the scope plus its packed-array geometry table). -/
 def plusEnv (N : Int) : IEnv :=
@@ -98,7 +101,7 @@ theorem plus_paramEnv (N : Int) : design.pdesign.paramEnv2 [N] = .ok (plusEnv N)
   rfl
 
 theorem plus_decls (N : Int) :
-    buildDecls (plusEnv N) design.pdesign.decls = .ok (plusDecls ((N - 1).natAbs + 1)) := by
+    buildDecls (plusEnv N) design.pdesign.decls = .ok (plusDecls ((canonInt 32 true N - 1).natAbs + 1)) := by
   simp [design.pdesign, buildDecls, instDecl, PType.width_packed_cons, PDim.width, evalInt,
     plusEnv, plusScope, List.lookup, plusDecls, Gen2.except_ok_bind]
 
@@ -149,21 +152,21 @@ theorem plus_static (N : Int) (wv : Nat) :
 
 theorem plus_instantiate2 (N : Nat) :
     design.pdesign.instantiate2 [(N : Int)] (PDesign.surfaceFuel [(N : Int)]) =
-      .ok (design.pdesign.assemble2 (plusEnv N) (plusDecls (((N : Int) - 1).natAbs + 1))
+      .ok (design.pdesign.assemble2 (plusEnv N) (plusDecls ((canonInt 32 true (N : Int) - 1).natAbs + 1))
         plusElems []) :=
   PDesign.instantiate2_of_ok rfl (plus_paramEnv N) (plus_decls N) (plus_elems N)
     (by rw [plus_generates]; exact expandList2_nil)
 
 theorem plus_processes (N : Nat) :
     (design.pdesign.instantiateD2 [(N : Int)]).processes.toList =
-      [plusProc (1 + (((N : Int) - 1).natAbs + 1))] := by
+      [plusProc (1 + ((canonInt 32 true (N : Int) - 1).natAbs + 1))] := by
   rw [PDesign.instantiateD2_of_ok (plus_instantiate2 N), PDesign.assemble2_processes,
     plus_static, plus_others]
   simp
 
 theorem plus_decls_inst (N : Nat) :
     (design.pdesign.instantiateD2 [(N : Int)]).decls.toList =
-      plusDecls (((N : Int) - 1).natAbs + 1) := by
+      plusDecls ((canonInt 32 true (N : Int) - 1).natAbs + 1) := by
   rw [PDesign.instantiateD2_of_ok (plus_instantiate2 N), PDesign.assemble2_decls]
 
 /-! ## 1d. The one-driver rule -/
@@ -173,80 +176,90 @@ theorem plus_driversOk (W : Nat) :
     driversOk design.pdesign.declNames design.pdesign.inputNames [plusProc W] = true := by
   rfl
 
-/-- `design.sem N` is the instantiated design (its one-driver guard passes). -/
+/-- `design.sem N` is the instantiated design (its one-driver guard passes; the alias guard of `design.sem`
+touches `always_comb` processes only, and this design has none). -/
 theorem plus_sem_eq (N : Nat) : design.sem N = design.pdesign.instantiateD2 [(N : Int)] := by
-  show design.pdesign.instantiateGD2 [(N : Int)] = _
-  apply PDesign.instantiateGD2_of_driversOk
-  rw [plus_processes]
-  exact plus_driversOk _
+  show (design.pdesign.instantiateGD2 [(N : Int)]).aliasGuard = _
+  have hgd : design.pdesign.instantiateGD2 [(N : Int)] = design.pdesign.instantiateD2 [(N : Int)] := by
+    apply PDesign.instantiateGD2_of_driversOk
+    rw [plus_processes]
+    exact plus_driversOk _
+  rw [hgd]
+  refine Design2.aliasGuard_of_noComb fun p hp b => ?_
+  rw [plus_processes] at hp
+  simp only [List.mem_cons, List.not_mem_nil, or_false] at hp
+  subst hp
+  simp [plusProc]
 
 /-- **The instantiated process list, for every `N ≥ 1`**: the one assign, at width `N + 1`. -/
-theorem plus_sem_processes (N : Nat) (hN : 1 ≤ N) :
+theorem plus_sem_processes (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     (design.sem N).processes.toList = [plusProc (N + 1)] := by
   rw [plus_sem_eq, plus_processes]
-  have h : 1 + (((N : Int) - 1).natAbs + 1) = N + 1 := by omega
+  have hc0 : canonInt 32 true (N : Int) = N := CombView.canonInt32_of_range ⟨by omega, by omega⟩
+  have h : 1 + ((canonInt 32 true (N : Int) - 1).natAbs + 1) = N + 1 := by rw [hc0]; omega
   rw [h]
 
 /-- **The instantiated declarations, for every `N ≥ 1`**. -/
-theorem plus_sem_decls (N : Nat) (hN : 1 ≤ N) :
+theorem plus_sem_decls (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     (design.sem N).decls.toList = plusDecls N := by
   rw [plus_sem_eq, plus_decls_inst]
-  have h : ((N : Int) - 1).natAbs + 1 = N := by omega
+  have hc0 : canonInt 32 true (N : Int) = N := CombView.canonInt32_of_range ⟨by omega, by omega⟩
+  have h : (canonInt 32 true (N : Int) - 1).natAbs + 1 = N := by rw [hc0]; omega
   rw [h]
 
 /-! ## 2a. The process table and the declarations (`1 ≤ N`) -/
 
 section Table
 
-variable {N : Nat} (hN : 1 ≤ N)
-include hN
+variable {N : Nat} (hN : 1 ≤ N) (hR : N < 2 ^ 20)
+include hN hR
 
 theorem plus_proc {i : Nat} {p : Process2} :
     (design.sem N).processes[i]? = some p ↔ i = 0 ∧ p = plusProc (N + 1) := by
-  rw [← Array.getElem?_toList, plus_sem_processes N hN]
+  rw [← Array.getElem?_toList, plus_sem_processes N hN hR]
   match i with
   | 0 => simp [eq_comm]
   | i + 1 => simp
 
 theorem plus_proc0 : (design.sem N).processes[0]? = some (.assign plusTarget (plusRhs (N + 1))) :=
-  (plus_proc hN).mpr ⟨rfl, rfl⟩
+  (plus_proc hN hR).mpr ⟨rfl, rfl⟩
 
 theorem plus_declWidth (n : String) :
     (design.sem N).declWidth n = ((plusDecls N).find? fun dc => dc.name == n).map Decl.width := by
-  simp only [Design2.declWidth, plus_sem_decls N hN]
+  simp only [Design2.declWidth, plus_sem_decls N hN hR]
 
 theorem plus_declWidth_s : (design.sem N).declWidth "s" = some N := by
-  simp [plus_declWidth hN, plusDecls]
+  simp [plus_declWidth hN hR, plusDecls]
 
 theorem plus_declWidth_cout : (design.sem N).declWidth "cout" = some 1 := by
-  simp [plus_declWidth hN, plusDecls]
+  simp [plus_declWidth hN hR, plusDecls]
 
 theorem plus_inputNames : (design.sem N).inputNames.toList = ["a", "b", "cin"] := by
-  simp [Design2.inputNames, plus_sem_decls N hN, plusDecls]
+  simp [Design2.inputNames, plus_sem_decls N hN hR, plusDecls]
 
 /-- The target's windows, MSB-first: `cout` (1 bit), then `s` (`N` bits). -/
 theorem plus_wins : plusTarget.wins (design.sem N) = [("cout", 0, 1), ("s", 0, N)] := by
-  simp [plusTarget, plus_declWidth_s hN, plus_declWidth_cout hN]
+  simp [plusTarget, plus_declWidth_s hN hR, plus_declWidth_cout hN hR]
 
 theorem plus_writes {i : Nat} {wn : Win} :
     (design.sem N).Writes i wn ↔ i = 0 ∧ (wn = ("cout", 0, 1) ∨ wn = ("s", 0, N)) := by
   constructor
   · rintro ⟨t, e, hp, hw⟩
-    obtain ⟨rfl, h⟩ := (plus_proc hN).mp hp
+    obtain ⟨rfl, h⟩ := (plus_proc hN hR).mp hp
     simp only [plusProc, Process2.assign.injEq] at h
     obtain ⟨rfl, rfl⟩ := h
-    rw [plus_wins hN] at hw
+    rw [plus_wins hN hR] at hw
     simpa using hw
   · rintro ⟨rfl, h⟩
-    exact ⟨_, _, plus_proc0 hN, by rw [plus_wins hN]; simpa using h⟩
+    exact ⟨_, _, plus_proc0 hN hR, by rw [plus_wins hN hR]; simpa using h⟩
 
 theorem plus_driven {n : String} : Driven (design.sem N) n ↔ n = "cout" ∨ n = "s" := by
   constructor
   · rintro ⟨i, lo, w, h⟩
-    rcases ((plus_writes hN).mp h).2 with h | h <;> simp only [Prod.mk.injEq] at h <;> simp [h.1]
+    rcases ((plus_writes hN hR).mp h).2 with h | h <;> simp only [Prod.mk.injEq] at h <;> simp [h.1]
   · rintro (rfl | rfl)
-    · exact ⟨0, 0, 1, (plus_writes hN).mpr ⟨rfl, Or.inl rfl⟩⟩
-    · exact ⟨0, 0, N, (plus_writes hN).mpr ⟨rfl, Or.inr rfl⟩⟩
+    · exact ⟨0, 0, 1, (plus_writes hN hR).mpr ⟨rfl, Or.inl rfl⟩⟩
+    · exact ⟨0, 0, N, (plus_writes hN hR).mpr ⟨rfl, Or.inr rfl⟩⟩
 
 end Table
 
@@ -254,69 +267,69 @@ end Table
 
 /-- **The comb profile** (every `N ≥ 1`): one assign whose concatenated target has two
 disjoint in-range windows on non-input signals. -/
-theorem plus_comb (N : Nat) (hN : 1 ≤ N) : CombDesign (design.sem N) where
+theorem plus_comb (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) : CombDesign (design.sem N) where
   nodup := by
-    rw [plus_sem_decls N hN]
+    rw [plus_sem_decls N hN hR]
     simp only [plusDecls, List.map_cons, List.map_nil]
     decide
   assign := by
     intro i p hp
-    obtain ⟨rfl, rfl⟩ := (plus_proc hN).mp hp
+    obtain ⟨rfl, rfl⟩ := (plus_proc hN hR).mp hp
     exact ⟨_, _, [("cout", 0, 1), ("s", 0, N)], rfl,
-      by simp [plusTarget, plus_declWidth_s hN, plus_declWidth_cout hN]⟩
+      by simp [plusTarget, plus_declWidth_s hN hR, plus_declWidth_cout hN hR]⟩
   inWidth := by
     intro i n lo w h
-    rcases ((plus_writes hN).mp h).2 with h | h <;> simp only [Prod.mk.injEq] at h <;>
+    rcases ((plus_writes hN hR).mp h).2 with h | h <;> simp only [Prod.mk.injEq] at h <;>
       obtain ⟨rfl, rfl, rfl⟩ := h
-    · exact ⟨_, plus_declWidth_cout hN, by omega⟩
-    · exact ⟨_, plus_declWidth_s hN, by omega⟩
+    · exact ⟨_, plus_declWidth_cout hN hR, by omega⟩
+    · exact ⟨_, plus_declWidth_s hN hR, by omega⟩
   notInput := by
     intro n hn
-    rw [plus_inputNames hN]
-    rcases (plus_driven hN).mp hn with rfl | rfl <;> decide
+    rw [plus_inputNames hN hR]
+    rcases (plus_driven hN hR).mp hn with rfl | rfl <;> decide
   disjoint := by
     intro i j wi wj hij hi hj
-    exact absurd (((plus_writes hN).mp hi).1.trans ((plus_writes hN).mp hj).1.symm) hij
+    exact absurd (((plus_writes hN hR).mp hi).1.trans ((plus_writes hN hR).mp hj).1.symm) hij
   selfDisjoint := by
     intro i t e hp
-    obtain ⟨-, h⟩ := (plus_proc hN).mp hp
+    obtain ⟨-, h⟩ := (plus_proc hN hR).mp hp
     simp only [plusProc, Process2.assign.injEq] at h
     obtain ⟨rfl, -⟩ := h
-    rw [plus_wins hN]
+    rw [plus_wins hN hR]
     simp [Win.overlaps]
   rhsFree := by
     intro i t e hp
-    obtain ⟨-, h⟩ := (plus_proc hN).mp hp
+    obtain ⟨-, h⟩ := (plus_proc hN hR).mp hp
     simp only [plusProc, Process2.assign.injEq] at h
     obtain ⟨-, rfl⟩ := h
     rfl
   rhsDeclared := by
     intro i t e hp
-    obtain ⟨-, h⟩ := (plus_proc hN).mp hp
+    obtain ⟨-, h⟩ := (plus_proc hN hR).mp hp
     simp only [plusProc, Process2.assign.injEq] at h
     obtain ⟨-, rfl⟩ := h
-    rw [plus_sem_decls N hN]
+    rw [plus_sem_decls N hN hR]
     simp [Expr2.idents, plusRhs, plusDecls]
   initWidth := by
     intro n _ dc hdc _ v hv
-    rw [plus_sem_decls N hN] at hdc
+    rw [plus_sem_decls N hN hR] at hdc
     simp [plusDecls] at hdc
     rcases hdc with rfl | rfl | rfl | rfl | rfl <;> cases hv
   inFourState := by
     intro dc hdc _
-    rw [plus_sem_decls N hN] at hdc
+    rw [plus_sem_decls N hN hR] at hdc
     simp [plusDecls] at hdc
     rcases hdc with rfl | rfl | rfl | rfl | rfl <;> rfl
 
 /-- The one process reads only the inputs, which nothing writes (any rank works). -/
-theorem plus_acyclic (N : Nat) (hN : 1 ≤ N) : Acyclic (design.sem N) := by
+theorem plus_acyclic (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) : Acyclic (design.sem N) := by
   refine ⟨fun _ => 0, ?_⟩
   intro i j ti ei tj ej wj hi hj hw hex
   exfalso
-  obtain ⟨-, h⟩ := (plus_proc hN).mp hi
+  obtain ⟨-, h⟩ := (plus_proc hN hR).mp hi
   simp only [plusProc, Process2.assign.injEq] at h
   obtain ⟨-, rfl⟩ := h
-  have hWj := ((plus_writes hN).mp ⟨tj, ej, hj, hw⟩).2
+  have hWj := ((plus_writes hN hR).mp ⟨tj, ej, hj, hw⟩).2
   obtain ⟨r, hr, hov⟩ := hex
   simp only [plusRhs, Expr2.reads, List.cons_append, List.nil_append, List.mem_cons,
     List.not_mem_nil, or_false] at hr
@@ -377,7 +390,7 @@ theorem sum1_carry {N : Nat} (x y : BitVec N) (ci : Bool) :
 /-- **One settled state**: in any state that solves the design's equations and has the comb
 shape, known inputs `x y : BitVec N`, `ci : Bool` on `a b cin` give `x + y + ci` (mod `2^N`)
 on `s` and the carry out `2^N ≤ x + y + ci` on `cout`. -/
-theorem plus_settled {N : Nat} (hN : 1 ≤ N) {st : SvState}
+theorem plus_settled {N : Nat} (hN : 1 ≤ N) (hR : N < 2 ^ 20) {st : SvState}
     (heqs : CombEqs (design.sem N) st) (hs : StateShape (design.sem N) st)
     {x y : BitVec N} {ci : Bool}
     (ha : SvState.lookup st "a" = some (LVec.ofBitVec x))
@@ -390,11 +403,11 @@ theorem plus_settled {N : Nat} (hN : 1 ≤ N) {st : SvState}
       (x.setWidth (N + 1) + y.setWidth (N + 1) + (BitVec.ofBool ci).setWidth (N + 1))) := by
     sv2_known [plusRhs, ha, hb, hc]
   have htot : Win.sumWidth (plusTarget.wins (design.sem N)) = N + 1 := by
-    rw [plus_wins hN]; simp; omega
-  have hS := CombEqs.concat_part_ident (plus_comb N hN) heqs hs (plus_proc0 hN) hv
-    (n := "s") (w := N) (off := 0) (by rw [plus_wins hN]; simp) (plus_declWidth_s hN)
-  have hCO := CombEqs.concat_part_ident (plus_comb N hN) heqs hs (plus_proc0 hN) hv
-    (n := "cout") (w := 1) (off := N) (by rw [plus_wins hN]; simp) (plus_declWidth_cout hN)
+    rw [plus_wins hN hR]; simp; omega
+  have hS := CombEqs.concat_part_ident (plus_comb N hN hR) heqs hs (plus_proc0 hN hR) hv
+    (n := "s") (w := N) (off := 0) (by rw [plus_wins hN hR]; simp) (plus_declWidth_s hN hR)
+  have hCO := CombEqs.concat_part_ident (plus_comb N hN hR) heqs hs (plus_proc0 hN hR) hv
+    (n := "cout") (w := 1) (off := N) (by rw [plus_wins hN hR]; simp) (plus_declWidth_cout hN hR)
   rw [htot, LVec.resizeU_ofBitVec, BitVec.setWidth_eq] at hS hCO
   rw [LVec.extract_ofBitVec _ (by omega), sum1_low] at hS
   rw [LVec.extract_one_ofBitVec _ (by omega), sum1_carry] at hCO
@@ -429,23 +442,24 @@ theorem carry_eq_ofNat {N : Nat} (t : Nat) (ht : t < 2 * 2 ^ N) :
     simp [h, hq]
 
 /-- The interface: inputs `a b : N`, `cin : 1`; outputs `s : N`, `cout : 1`. -/
-theorem add_interface (N : Nat) (hN : 1 ≤ N) :
+theorem add_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     SvGolf.Tasks.Add.task.Interface N (design.sem N) := by
-  simp [CombTask.Interface, inputPorts, outputPorts, plus_sem_decls N hN, plusDecls,
+  simp [CombTask.Interface, inputPorts, outputPorts, plus_sem_decls N hN hR, plusDecls,
     SvGolf.Tasks.Add.task]
 
 /-- **The `add` statement for `plus.sv`**, for every `N` in the task's range. -/
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  refine CombTask.satisfiedAt_of_comb (add_interface N hN') (plus_comb N hN')
-    (plus_acyclic N hN') ?_
+  have hR : N < 2 ^ 20 := hN.2
+  refine CombTask.satisfiedAt_of_comb (add_interface N hN' hR) (plus_comb N hN' hR)
+    (plus_acyclic N hN' hR) ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ci, ⟨⟩⟩ := v
   obtain ⟨c0, rfl⟩ : ∃ c0, ci = BitVec.ofBool c0 := ⟨_, bv1_eq_ofBool ci⟩
   simp only [SvGolf.Tasks.Add.task, HoldAll_cons, HoldAll_nil, and_true] at hv ⊢
   obtain ⟨ha, hb, hc⟩ := hv
-  obtain ⟨hs', hco⟩ := plus_settled hN' heqs hs ha hb hc
+  obtain ⟨hs', hco⟩ := plus_settled hN' hR heqs hs ha hb hc
   have ht : x.toNat + y.toNat + c0.toNat < 2 * 2 ^ N := by
     have : x.toNat < 2 ^ N := x.isLt
     have : y.toNat < 2 ^ N := y.isLt

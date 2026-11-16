@@ -1,5 +1,6 @@
 import Submission.Design
 import LeanModels.Sv.Gen2
+import SvGolf.Cycle
 import LeanModels.Sv.Hier2Gen
 import LeanModels.Sv.Known2
 import LeanModels.Sv.Mono2
@@ -90,93 +91,6 @@ def rrD (N : Nat) : Design2 where
   decls := (rrDeclsW N).toArray
   processes := #[combP N, ffP N]
 
-def rrScope (N : Int) : IEnv := { vals := [("N", N)], pwidths := [("N", 32)] }
-
-def rrEnv (N : Int) : IEnv := { rrScope N with dims := dimTable (rrScope N) design.pdesign.decls }
-
-theorem rr_paramEnv (N : Int) : design.pdesign.paramEnv2 [N] = .ok (rrEnv N) := rfl
-
-def rrElems : List (String × Nat) := ["clk", "rst", "req", "gnt", "mask", "mreq", "pick"].map (·, 1)
-
-theorem rr_decls (N : Int) :
-    buildDecls (rrEnv N) design.pdesign.decls = .ok (rrDeclsW ((N - 1).natAbs + 1)) := by
-  simp [design.pdesign, buildDecls, instDecl, PType.width_packed_cons, PDim.width, evalInt,
-    rrEnv, rrScope, List.lookup, rrDeclsW, Gen2.except_ok_bind]
-
-theorem rr_elems (N : Int) : buildElems (rrEnv N) design.pdesign.decls = .ok rrElems := by
-  simp [design.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, rrEnv,
-    rrScope, List.lookup, rrElems, Gen2.except_ok_bind]
-
-/-- The instantiation environment. -/
-abbrev rrE (N : Nat) : IEnv := (rrEnv N).withDecls (rrDeclsW N)
-
-/-- The source bodies of the two processes. -/
-def combT : PStmt := match design.pdesign.processes with
-  | [.alwaysComb b, _] => b
-  | _ => .block []
-
-def ffT : PStmt := match design.pdesign.processes with
-  | [_, .alwaysFF _ b] => b
-  | _ => .block []
-
-theorem rr_procs_src : design.pdesign.processes = [.alwaysComb combT, .alwaysFF "clk" ffT] := rfl
-
-/-- `x != '0` lowers at the width of `x` (the fill takes the comparison's width). Stated with the
-width lookup itself, so that `sv2_inst_simp` meets no `max` of a width and the fill's none. -/
-theorem inst_ne_fill (E : IEnv) (el : List (String × Nat)) (n : String) (b : Logic) :
-    instExpr2 E el none (.binary (.m0 .ne) (.ident n) (.fill b)) =
-      .binary .ne (fitExpr2 E el (E.widths.lookup n) (.ident n))
-        (fitExpr2 E el (E.widths.lookup n) (.fill b)) := by
-  simp only [instExpr2, selfWidth2]
-  cases E.widths.lookup n <;> rfl
-
-macro "rr_inst_simp" : tactic => `(tactic| sv2_inst_simp [↓ inst_ne_fill, evalSized, ctype, evalAt,
-  ctypeList, evalAtList, SymBinOp.constClass, PExpr.pushedTarget, PExpr.readsSignal, PExpr.readsSignalList,
-  Gen2.except_pure, instStmt2, instStmts2, design.pdesign, rrEnv, rrScope, rrDeclsW, rrElems, combT, ffT,
-  combBody, ffBody, dimTable, dimTableStep, PType.width_packed_cons, PDim.width, ctxOpWidth2, rigidMax2,
-  PExpr.ctxPropagates, PExpr.constLeaf, PExpr.negGenvarWidened, LVec.width, divOperandWidth2,
-  instDivOperand2, fitDivOperand2, *])
-
-theorem comb_inst (N : Nat) (hN : 1 ≤ N) : instStmt2 (rrE N) rrElems combT = combBody N := by
-  have h0 : (0 : Int) < N := by omega
-  rr_inst_simp
-  try and_intros
-  all_goals first | rfl | (change fitExpr2 _ _ (some N) _ = _; rr_inst_simp) | skip
-
-theorem ff_inst (N : Nat) (hN : 1 ≤ N) : instStmt2 (rrE N) rrElems ffT = ffBody N := by
-  have h0 : (0 : Int) < N := by omega
-  rr_inst_simp
-  try and_intros
-  all_goals first | rfl | (change fitExpr2 _ _ (some N) _ = _; rr_inst_simp) | skip
-
-/-- The comb block's self-read guard admits the body at every `N` (every read the walk compares is
-on another signal than the bits written after it). -/
-theorem comb_admits (N : Nat) : (combBody N).combAdmits (fun n => (rrE N).widths.lookup n) = true := by
-  simp [Stmt2.combAdmits, combBody, Stmt2.combViol, Stmt2.listCombViol, Stmt2.mayW,
-    Stmt2.listMayW, Stmt2.mustW, Lhs2.mayW, Lhs2.mustW, Lhs2.rdW, Expr2.rdW, CombGuard.readsViol,
-    CombGuard.whole, CombGuard.BWin.inter, CombGuard.BWin.sub, CombGuard.BWin.subAll, List.lookup,
-    rrDeclsW]
-
-theorem rr_static (N : Nat) (hN : 1 ≤ N) :
-    design.pdesign.processes.map (instProcess2 (rrE N) rrElems) = [combP N, ffP N] := by
-  rw [rr_procs_src]
-  simp only [List.map_cons, List.map_nil, instProcess2, comb_inst N hN, ff_inst N hN,
-    combGuardProc_of_admits (comb_admits N), combP, ffP]
-
-theorem rr_instantiate2 (N : Nat) (hN : 1 ≤ N) :
-    design.pdesign.instantiate2 [(N : Int)] (PDesign.surfaceFuel [(N : Int)]) =
-      .ok (design.pdesign.assemble2 (rrEnv N) (rrDeclsW N) rrElems []) := by
-  have hd := rr_decls N
-  rw [Lib.natAbs_sub_one_add_one hN] at hd
-  exact PDesign.instantiate2_of_ok rfl (rr_paramEnv _) hd (rr_elems _)
-    (by simp [design.pdesign])
-
-theorem rr_processes (N : Nat) (hN : 1 ≤ N) :
-    (design.pdesign.instantiateD2 [(N : Int)]).processes.toList = [combP N, ffP N] := by
-  rw [PDesign.instantiateD2_of_ok (rr_instantiate2 N hN), PDesign.assemble2_processes,
-    rr_static N hN]
-  simp [design.pdesign]
-
 theorem rr_driversOk (N : Nat) :
     driversOk design.pdesign.declNames design.pdesign.inputNames [combP N, ffP N] = true := by
   first
@@ -186,14 +100,27 @@ theorem rr_driversOk (N : Nat) :
       Lhs2.drvWins, combP, combBody, ffP, ffBody, design.pdesign, PDesign.declNames, PDesign.inputNames]; done)
   | rfl
 
-/-- **The loaded family is `rrD`**, at every `N ≥ 1`. -/
-theorem rr_sem_eq (N : Nat) (hN : 1 ≤ N) : design.sem N = rrD N := by
-  have h1 : design.sem N = design.pdesign.instantiateD2 [(N : Int)] := by
-    show design.pdesign.instantiateGD2 [(N : Int)] = _
-    exact PDesign.instantiateGD2_of_driversOk (by rw [rr_processes N hN]; exact rr_driversOk N)
-  rw [h1, PDesign.instantiateD2_of_ok (rr_instantiate2 N hN)]
-  simp only [PDesign.assemble2, rr_static N hN, rrD]
-  simp [design.pdesign]
+/-- (port) The exact 32-bit `int` instantiation: the parameter below `2^31`. -/
+abbrev Rng32 (N : Nat) : Prop := N < 2147483648
+
+/-- (port) The statement's range gives it. -/
+theorem rng32_of {N : Nat} (hN : 1 ≤ N) (hNN : N * N < 2 ^ 31) : Rng32 N := by
+  have := Nat.le_mul_of_pos_right N hN
+  show N < 2147483648
+  omega
+
+-- (port) The instantiation, generated.
+sv_mirror rrG := design (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
+
+/-- (port) The generated mirror is the hand-built one. -/
+theorem rrG_D (N : Nat) : rrG.D N = rrD N := by
+  simp [rrG.D, rrD, rrG.decls, rrDeclsW, rrG.procs, rrG.p0, combP, combBody, rrG.p1, ffP, ffBody, z0, z1, one1]
+
+/-- **The loaded family is `rrD`**, at every `N ≥ 1` below `2^31`. -/
+theorem rr_sem_eq (N : Nat) (hN : 1 ≤ N) (hR32 : Rng32 N) : design.sem N = rrD N :=
+  SvGolf.Cycle.sem_eq_of_mirror (rrG.instantiate N hN hR32) (rrG_D N) (by simpa [rrD] using rr_driversOk N)
+    (SvGolf.Cycle.aliasGuard_of_allNotAssign (by simp [rrD, combP, ffP, SvGolf.Cycle.notAssign]))
+
 
 /-! ## 2. One cycle, in closed form (any values, `x` included) -/
 
@@ -532,14 +459,14 @@ theorem pick_grants {N : Nat} (x mk : BitVec N) : Tasks.Arbiter.Grants x (RoundR
     fun hx h => hx (RoundRobin.pick_eq_zero.1 h)⟩
 
 /-- **The rank model** of the reference at `N`, with the response bound `N - 1`. -/
-noncomputable def model (N : Nat) (hN : 1 ≤ N) :
+noncomputable def model (N : Nat) (hN : 1 ≤ N) (hR32 : Rng32 N) :
     Tasks.Arbiter.task.RankModel N (N - 1) (design.sem N) where
   Shape := Shp N
   Step := Stp N
-  init := by rw [rr_sem_eq N hN]; exact rr_init N
+  init := by rw [rr_sem_eq N hN hR32]; exact rr_init N
   cycle := by
     rintro σ F e prev k st k' ⟨ck, r, q, g, m, mr, pk, rfl, hw⟩ hc
-    rw [rr_sem_eq N hN] at hc
+    rw [rr_sem_eq N hN hR32] at hc
     obtain ⟨k2, h2⟩ := rr_cycle N σ e ck r q g m mr pk k 64 (Nat.le_refl _)
     exact ⟨ck, r, q, g, m, mr, pk, rfl, hw, (Prod.mk.inj (cycleStep2_det hc h2)).1⟩
   shape := by
@@ -591,8 +518,8 @@ noncomputable def model (N : Nat) (hN : 1 ≤ N) :
 
 /-! ## 6. Structure, and the statement -/
 
-theorem rr_interface (N : Nat) (hN : 1 ≤ N) : Tasks.Arbiter.task.Interface N (design.sem N) := by
-  rw [rr_sem_eq N hN]
+theorem rr_interface (N : Nat) (hN : 1 ≤ N) (hR32 : Rng32 N) : Tasks.Arbiter.task.Interface N (design.sem N) := by
+  rw [rr_sem_eq N hN hR32]
   exact ⟨rfl, rfl, by show (["clk", "rst", "req", "gnt", "mask", "mreq", "pick"] : List String).Nodup; decide⟩
 
 theorem rr_moore (N : Nat) : MooreOut (rrD N) := by
@@ -601,8 +528,8 @@ theorem rr_moore (N : Nat) : MooreOut (rrD N) := by
   · simp [rrD, combP, combBody, ffP, ffBody, Process2.isCombPhase, processTargets, stmtTargets, stmtListTargets,
       stmtOptTargets, lhsTargets, Design2.outputNames, rrDeclsW]
 
-theorem rr_disciplined (N : Nat) (hN : 1 ≤ N) : Tasks.Arbiter.task.Disciplined (design.sem N) := by
-  rw [rr_sem_eq N hN]
+theorem rr_disciplined (N : Nat) (hN : 1 ≤ N) (hR32 : Rng32 N) : Tasks.Arbiter.task.Disciplined (design.sem N) := by
+  rw [rr_sem_eq N hN hR32]
   refine ⟨⟨by simp [Tasks.Arbiter.task, rrD, rrDeclsW, Design2.inputNames], fun p hp => ?_⟩, rr_moore N⟩
   have hm : p = combP N ∨ p = ffP N := by simpa [rrD] using hp
   rcases hm with rfl | rfl <;>
@@ -626,8 +553,8 @@ theorem rr_powerUp (N : Nat) : ∀ st, PowerUp (rrD N) st → Shp N st := by
   obtain rfl := powerUp_nil.mp h7
   exact ⟨ck, r, q, g, m, mr, pk, rfl, hg, hm, hmr, hpk⟩
 
-theorem rr_terminates (N : Nat) (hN : 1 ≤ N) : TerminatesPU (design.sem N) := by
-  rw [rr_sem_eq N hN]
+theorem rr_terminates (N : Nat) (hN : 1 ≤ N) (hR32 : Rng32 N) : TerminatesPU (design.sem N) := by
+  rw [rr_sem_eq N hN hR32]
   refine TerminatesPU.of_invariant (Shp N) (rr_powerUp N) (fun σ => ⟨64, ?_⟩) ?_
   · rintro e _ kk ⟨ck, r, q, g, m, mr, pk, rfl, hg, hm, hmr, hpk⟩
     obtain ⟨k', h⟩ := rr_cycle N σ e ck r q g m mr pk kk 64 (Nat.le_refl _)
@@ -644,18 +571,19 @@ theorem one1_width : one1.width = 1 := rfl
 
 /-- **Rule 3**: no construct of the design can create an `x` from known operands (every operand
 pair of `&`, `!=`, `?:` has one width; no division, no dynamic index). -/
-theorem rr_xsafe (N : Nat) (hN : 1 ≤ N) : XSafe (design.sem N) := by
-  rw [rr_sem_eq N hN]
+theorem rr_xsafe (N : Nat) (hN : 1 ≤ N) (hR32 : Rng32 N) : XSafe (design.sem N) := by
+  rw [rr_sem_eq N hN hR32]
   simp [XSafe, xsafeB, rrD, rrDeclsW, combP, ffP, combBody, ffBody, xsProc, xsStmt, xsStmts, xsOpt,
     xsLhs, xsWidth, binW, sigWidth, ofInt_one, one1_allKnown, one1_width]
 
 /-- **The reference satisfies the arbiter statement**, at every `N` in range. -/
 theorem solution : Goal := by
   intro N hN
-  obtain ⟨hN1, -⟩ := hN
-  exact Tasks.Arbiter.task.satisfiedAt_of_rank (rr_interface N hN1) (rr_disciplined N hN1)
-    (rr_terminates N hN1) (model N hN1)
-    (fun st h => rr_powerUp N st (by rw [rr_sem_eq N hN1] at h; exact h)) (rr_xsafe N hN1)
+  obtain ⟨hN1, hNN⟩ := hN
+  have hR32 : Rng32 N := rng32_of hN1 hNN
+  exact Tasks.Arbiter.task.satisfiedAt_of_rank (rr_interface N hN1 hR32) (rr_disciplined N hN1 hR32)
+    (rr_terminates N hN1 hR32) (model N hN1 hR32)
+    (fun st h => rr_powerUp N st (by rw [rr_sem_eq N hN1 hR32] at h; exact h)) (rr_xsafe N hN1 hR32)
 
 /--
 info: 'Submission.solution' depends on axioms: [propext, Classical.choice, Quot.sound]

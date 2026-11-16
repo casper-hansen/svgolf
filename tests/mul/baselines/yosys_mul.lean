@@ -34,13 +34,13 @@ open LeanModels.Sv LeanModels.Sv.CombView LeanModels.Sv.CombLib LeanModels.Sv.Co
 /-! ## 1. Structure and ports -/
 
 /-- `CombDesign` and `Acyclic` for every `N ≥ 1`: one site, so any constant rank orders its reads. -/
-theorem yosys_struct (N : Nat) (_hN : 1 ≤ N) :
+theorem yosys_struct (N : Nat) (_hN : 1 ≤ N) (_hR : N < 2 ^ 20) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) ∧ SharedObl design.pdesign [N] := by
   sv_structure (rank := rippleRank (fun _ => 0) (fun _ _ _ => 0))
   all_goals (intros; omega)
 
 /-- The task's interface: exactly the ports `a`, `b` (`N` bits) and `p` (`2N` bits). -/
-theorem yosys_interface (N : Nat) (_hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
+theorem yosys_interface (N : Nat) (_hN : 1 ≤ N) (_hR : N < 2 ^ 20) (hc : CombDesign (design.sem N)) :
     SvGolf.Tasks.Mul.task.Interface N (design.sem N) := by
   sv_interface
 
@@ -71,12 +71,13 @@ theorem yosys_final {W W2 N : Nat} (hW : W = N) (hW2 : W2 = 2 * N) {st : SvState
 
 /-! ## 3. The statement -/
 
-/-- **`assign p = a * b;` meets the `mul` statement, for every `N` with `1 ≤ N < 2^30`.** -/
+/-- **`assign p = a * b;` meets the `mul` statement, for every `N` with `1 ≤ N < 2^20`.** -/
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha, hso⟩ := yosys_struct N hN'
-  refine CombTask.satisfiedAt_of_comb (yosys_interface N hN' hc) hc ha ?_
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨hc, ha, hso⟩ := yosys_struct N hN' hR
+  refine CombTask.satisfiedAt_of_comb (yosys_interface N hN' hR hc) hc ha ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ⟨⟩⟩ := v
   simp only [SvGolf.Tasks.Mul.task, HoldAll_cons, HoldAll_nil, and_true] at hv ⊢

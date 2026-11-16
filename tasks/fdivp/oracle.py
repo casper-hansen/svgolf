@@ -2,7 +2,7 @@
 (`W + P`-bit patterns), round to nearest even, every NaN result the canonical quiet NaN, full subnormals
 (README.md, task.json `oracle`).
 
-NOT part of the trusted statement (`Spec.lean`, `IEEE754.lean` are): a convenience that lets `check.py` tell a
+NOT part of the trusted statement (`Spec.lean` is, with the IEEE 754 division of Proglib's library it names): a convenience that lets `check.py` tell a
 contestant, before any proof, that their design computes something else. It is an INDEPENDENT implementation of the
 spec in exact rational arithmetic (`fractions.Fraction`, no floating point and no code from `spec_validate/`), for ANY
 format: `fdiv(w, p, a, b)`. It was compared with the repository's `div_hw16` (binary16) and with the C transliteration

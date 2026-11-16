@@ -67,7 +67,7 @@ def mulKey (N : Nat) : SiteId → Key
 set_option maxHeartbeats 400000 in
 /-- `CombDesign` and `Acyclic` for every `N ≥ 1`, from the lexicographic key: ONE application of the
 soundness theorem and one round of obligations for both. -/
-theorem mul_struct (N : Nat) (hN : 1 ≤ N) :
+theorem mul_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     CombDesign (design.sem N) ∧ Acyclic (design.sem N) ∧ SharedObl design.pdesign [N] := by
   sv_structure (lexRank := mulKey N)
   all_goals (intros; sv_rowmajor; omega)
@@ -75,7 +75,7 @@ theorem mul_struct (N : Nat) (hN : 1 ≤ N) :
 /-! ## 2. The ports (the task's `Interface`) -/
 
 /-- The task's interface: exactly the ports `a`, `b` (`N` bits) and `p` (`2N` bits). -/
-theorem mul_interface (N : Nat) (hN : 1 ≤ N) (hc : CombDesign (design.sem N)) :
+theorem mul_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) (hc : CombDesign (design.sem N)) :
     SvGolf.Tasks.Mul.task.Interface N (design.sem N) := by
   sv_interface
 
@@ -86,8 +86,9 @@ set_option maxHeartbeats 400000 in
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨hc, ha, hso⟩ := mul_struct N hN'
-  refine CombTask.satisfiedAt_of_comb (mul_interface N hN' hc) hc ha ?_
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨hc, ha, hso⟩ := mul_struct N hN' hR
+  refine CombTask.satisfiedAt_of_comb (mul_interface N hN' hR hc) hc ha ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ⟨⟩⟩ := v
   simp only [SvGolf.Tasks.Mul.task, HoldAll_cons, HoldAll_nil, and_true] at hv ⊢

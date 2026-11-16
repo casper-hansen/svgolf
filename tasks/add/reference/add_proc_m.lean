@@ -34,7 +34,7 @@ theorem lowerComb_decls {d d' : Design2} (h : d.lowerComb = some d') : d'.decls 
     rw [← h]
 
 /-- **The task's statement for a design that lowers**: the interface of the design, the comb profile and
-acyclicity of its lowering, no qualified `case` in the design (`hnq`, from `NoQ.sem_noQ`), and ONE settled-state
+acyclicity of its lowering, no qualified `case` in the design (`hnq`, from `NoQ.semAlias_noQ`), and ONE settled-state
 lemma about the lowering give `SatisfiedAt`. -/
 theorem satisfiedAt_of_lowered {t : CombTask} {N : Nat} {d d' : Design2}
     (hI : t.Interface N d) (hl : d.lowerComb = some d') (hd : CombDesign d') (ha : Acyclic d')
@@ -58,7 +58,7 @@ theorem satisfiedAt_of_lowered {t : CombTask} {N : Nat} {d d' : Design2}
 /-- `CombDesign` and `Acyclic` of the lowered design for every `N ≥ 1`, from ONE round of obligations: the
 rank is the player's. `p[i]` has rank 0, the carry cell and the sum cell of bit `i` rank `i + 1`, the
 carry-out `N + 1`. -/
-theorem add_struct (N : Nat) (hN : 1 ≤ N) :
+theorem add_struct (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) :
     ∃ d', (design.sem N).lowerComb = some d' ∧ CombDesign d' ∧ Acyclic d' := by
   sv_structure (rank := rippleRank (fun p => if p = 0 then 0 else N + 1)
     (fun _ pos i => if pos = 0 then 0 else i.toNat + 1))
@@ -66,7 +66,7 @@ theorem add_struct (N : Nat) (hN : 1 ≤ N) :
 
 /-! ## 2. The ports (the task's `Interface`) -/
 
-theorem add_interface (N : Nat) (hN : 1 ≤ N) {d'} (hl : (design.sem N).lowerComb = some d') :
+theorem add_interface (N : Nat) (hN : 1 ≤ N) (hR : N < 2 ^ 20) {d'} (hl : (design.sem N).lowerComb = some d') :
     SvGolf.Tasks.Add.task.Interface N (design.sem N) := by
   sv_interface
 
@@ -137,8 +137,9 @@ theorem add_final {N : Nat} {st : SvState} {x y : BitVec N} {c0 : Bool}
 theorem solution : Goal := by
   intro N hN
   have hN' : 1 ≤ N := hN.1
-  obtain ⟨d', hl, hc, ha⟩ := add_struct N hN'
-  refine satisfiedAt_of_lowered (add_interface N hN' hl) hl hc ha (NoQ.sem_noQ (by decide) _) ?_
+  have hR : N < 2 ^ 20 := hN.2
+  obtain ⟨d', hl, hc, ha⟩ := add_struct N hN' hR
+  refine satisfiedAt_of_lowered (add_interface N hN' hR hl) hl hc ha (NoQ.semAlias_noQ (d := design.pdesign) (by decide) _) ?_
   intro st heqs hs v hv
   obtain ⟨x, y, ci, ⟨⟩⟩ := v
   obtain ⟨c0, rfl⟩ : ∃ c0, ci = BitVec.ofBool c0 := ⟨_, bv1_eq_ofBool ci⟩

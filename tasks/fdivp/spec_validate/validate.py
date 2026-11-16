@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Differential validation of svgolf/tasks/fdivp/IEEE754.lean (Python 3 standard library only).
+"""Differential validation of the IEEE 754 division the fdivp statement names: Proglib's
+`LeanModels.SoftFloat.Binary.divide` (until 2026-11-14 the task's own copy, `tasks/fdivp/IEEE754.lean`)
+(Python 3 standard library only).
 
 Implementations compared, vector by vector, on bit patterns:
-  spec  -- SvGolf.IEEE754.divide, evaluated by Run.lean (`lean --run`)
+  spec  -- LeanModels.SoftFloat.Binary.divide, evaluated by Run.lean (`lean --run`)
   core  -- Lean core's logical float model Float.Model.UnpackedFloat.div (roundTiesToEven),
            an independent implementation that ships with the toolchain
   A     -- oracle.div_exact: exact Fraction arithmetic, any format, all five modes
@@ -70,8 +72,8 @@ class Lean:
         self.evals = 0
 
     def build(self):
-        """Build the spec module (`tasks.fdivp.IEEE754`) in the svgolf Lake project for Run.lean."""
-        cmd = self.wrap + ["lake", "build", "tasks.fdivp.IEEE754"]
+        """Build the library module (`LeanModels.SoftFloat.Binary.Defs`) in the svgolf Lake project for Run.lean."""
+        cmd = self.wrap + ["lake", "build", "LeanModels.SoftFloat.Binary.Defs"]
         log("$", " ".join(cmd))
         subprocess.run(cmd, cwd=SVGOLF, check=True)
 

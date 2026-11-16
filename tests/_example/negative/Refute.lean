@@ -26,7 +26,9 @@ The kernel cannot evaluate `PDesign.instantiate2` itself (the declaration
 width stage does not reduce), so each design is first instantiated at
 `N = 1` by the symbolic route of the reference proof (`sem1_eq`,
 `decls1_eq`: `PDesign.instantiate2_of_ok`, `simp` on the stages), and only
-the run of the resulting hand-readable `Design2` is evaluated.
+the run of the resulting hand-readable `Design2` is evaluated. `X.sem` is the
+alias-guarded family (`PDesign.instantiateGDAlias2`: the guard touches
+`always_comb` processes only, and these designs have none).
 
 The designs are loaded with `load_sv` (`SvGolf/LoadSv.lean`): extracted at
 elaboration time by svGolf's one extraction path (the source gate, then the
@@ -46,10 +48,14 @@ load_sv readsX from "tests/_example/negative/reads_x.sv"
 
 /-! ## Instantiation at `N = 1` -/
 
-/-- The parameter environment at `N = 1` (an `int` parameter `N`). -/
+/-- The declaration scope at `N = 1`: an `int` parameter `N`, bound in the exact 32-bit instantiation
+(`paramEnv2` runs with `int32 := true`, so `N` is in `nvals` at its signed 32-bit value). -/
+def scopeAt1 : IEnv :=
+  { nvals := [("N", (1, 32, true))], pwidths := [("N", 32)], int32 := true }
+
+/-- The parameter environment at `N = 1`, with the packed-array geometry table. -/
 def envAt1 (pd : PDesign) : IEnv :=
-  { vals := [("N", 1)], pwidths := [("N", 32)],
-    dims := dimTable { vals := [("N", 1)], pwidths := [("N", 32)] } pd.decls }
+  { scopeAt1 with dims := dimTable scopeAt1 pd.decls }
 
 /-- The declarations of `pd.instantiateGD2 [1]` (no generate items): the
 driver guard keeps the declarations. -/
@@ -100,14 +106,16 @@ def orD : Design2 :=
     processes := #[.assign (.ident "y") (.binary .or (.ident "a") (.ident "b"))] }
 
 theorem orGate_sem1 : orGate.sem 1 = orD := by
-  show orGate.pdesign.instantiateGD2 [1] = _
-  refine (sem1_eq (elems := elems1 ["a", "b", "y"]) rfl rfl ?_ ?_ rfl ?_ rfl (by decide)).trans rfl
+  show (orGate.pdesign.instantiateGD2 [1]).aliasGuard = _
+  rw [sem1_eq (elems := elems1 ["a", "b", "y"]) (decls := abyDecls) (procs := orD.processes.toList)
+    rfl rfl ?_ ?_ rfl ?_ rfl (by decide)]
+  · exact (Design2.aliasGuard_of_noComb fun p hp b => by simp [orD] at hp; subst hp; simp).trans rfl
   · simp [orGate.pdesign, buildDecls, instDecl, PType.width_packed_cons, PDim.width, evalInt,
-      envAt1, List.lookup, abyDecls, Gen2.except_ok_bind]
-  · simp [orGate.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, envAt1,
+      envAt1, scopeAt1, List.lookup, abyDecls, Gen2.except_ok_bind]
+  · simp [orGate.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, envAt1, scopeAt1,
       List.lookup, elems1, Gen2.except_ok_bind]
-  · sv2_inst_simp [orGate.pdesign, envAt1, abyDecls, elems1, dimTable, dimTableStep,
-      PType.width_packed_cons, PDim.width]
+  · sv2_inst_simp [orGate.pdesign, envAt1, scopeAt1, abyDecls, elems1, dimTable, dimTableStep,
+      PType.width_packed_cons, PDim.width, orD]
 
 /-- `y = a | b` is not `a &&& b`: at `N = 1`, `a = 1`, `b = 0` the snapshot
 has `y = 1`. -/
@@ -128,14 +136,16 @@ def readsXD : Design2 :=
       (.binary .and (.binary .and (.ident "a") (.ident "b")) (.unary .bnot (.ident "z")))] }
 
 theorem readsX_sem1 : readsX.sem 1 = readsXD := by
-  show readsX.pdesign.instantiateGD2 [1] = _
-  refine (sem1_eq (elems := elems1 ["a", "b", "y", "z"]) rfl rfl ?_ ?_ rfl ?_ rfl (by decide)).trans rfl
+  show (readsX.pdesign.instantiateGD2 [1]).aliasGuard = _
+  rw [sem1_eq (elems := elems1 ["a", "b", "y", "z"]) (decls := readsXD.decls.toList)
+    (procs := readsXD.processes.toList) rfl rfl ?_ ?_ rfl ?_ rfl (by decide)]
+  · exact (Design2.aliasGuard_of_noComb fun p hp b => by simp [readsXD] at hp; subst hp; simp).trans rfl
   · simp [readsX.pdesign, buildDecls, instDecl, PType.width_packed_cons, PDim.width, evalInt,
-      envAt1, List.lookup, abyDecls, Gen2.except_ok_bind]
-  · simp [readsX.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, envAt1,
+      envAt1, scopeAt1, List.lookup, abyDecls, readsXD, Gen2.except_ok_bind]
+  · simp [readsX.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, envAt1, scopeAt1,
       List.lookup, elems1, Gen2.except_ok_bind]
-  · sv2_inst_simp [readsX.pdesign, envAt1, abyDecls, elems1, dimTable, dimTableStep,
-      PType.width_packed_cons, PDim.width, rigidMax2, selfWidth2]
+  · sv2_inst_simp [readsX.pdesign, envAt1, scopeAt1, abyDecls, elems1, dimTable, dimTableStep,
+      PType.width_packed_cons, PDim.width, rigidMax2, selfWidth2, readsXD]
 
 /-- An undriven net reads `x`: at `N = 1`, `a = b = 1`, `y = 1 & 1 & ~x = x`. -/
 theorem readsX_refuted : ¬ Statement readsX.sem :=
@@ -151,11 +161,12 @@ theorem wideOut_decls1 :
     (wideOut.sem 1).decls.toList =
       [{ name := "a", width := 1, isInput := true }, { name := "b", width := 1, isInput := true },
        { name := "y", width := 2, isOutput := true }] := by
-  show (wideOut.pdesign.instantiateGD2 [1]).decls.toList = _
+  show ((wideOut.pdesign.instantiateGD2 [1]).aliasGuard).decls.toList = _
+  rw [Design2.aliasGuard_decls]
   refine decls1_eq (elems := elems1 ["a", "b", "y"]) rfl rfl ?_ ?_ rfl
   · simp [wideOut.pdesign, buildDecls, instDecl, PType.width_packed_cons, PDim.width, evalInt,
-      envAt1, List.lookup, Gen2.except_ok_bind]
-  · simp [wideOut.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, envAt1,
+      envAt1, scopeAt1, List.lookup, Gen2.except_ok_bind]
+  · simp [wideOut.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, envAt1, scopeAt1,
       List.lookup, elems1, Gen2.except_ok_bind]
 
 /-- An `N+1`-bit output port fails the interface: at `N = 1` the output
@@ -171,11 +182,12 @@ theorem extraIn_decls1 :
     (extraIn.sem 1).decls.toList =
       [{ name := "a", width := 1, isInput := true }, { name := "b", width := 1, isInput := true },
        { name := "en", width := 1, isInput := true }, { name := "y", width := 1, isOutput := true }] := by
-  show (extraIn.pdesign.instantiateGD2 [1]).decls.toList = _
+  show ((extraIn.pdesign.instantiateGD2 [1]).aliasGuard).decls.toList = _
+  rw [Design2.aliasGuard_decls]
   refine decls1_eq (elems := elems1 ["a", "b", "en", "y"]) rfl rfl ?_ ?_ rfl
   · simp [extraIn.pdesign, buildDecls, instDecl, PType.width_packed_cons, PDim.width, evalInt,
-      envAt1, List.lookup, Gen2.except_ok_bind]
-  · simp [extraIn.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, envAt1,
+      envAt1, scopeAt1, List.lookup, Gen2.except_ok_bind]
+  · simp [extraIn.pdesign, buildElems, PType.width_packed_cons, PDim.width, evalInt, envAt1, scopeAt1,
       List.lookup, elems1, Gen2.except_ok_bind]
 
 /-- A hidden input `en` fails the interface: the input ports are

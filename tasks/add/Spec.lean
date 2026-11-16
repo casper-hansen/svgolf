@@ -15,8 +15,9 @@ module add_n #(parameter int N = 16) (
 );
 ```
 
-Statement: for every `N` with `1 ≤ N < 2^31` (the values an `int` parameter
-holds), the design has exactly the input ports `a`,
+Statement: for every `N` with `1 ≤ N < 2^20` (decided 2026-11-14: the range keeps the `int`
+arithmetic a design does on `N`, its widths and the indices and localparams it computes from `N`,
+below `2^31`, where an `int` wraps), the design has exactly the input ports `a`,
 `b` (`N` bits) and `cin` (1 bit), in that order, and exactly the output
 ports `s` (`N` bits) and `cout` (1 bit), in that order; no process is
 clocked; there is no combinational loop; every run terminates; and in every
@@ -34,9 +35,9 @@ open SvGolf
 
 /-- The task: inputs `a b : BitVec N`, `cin : BitVec 1`; outputs
 `s = (a + b + cin) mod 2^N` and `cout = (a + b + cin) / 2^N`, the sum taken
-in `Nat`; for `1 ≤ N < 2^31`. -/
+in `Nat`; for `1 ≤ N < 2^20`. -/
 def task : CombTask where
-  inRange N := 1 ≤ N ∧ N < 2 ^ 31
+  inRange N := 1 ≤ N ∧ N < 2 ^ 20
   inputs N := [("a", N), ("b", N), ("cin", 1)]
   outputs N := [("s", N), ("cout", 1)]
   fn N := fun (a, b, cin, ()) =>
@@ -55,8 +56,8 @@ that a reader can see the statement means what the prose says. -/
 /-- The scoring point `N = 16` is in range. -/
 example : task.inRange 16 := by simp [task]
 
-/-- The range ends below `2^31`, the values an `int` parameter holds. -/
-example : task.inRange (2 ^ 31 - 1) ∧ ¬ task.inRange (2 ^ 31) := by simp [task]
+/-- The range ends below `2^20` (decided 2026-11-14). -/
+example : task.inRange (2 ^ 20 - 1) ∧ ¬ task.inRange (2 ^ 20) := by simp [task]
 
 /-- The input names are distinct (the non-vacuity theorem
 `CombTask.SatisfiedAt.exists_run` needs it), at every `N`. -/

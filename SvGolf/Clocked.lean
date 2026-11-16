@@ -35,6 +35,10 @@ for every width and size. Each section says which step of a clocked proof (`PROV
   forms for a bound that is a parameter (`GenItem.expand2_param_map`, `GenItem.expand2_param_map₂`).
 * **Power-up** (rule 2): the tactic `powerUp_cases h with x₁ … xₙ` takes a `PowerUp d st` hypothesis apart, one
   declaration at a time (`powerUp_cons`), naming the values `x₁ … xₙ` and their width facts `w_x₁ … w_xₙ`.
+* **The one-clock guard of `run2`** (termination, `Terminates2.of_invariant`'s premise `run2ClockGuard d = .ok ()`):
+  `run2ClockGuard_ok` (any two clocked processes share their clock, no data-driven event control),
+  `run2ClockGuard_ok_of_clock` (every process has the clock `clk` or none) and `run2ClockGuard_ok_of_profile`
+  (from the FF-only profile, `Design2.ffOnlyProfileB d = true`, which every FF-only clocked proof proves).
 * **Values**: `LVec.shl_ofBitVec` (the `<<` twin of `LVec.shr_ofBitVec`), `LVec.allKnown_l0`, `LVec.allKnown_l1`
   (the one-bit literals are known), `LVec.sext_of_extract` (the evaluated sign extension
   `{{m{v[lo+W-1]}}, v[lo +: W]}` of a known window), `Lib.setWidth_mul_signExtend` (the signed product truncated).
@@ -469,6 +473,85 @@ theorem Lib.setWidth_mul_signExtend {m n w : Nat} (h : m ≤ n) (a b : BitVec w)
   have := LeanModels.Sv.Lib.setWidth_add_mul_signExtend h (0#m) a b
   simpa using this
 
+/-! ## 7. The one-clock guard of `run2` (`Terminates2.of_invariant`)
+
+The pinned `run2` first checks `run2ClockGuard d`: one edge clock per design (one stimulus entry is one rising
+edge) and no retained data-driven event control. `Terminates2.of_invariant` takes the guard as a premise; a design
+in the FF-only profile, or one whose every process has the one clock or none, passes it. -/
+
+/-- The duplicate-free walk of `eraseDups` over a list whose every element is `c`, from at most one `c`, ends with
+at most one element. -/
+theorem eraseDupsBy_loop_length_le_one {c : String} : ∀ (l bs : List String), (∀ x ∈ l, x = c) →
+    (∀ x ∈ bs, x = c) → bs.length ≤ 1 → (List.eraseDupsBy.loop (· == ·) l bs).length ≤ 1
+  | [], bs, _, _, hb => by simpa [List.eraseDupsBy.loop] using hb
+  | a :: as, bs, hl, hbs, hb => by
+    have ha : a = c := hl a List.mem_cons_self
+    have hl' : ∀ x ∈ as, x = c := fun x hx => hl x (List.mem_cons_of_mem _ hx)
+    unfold List.eraseDupsBy.loop
+    split
+    · exact eraseDupsBy_loop_length_le_one as bs hl' hbs hb
+    · rename_i h
+      have hnil : bs = [] := by
+        cases bs with
+        | nil => rfl
+        | cons b bs' =>
+          have hbc : b = c := hbs b List.mem_cons_self
+          simp [ha, hbc] at h
+      subst hnil
+      exact eraseDupsBy_loop_length_le_one as [a] hl' (by simp [ha]) (by simp)
+
+/-- **The one-clock guard of `run2` holds** when any two clocked processes have the same clock and no process is a
+retained data-driven event control (`SignalEventControl:`). -/
+theorem run2ClockGuard_ok {d : Design2}
+    (hc : ∀ p ∈ d.processes.toList, ∀ q ∈ d.processes.toList, ∀ c c' : String,
+      run2Clock? p = some c → run2Clock? q = some c' → c = c')
+    (hs : ∀ p ∈ d.processes.toList, ∀ (k t : String), p = .unsupported k t →
+      k.startsWith "SignalEventControl:" = false) :
+    run2ClockGuard d = .ok () := by
+  have hn : (run2ClockNames d).length ≤ 1 := by
+    unfold run2ClockNames List.eraseDups List.eraseDupsBy
+    cases hl : d.processes.toList.filterMap run2Clock? with
+    | nil => simp [List.eraseDupsBy.loop]
+    | cons c rest =>
+      obtain ⟨p, hp, hpc⟩ := List.mem_filterMap.mp (show c ∈ d.processes.toList.filterMap run2Clock? by
+        rw [hl]; exact List.mem_cons_self)
+      refine eraseDupsBy_loop_length_le_one (c := c) _ [] (fun x hx => ?_) (by simp) (by simp)
+      rw [← hl] at hx
+      obtain ⟨q, hq, hqx⟩ := List.mem_filterMap.mp hx
+      exact (hc p hp q hq c x hpc hqx).symm
+  unfold run2ClockGuard
+  split
+  · omega
+  split
+  · rename_i h
+    obtain ⟨p, hp, hpt⟩ := List.any_eq_true.mp h
+    cases p with
+    | unsupported k t => simp [hs _ hp k t rfl] at hpt
+    | _ => simp at hpt
+  · rfl
+
+/-- **The one-clock guard, one named clock**: every process is clocked by `clk` or not clocked, and none is a
+retained data-driven event control. -/
+theorem run2ClockGuard_ok_of_clock {d : Design2} (clk : String)
+    (hc : ∀ p ∈ d.processes.toList, run2Clock? p = none ∨ run2Clock? p = some clk)
+    (hs : ∀ p ∈ d.processes.toList, ∀ (k t : String), p = .unsupported k t →
+      k.startsWith "SignalEventControl:" = false) :
+    run2ClockGuard d = .ok () := by
+  refine run2ClockGuard_ok (fun p hp q hq c c' hpc hqc => ?_) hs
+  rcases hc p hp with h | h <;> rcases hc q hq with h' | h' <;> simp_all
+
+/-- **The one-clock guard in the FF-only profile** (every process an `always_ff` on the first one's clock,
+`Design2.ffOnlyProfileB`): what a clocked proof's `profile` theorem already gives. -/
+theorem run2ClockGuard_ok_of_profile {d : Design2} (h : d.ffOnlyProfileB = true) : run2ClockGuard d = .ok () := by
+  simp only [Design2.ffOnlyProfileB, Bool.and_eq_true, List.all_eq_true] at h
+  refine run2ClockGuard_ok (fun p hp q hq c c' hpc hqc => ?_) (fun p hp k t hpk => ?_)
+  · have h1 := h.1 p hp
+    have h2 := h.1 q hq
+    cases p <;> cases q <;> simp_all [run2Clock?]
+  · subst hpk
+    have h1 := h.1 _ hp
+    simp at h1
+
 #print axioms commitNba2_eq_map
 #print axioms commitNba2_eq_map_of_names
 #print axioms nbaFold_map_insertEntries
@@ -482,5 +565,8 @@ theorem Lib.setWidth_mul_signExtend {m n w : Nat} (h : m ≤ n) (a b : BitVec w)
 #print axioms LVec.shl_ofBitVec
 #print axioms LVec.sext_of_extract
 #print axioms Lib.setWidth_mul_signExtend
+#print axioms run2ClockGuard_ok
+#print axioms run2ClockGuard_ok_of_clock
+#print axioms run2ClockGuard_ok_of_profile
 
 end SvGolf

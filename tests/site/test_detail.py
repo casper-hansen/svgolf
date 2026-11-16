@@ -916,17 +916,18 @@ class DetailTest(unittest.TestCase):
 
     def test_the_tab_script(self):
         """site.js's tabs and charts.js's schematic under node (tests/site/tabsjs_check.js, with the skeleton of two
-        real record pages: the sorter's 61bf6f8d1, the owner's example, clocked, and a combinational record with a
-        drawing and critical-path links; skipped without node): the ARIA wiring and the roving tabindex, a click a new
-        history entry, the keys, a fragment on load or by a link opening every tab around its target (the netlist
-        card's inside the Schematics tab), Back and Forward, and the drawing in a hidden tab fitted when its tab is
-        first shown (decided 2026-11-16: a chart or drawing measured in a hidden pane would get no width)."""
+        real record pages: the sorter's 3b1ec4b16 (61bf6f8d1 until its re-make on 2026-11-16), the owner's example,
+        clocked, and a combinational record with a drawing and critical-path links; skipped without node): the ARIA
+        wiring and the roving tabindex, a click a new history entry, the keys, a fragment on load or by a link opening
+        every tab around its target (the netlist card's inside the Schematics tab), Back and Forward, and the drawing
+        in a hidden tab fitted when its tab is first shown (decided 2026-11-16: a chart or drawing measured in a hidden
+        pane would get no width)."""
         node = shutil.which("node")
         if not node:
             self.skipTest("node is not installed")
         drawn = [path for _, path, rec, _ in self.detail_pages() if rec is not None and 'class="sch-link"' in
                  self.files[path].decode("utf-8")]
-        sorter = [p for p in drawn if p.startswith("tasks/sorter/records/61bf6f8d1")] or \
+        sorter = [p for p in drawn if p.startswith("tasks/sorter/records/3b1ec4b16")] or \
             [p for p in drawn if p.startswith("tasks/sorter/")]
         comb = [p for p in drawn if p.startswith("tasks/add/")] or [p for p in drawn if "/sorter/" not in p]
         self.assertTrue(sorter and comb)

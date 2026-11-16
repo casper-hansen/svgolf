@@ -38,7 +38,7 @@ import SvGolf.Task
   * txtask-v2's rule 1: `MooreOutDep`, `combDeps`, `processDeps`, `stmtDeps`, `stmtOptDeps`,
     `stmtListDeps`, `itemDeps`, `itemListDeps`, `underCtx`, `DepEdge`, `itemListPatNames`;
 
-  and the theorem `run2_eq_run2At` (`rfl`), which no statement reaches.
+  and the theorem `run2_eq_run2At` (for a design `run2`'s clock guard admits), which no statement reaches.
 * **Not part of any ranked statement: everything else.** `SeqTask` with its v1 and v2 statements
   is a DRAFT of trusted text; it states only the counter fixture (`tests/seq_counter`). The v1
   statements of `TxTask` and `StreamTask` (`Follows`, `SatisfiedAt`, `Statement`) are superseded
@@ -759,7 +759,8 @@ instance (d : Design2) (stim : List SvState) : Decidable (KnownStim d stim) :=
   inferInstanceAs (Decidable (∀ e ∈ stim, KnownEntry d e))
 
 /-- **`run2` from the state `st0`** in place of `initState2 d`: the same cycles (`runFrom2`), the
-same qualified-case validation (`run2_eq_run2At`: `run2` is `run2At` from `initState2 d`). -/
+same qualified-case validation (`run2_eq_run2At`: `run2` is `run2At` from `initState2 d` for every design its
+clock guard admits). -/
 def run2At (d : Design2) (σ : ScheduleOracle) (fuel : Nat) (st0 : SvState)
     (stim : List SvState) : Res (List SvState) := do
   let tr ← runFrom2 d σ fuel st0 0 stim
@@ -767,9 +768,15 @@ def run2At (d : Design2) (σ : ScheduleOracle) (fuel : Nat) (st0 : SvState)
     validateTraceChecks2 fuel d tr
   return tr
 
-/-- `run2` is `run2At` from ls-sv's own start state. -/
-theorem run2_eq_run2At (d : Design2) (σ : ScheduleOracle) (fuel : Nat) (stim : List SvState) :
-    run2 d σ fuel stim = run2At d σ fuel (initState2 d) stim := rfl
+/-- `run2` is `run2At` from ls-sv's own start state, for a design `run2`'s clock guard admits (`run2ClockGuard`:
+one edge clock and no data-driven event control; the `run2` of the Proglib revision svGolf pins since 2026-11-14
+refuses the others before its first cycle, and `run2At` does not test the guard, as before). -/
+theorem run2_eq_run2At (d : Design2) (σ : ScheduleOracle) (fuel : Nat) (stim : List SvState)
+    (hg : run2ClockGuard d = .ok ()) :
+    run2 d σ fuel stim = run2At d σ fuel (initState2 d) stim := by
+  unfold run2 run2At
+  rw [hg]
+  rfl
 
 /-- Some fuel completes the run of `d` from `st0` under `σ` on `stim` with the trace `tr` (the
 `Runs2` of `run2At`). -/
@@ -974,9 +981,11 @@ def binW (op : BinOp) (l r : Expr2) (wl wr : Option Nat) : Option Nat :=
 def sigSigned (d : Design2) (n : String) : Bool :=
   (d.decls.toList.find? fun dc => dc.name == n).any Decl.isSigned
 
-/-- A dynamic index rule 3 reads as unsigned: it mentions no signal declared signed. -/
+/-- A dynamic index rule 3 reads as unsigned: it mentions no signal declared signed, and it is not marked signed
+(`Expr2.indexSigned`: the pinned ls-sv reads an index marked signed, a `$signed(…)` one, as a signed number, IEEE
+1800's reading; the ls-sv svGolf pinned until 2026-11-14 read every index as an unsigned number). -/
 def unsignedIdx (d : Design2) (i : Expr2) : Bool :=
-  (exprNames i).all fun n => !sigSigned d n
+  !i.indexSigned && (exprNames i).all fun n => !sigSigned d n
 
 /-- The order comparisons, the operators of a signed comparison node. -/
 def scmpOp : BinOp → Bool
