@@ -18,8 +18,9 @@
 //   * a detail page (a record's, a reference's): the area-time plot's Size selector and "fit to cluster" / "all
 //     designs" switch (it shows one of the server's drawings: one per size and view) and the schematic's zoom buttons (they scale
 //     the inline SVG inside its scroll box about the view's centre), critical-path switch, cell finder
-//     and the critical-path links into the drawing (the drawing sits in the netlist card's Schematic tab:
-//     a link from the Critical path tab opens it first; site.js makes the tabs).
+//     and the critical-path links into the drawing (the drawing sits in the netlist card's Schematic tab, inside the
+//     page's Schematics tab: a link from the Critical path tab opens it first; site.js makes the tabs, and a drawing
+//     in a hidden tab is fitted when its tab is first shown).
 // No libraries, nothing fetched.
 (function () {
   "use strict";
@@ -464,8 +465,9 @@
   // script adds zoom about the view's centre (the critical path keeps its width when the drawing is shown smaller
   // than its size), a cell finder (instance or cell type; Enter steps through the hits), and the critical-path links
   // (`a.sch-link`, to `#sch-<instance>`), which scroll the cell to the middle of the view and mark it. The drawing
-  // is in a tab (page.py's tabs): it is fitted the first time it is shown, and a link from another tab opens its
-  // tab first (by clicking the tab, so site.js keeps the tabs' state).
+  // is in a tab inside a tab (page.py's tabs: the card's Schematic, in the page's Schematics): it is fitted the first
+  // time it is shown, and a link from another tab opens its tabs first (by clicking them, outermost first, so
+  // site.js keeps the tabs' state).
   function wireSchematic(box) {
     var svg = box.querySelector("svg.sch");
     var tools = box.parentNode.querySelector("[data-schematic-tools]");
@@ -506,10 +508,15 @@
       fitted = true;
       if (w0 > box.clientWidth) { fit(); }
     }
-    function show() {                    // open the tab that holds the drawing
-      var pane = box.closest("[role='tabpanel']");
-      var tab = pane && pane.hidden ? document.getElementById(pane.getAttribute("aria-labelledby")) : null;
-      if (tab) { tab.click(); }
+    function show() {                    // open the tabs that hold the drawing: the page's Schematics, then the card's
+      var hidden = [];                   // Schematic (outermost first), each by its tab, so site.js keeps their state
+      for (var p = box.closest("[role='tabpanel']"); p; p = p.parentElement && p.parentElement.closest("[role='tabpanel']")) {
+        if (p.hidden) { hidden.unshift(p); }
+      }
+      hidden.forEach(function (pane) {
+        var tab = document.getElementById(pane.getAttribute("aria-labelledby"));
+        if (tab) { tab.click(); }
+      });
       firstFit();
     }
     function pick(el) {                  // mark one cell and bring it (and the box) into view
@@ -572,15 +579,23 @@
       e.preventDefault();
       if (crit && !crit.checked) { crit.checked = true; box.classList.remove("no-crit"); }
       pick(el);
-      if (window.history && history.replaceState) { history.replaceState(null, "", a.getAttribute("href")); }
+      if (window.history && history.replaceState) { history.replaceState(history.state, "", a.getAttribute("href")); }
     }, true);
     firstFit();
-    if (!fitted && window.ResizeObserver) {             // in a hidden tab: fitted when the tab opens
-      var watch = new ResizeObserver(function () {
-        firstFit();
-        if (fitted) { watch.disconnect(); }
+    // in a hidden tab (the page's Schematics tab, or the card's Schematic tab, not chosen): fitted when it is first
+    // shown. site.js tells it (`tabshow` on the pane shown); a box that is shown some other way, or whose width comes
+    // later, is watched as well where the browser can (ResizeObserver)
+    if (!fitted) {
+      document.addEventListener("tabshow", function (e) {
+        if (!fitted && e.target && e.target.contains && e.target.contains(box)) { firstFit(); }
       });
-      watch.observe(box);
+      if (window.ResizeObserver) {
+        var watch = new ResizeObserver(function () {
+          firstFit();
+          if (fitted) { watch.disconnect(); }
+        });
+        watch.observe(box);
+      }
     }
     var start = target(location.hash);
     if (start) { pick(start); }

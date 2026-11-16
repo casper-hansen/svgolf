@@ -250,7 +250,7 @@
 /* A pixel frame: a ring of four shadows one --px wide that leaves the corner pixels out, and a lip
    of three more under it (the box seen from a little above). --pl and --ps colour them. No border,
    no radius; the shadows take no room, so a framed box keeps its margins clear of them. */
-.pixel, .card, .task-card, .loop > li, .mcard, .props, .hero, .btn, .site-nav,
+.pixel, .card, .task-card, .loop > li, .mcard, .props, .hero, .btn, .site-nav, .tabs-page > .tabs-nav,
 .chart-tip, ul.roadmap > li, .empty {
   border: 0;
   border-radius: 0;
@@ -1238,20 +1238,43 @@ dl.mfacts dd { color: var(--text-2); }
 .dash-note details.reveal { margin: 0; }
 .dash-note details.reveal > summary { font: 0.78rem/1.5 var(--font); }     /* the note's face, as the line above it */
 .dash-note details.reveal > .fine { margin: 0.35rem 0; }
-/* the two columns of a detail page, under the sources (across the page): the netlist takes the room, the record's
-   facts a rail beside it; both shrink together (a rail held at its widest left the netlist's tables to scroll),
-   and under 72rem they stand one under the other, the netlist first */
-.split-detail { grid-template-columns: minmax(0, 1fr); }
-@media (min-width: 72.01rem) {
-  .split-detail { grid-template-columns: minmax(0, 2.25fr) minmax(15rem, 1fr); }
-}
 #sources .codebox-dl { font: 600 var(--fs-xs)/1 var(--mono); color: var(--link); }
-@media (min-width: 40.01rem) {           /* the main column is wide enough for a term beside its value */
-  .col-main dl.facts { grid-template-columns: max-content minmax(0, 1fr); }
-  .col-main dl.facts dt { padding-bottom: 0.55rem; border-bottom: 1px solid var(--border); }
+/* a detail page's tabs (page.py's tabs with page=True; decided 2026-11-16): one bar under the head and the overview,
+   the tabs in the header nav's type, the chosen one a green pixel button as the nav marks the current page; on a
+   phone the five wrap to a second line rather than hide one. Without the script the bar is a row of links to the
+   panes, which stand one under the other, each under its title, none marked as chosen */
+.tabs-page > .tabs-nav { --px: 2px; --pl: var(--border-strong); --ps: transparent; flex-wrap: wrap; gap: 4px;
+  padding: 4px; margin: var(--sp-1) 2px calc(var(--sp-5) + 2px); background: var(--surface); border-bottom: 0; }
+.tabs-page > .tabs-nav > a { flex: none; font: 600 var(--fs-sm)/1 var(--font-display); letter-spacing: 0;
+  text-transform: none; color: var(--text); padding: 0.65rem 1rem; margin: 0; border-bottom: 0; white-space: nowrap; }
+.tabs-page > .tabs-nav > a:hover { background: var(--sunken); color: var(--text); }
+.tabs-page > .tabs-nav > a[aria-selected="true"] { color: #fff; background: var(--nav-on); margin: 0 2px;
+  box-shadow: 0 -2px 0 0 var(--nav-on), 0 2px 0 0 var(--nav-on-lip), -2px 0 0 0 var(--nav-on), 2px 0 0 0 var(--nav-on),
+    inset 0 -3px 0 0 var(--nav-on-lip); }
+.tabs-page > .tabs-nav > a:focus-visible { outline-offset: 2px; z-index: 1; }
+@media (max-width: 40rem) { .tabs-page > .tabs-nav > a { padding: 0.6rem 0.7rem; } }
+.tabs-page > .tabs-pane > .tabs-pane-title { font-size: var(--fs-sm); margin-bottom: var(--sp-3); }
+/* before site.js has made the tabs (pdk.js, which runs before the page is drawn, has set <html data-pdk>: the
+   script is on), the pane the URL names (or holds what it names) is the one shown, else the first, so the page is
+   not first drawn with every pane; if site.js never runs, the links still show their panes (:target) */
+@media screen {
+  html[data-pdk] .tabs-page:not(.js-tabs) > .tabs-pane:not(:first-of-type) { display: none; }
+  html[data-pdk] .tabs-page:not(.js-tabs) > .tabs-pane:is(:target, :has(:target)) { display: block; }
+  /* (two rules: a :has() inside a :has() is not allowed, and one bad selector drops a whole list) */
+  html[data-pdk] .tabs-page:not(.js-tabs):has(> .tabs-pane:not(:first-of-type):target) > .tabs-pane:first-of-type,
+  html[data-pdk] .tabs-page:not(.js-tabs):has(> .tabs-pane:not(:first-of-type) :target) > .tabs-pane:first-of-type {
+    display: none; }
+  html[data-pdk] .tabs-page:not(.js-tabs) > .tabs-pane > .tabs-pane-title { position: absolute; width: 1px;
+    height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%);
+    white-space: nowrap; border: 0; }
 }
-.col-side dl.facts dt { padding-top: 0.45rem; }
-.col-side dl.facts dd { padding: 0.1rem 0 0.45rem; }
+/* cards side by side in a tab where there is room (build.py card_row): a record's facts and its proof's, the checker
+   and the post-synthesis check; a lone card takes the width */
+.card-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 0 var(--sp-5);
+  align-items: start; }
+.card-row > * { min-width: 0; }
+/* the writeup at a reading measure (the tab is the page's width) */
+.tabs-pane > .writeup { max-width: 52rem; }
 /* tabs in a card (page.py's tabs; site.js): without the script, links to panes that stand one under the other */
 .tabs-nav { display: flex; flex-wrap: wrap; gap: 0 var(--sp-5); margin: 0 0 var(--sp-4); border-bottom: 1px solid var(--border); }
 .tabs-nav > a { display: inline-flex; align-items: center; font: 700 var(--fs-xs)/1 var(--mono); letter-spacing: 0.12em;
@@ -1446,15 +1469,17 @@ ol.chain .muted { font-family: var(--mono); font-size: 0.78rem; }
   /* the pixel frames are shadows, which forced colours drop: a plain border instead */
   .card, .task-card, .loop > li, .mcard, .props, .hero, .btn, .site-nav, .chart-tip, ul.roadmap > li,
   .empty, .badge, .seg, .toc a, .page-head > .stats, .page-head > #numbers > .stats,
-  .page-head > #numbers > .pdk > .stats { border: 2px solid CanvasText; }
+  .page-head > #numbers > .pdk > .stats, .tabs-page > .tabs-nav { border: 2px solid CanvasText; }
   .page-head { border-bottom: 3px solid CanvasText; }
-  .site-nav a[aria-current="page"], .seg > [aria-pressed="true"], .seg > .on {
+  .site-nav a[aria-current="page"], .seg > [aria-pressed="true"], .seg > .on,
+  .tabs-page > .tabs-nav > a[aria-selected="true"] {
     forced-color-adjust: none; background: Highlight; color: HighlightText; }
 }
 
 @media print {
   .site-header, .site-footer, .copy, .doc-side, .hero-art { display: none; }
-  /* a detail page's netlist prints its three panes, each under its title, as without the script */
+  /* a detail page prints its five tabs' panes, and its netlist its three, each under its title, as without the
+     script */
   .tabs-nav, .sch-tools { display: none; }
   .tabs-pane[hidden] { display: block; }
   .js-tabs > .tabs-pane + .tabs-pane { margin-top: var(--sp-5); padding-top: var(--sp-4);

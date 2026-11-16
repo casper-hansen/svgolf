@@ -125,10 +125,14 @@ class SiteWriteupTest(unittest.TestCase):
             path = os.path.join(self.lb.WRITEUPS_DIR, rec["record_hash"] + ".md")
             h = self.page(rec)
             with self.subTest(record=rec["record_hash"][:12]):
-                card = re.search(r'<section class="card writeup[^"]*" id="writeup">(.*?)</section>', h, re.S)
+                # the page's Writeup tab (decided 2026-11-16): its pane holds the id, the card or the one-line prompt
+                pane = re.search(r'<section class="tabs-pane" id="writeup"><h2 class="tabs-pane-title">Writeup</h2>'
+                                 r'(.*?)</section>(?=<section class="tabs-pane" id="schematics">)', h, re.S)
+                self.assertIsNotNone(pane)
+                card = (re.match(r'<section class="card writeup">(.*)$', pane.group(1), re.S)
+                        or re.match(r'<p class="empty writeup-none">(.*)</p>$', pane.group(1), re.S))
                 self.assertIsNotNone(card)
-                main = h.split('id="main-col"', 1)[1].split('id="side-col"', 1)[0]
-                self.assertLess(main.index('id="writeup"'), main.index('id="netlist"'))
+                self.assertEqual(h.count('id="writeup"'), 1)
                 h1 = re.search(r"<h1\b[^>]*>(.*?)</h1>", h, re.S).group(1)
                 if os.path.isfile(path):
                     with open(path, encoding="utf-8") as fh:
@@ -152,6 +156,9 @@ class SiteWriteupTest(unittest.TestCase):
                 self.site.writeups[rec["record_hash"]] = saved
         self.assertIn("No writeup yet", out)
         self.assertIn("How to add a writeup", out)
+        # one line (decided 2026-11-16, the Writeup tab): the site's empty box, no card, no title of its own
+        self.assertRegex(out, r'^<p class="empty writeup-none">[^<]*<a href="[^"]*rules\.html#writeups">How to add a '
+                              r'writeup</a>\.</p>$')
         self.assertEqual(self.build.record_title(type("S", (), {"writeups": {}})(), rec),
                          writeup.fallback_title(rec["files"]["sv"]["name"]))
 

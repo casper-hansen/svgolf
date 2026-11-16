@@ -2092,9 +2092,10 @@ Since 2026-11-13 every design the tasks show (52 design files: records, referenc
 architecture records included) has a routed score.
 
 **The layout picture.** Each routed design's record page, and par's, shows the layout of its scored run in the
-netlist card's Layout tab, beside the schematic, on the routed course only (decided 2026-11-13: on sky130 no ASAP7
-layout is shown): drawn by OpenROAD's own renderer from the run's final database, power and ground wires not
-drawn, at most 1600 px (a 640 px thumbnail on the page); its caption names the seed and the die size.
+netlist card's Layout tab (in the page's Schematics tab), beside the schematic, on the routed course only (decided
+2026-11-13: on sky130 no ASAP7 layout is shown): drawn by OpenROAD's own renderer from the run's final database,
+power and ground wires not drawn, at most 1600 px (a 640 px thumbnail on the page); its caption names the seed and
+the die size.
 
 **Where it lives.** `leaderboard/asap7pnr/<task>.json` (one entry per design file: every run's numbers and the hashes
 of the files it wrote) and the pictures under `site/layouts/<task>/`, outside every record hash. `leaderboard.py
@@ -2345,7 +2346,7 @@ A writeup is one Markdown file, `leaderboard/writeups/<record_hash>.md`, named b
 Start from `leaderboard/writeups/TEMPLATE.md`. Its first line is `# <title>`: the submission's short title, plain
 text of at most 60 characters, the name of the idea ("Kogge-Stone prefix adder", "Carry-save tree, ripple final
 adder", "Strassen, one level"). The site shows the title as the record page's heading, under the player in a
-task's submissions list and in every chart's tooltip, and the rest of the file as the record page's writeup card.
+task's submissions list and in every chart's tooltip, and the rest of the file in the record page's Writeup tab.
 A good writeup has:
 
 * **the approach**: the circuit's architecture and its trick, the area/time trade-off it makes;
@@ -2362,8 +2363,8 @@ it is at most 200 kB, it carries none of the site's internal markers (`site/conf
 shown as the site's own text), and its body stays inside the site's Markdown subset: headings, paragraphs, lists,
 code spans and fenced code, emphasis, tables and links to `http` or `https` addresses; no raw HTML (it is shown as
 text), no images, no block quotes. The site renders it with everything escaped. A record without a writeup shows
-its design file's name as its title and a short "No writeup yet" card. The writeups of the first records were
-written by the maintainers from each record's design and proof files, and say so at their end.
+its design file's name as its title and, in its Writeup tab, one line: "No writeup yet". The writeups of the
+first records were written by the maintainers from each record's design and proof files, and say so at their end.
 
 ## Tests
 

@@ -1,10 +1,11 @@
 """The detail pages of the site: one per record and one per proved reference without a record (PLAN4 3b step 3):
-the overview (Area, Performance and Score cards, with their beats/matches lines once there is a field), the sources
-across the page, then two columns (the netlist card, whose tabs are the schematic of the display instance, the
-critical path and the cells, and under it a record's checker detail; beside them the record's or the reference's
-facts), then the area-time plot and reproduce. Built once with --offline. The order and the columns were decided
-2026-11-09: the code before the schematic, the critical path a tab under it, the record and the proof in a second
-column as on the task page.
+the page's head and the overview (Area, Performance and Score cards, with their beats/matches lines once there is a
+field), then five tabs (decided 2026-11-16): "Source and proof" (the sources across the page, then the record's or
+the reference's facts and the proof's), "Writeup", "Schematics" (the netlist card, whose own tabs are the schematic
+of the display instance, the critical path, the cells and, on the routed course, the layout), "Charts" (the
+area-time plot) and "Reproduce and verify" (the commands, then a record's checker and post-synthesis check). Built
+once with --offline. (Before 2026-11-16 the same cards stood on one page: the code before the schematic, the record
+and the proof in a second column, decided 2026-11-09.)
 
     python3 -m unittest discover -s svgolf/tests/site      (from the lean-surfaces root)
 
@@ -14,12 +15,15 @@ No network, no Yosys, no Lean: the schematic data are the committed files of sit
 import contextlib
 import hashlib
 import html
+import html.parser
 import importlib.util
 import io
 import json
 import os
 import posixpath
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -68,6 +72,103 @@ def section(page_html, sid):
         if depth == 0:
             return page_html[start:start + t.end()]
     return page_html[start:]
+
+
+def element_from(page_html, start):
+    """The element that starts at `start` in `page_html`, to its matching close tag (by nesting of the same tag)."""
+    tag = re.match(r"<(\w+)", page_html[start:]).group(1)
+    depth = 0
+    for t in re.finditer(r"<(/?)" + tag + r"\b", page_html[start:]):
+        depth += -1 if t.group(1) else 1
+        if depth == 0:
+            return page_html[start:start + page_html.index(">", start + t.end()) + 1 - start]
+    return page_html[start:]
+
+
+# the five tabs of a detail page (build.DETAIL_TABS, decided 2026-11-16): (pane id, label)
+TABS = (("source", "Source and proof"), ("writeup", "Writeup"), ("schematics", "Schematics"), ("charts", "Charts"),
+        ("reproduce", "Reproduce and verify"))
+
+
+def tab_of(page_html, sid):
+    """The id of the page's tab whose pane holds the element `sid` (None: above the tabs, or not on the page)."""
+    for pid, _ in TABS:
+        if f'id="{sid}"' in section(page_html, pid):
+            return pid
+    return None
+
+
+class _Tree(html.parser.HTMLParser):
+    """A page as a tree of dicts (tag, attrs, children, text): the site's HTML is well formed."""
+    VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.root = {"tag": "#root", "attrs": {}, "children": [], "text": ""}
+        self.stack = [self.root]
+
+    def node(self, tag, attrs):
+        n = {"tag": tag, "attrs": {k: "" if v is None else v for k, v in attrs}, "children": [], "text": ""}
+        self.stack[-1]["children"].append(n)
+        return n
+
+    def handle_starttag(self, tag, attrs):
+        n = self.node(tag, attrs)
+        if tag not in self.VOID:
+            self.stack.append(n)
+
+    def handle_startendtag(self, tag, attrs):
+        self.node(tag, attrs)
+
+    def handle_endtag(self, tag):
+        for i in range(len(self.stack) - 1, 0, -1):
+            if self.stack[i]["tag"] == tag:
+                del self.stack[i:]
+                return
+
+    def handle_data(self, data):
+        self.stack[-1]["text"] += data
+
+
+def skeleton(page_html):
+    """The skeleton of a page that site.js and charts.js act on, for tests/site/tabsjs_check.js: every element with an
+    id, the tab bars and their panes, every link to a fragment (with its text), the course wrappers, the disclosures,
+    and the schematic's box, tools and drawing; any other element is left out, its kept descendants moved up to the
+    nearest kept ancestor. `ids`: every id kept."""
+    keep_cls = {"tabs", "tabs-nav", "tabs-pane", "tabs-pane-title", "props", "props-head", "props-tabs", "sch-box",
+                "sch-tools", "pdk-sky130", "pdk-asap7pnr"}
+    keep_attr = ("data-tabs", "data-schematic", "data-schematic-tools", "data-zoom", "data-crit", "data-find",
+                 "data-find-count")
+    attrs_kept = ("id", "class", "href", "hidden", "width", "height", "role", "tabindex", "data-inst") + keep_attr
+    t = _Tree()
+    t.feed(page_html)
+    ids = []
+
+    def text(n):
+        return n["text"] + "".join(text(c) for c in n["children"])
+
+    def keep(n):
+        a, cls = n["attrs"], set(n["attrs"].get("class", "").split())
+        return ("id" in a or cls & keep_cls or any(k in a for k in keep_attr) or n["tag"] == "details"
+                or (n["tag"] == "a" and a.get("href", "").startswith("#")) or (n["tag"] == "svg" and "sch" in cls))
+
+    def walk(n):
+        out = []
+        for c in n["children"]:
+            kids = walk(c)
+            if not keep(c):
+                out.extend(kids)
+                continue
+            a = {k: v for k, v in c["attrs"].items() if k in attrs_kept}
+            if "id" in a:
+                ids.append(a["id"])
+            k = {"tag": c["tag"], "attrs": a, "children": kids}
+            if c["tag"] == "a":
+                k["text"] = norm(text(c)).strip()
+            out.append(k)
+        return out
+    body = walk(t.root)
+    return {"tag": "div", "attrs": {}, "children": body, "ids": ids}
 
 
 def shown_refs(task):
@@ -190,17 +291,16 @@ class DetailTest(unittest.TestCase):
                     self.assertNotIn("· ranked", text_of(self.page(path)), path)
 
     def test_every_detail_page_has_its_sections_in_order(self):
-        """The order decided 2026-11-09: the overview, then the code, then the netlist (the schematic, the
-        critical path, the cells), the area-time plot below the columns; it was dashboard, plot, schematic, critical
-        path, cells, ..., sources, reproduce, with the code second to last. A record's facts and proof come before
-        its checker and post-synthesis check (on a phone, one column: the player, the date and the notes before the
-        checker detail; review 2026-11-09, L2). Since 2026-11-13 (the owner's UI feedback item 4) a clocked record's
-        post-synthesis check is the page's last card (its per-point table needs the page's width)."""
+        """The order (decided 2026-11-09, in tabs since 2026-11-16): the head and the overview, then the tabs: the
+        code, then the record's facts and its proof's (Source and proof); the writeup; the netlist (the schematic, the
+        critical path, the cells: Schematics); the area-time plot (Charts); reproduce, then a record's checker and
+        post-synthesis check (Reproduce and verify; since 2026-11-13, the owner's UI feedback item 4, "boring": at the
+        bottom, a clocked record's per-point table last). Without the script, and printed, the panes stand in this
+        order."""
         for t, path, rec, stem in self.detail_pages():
-            clocked = bool(rec) and isinstance(rec["postsynth"].get("points"), list)
-            order = ("dashboard", "sources", "schematic", "critical-path", "cells")
-            order += (("record", "proof", "checker") + (() if clocked else ("postsynth",))) if rec else ("reference",)
-            order += ("area-time", "reproduce") + (("postsynth",) if clocked else ())
+            order = ("dashboard", "source", "sources") + (("record", "proof") if rec else ("reference",))
+            order += ("writeup", "schematics", "netlist", "schematic", "critical-path", "cells", "charts", "area-time",
+                      "reproduce") + (("checker", "postsynth") if rec else ())
             with self.subTest(page=path):
                 h = self.page(path)
                 if "No ranked numbers to show" in text_of(section(h, "dashboard")):
@@ -208,44 +308,91 @@ class DetailTest(unittest.TestCase):
                 at = [h.find(f'id="{sid}"') for sid in order]
                 self.assertTrue(all(a >= 0 for a in at), dict(zip(order, at)))
                 self.assertEqual(at, sorted(at))
+                self.assertLess(h.index('<header class="page-head">'), h.index('id="dashboard"'))
                 self.assertIn('src="../../../charts.js"', h)
                 self.assertNotRegex(h, r"(?<![\d\u202f])\b1 cells\b")       # "1 cell" (review 2026-11-09, N2)
 
-    def test_the_code_and_the_netlist_beside_the_facts(self):
-        """The sources across the page under the overview (in the main column the code box showed 81 columns at
-        1280 px and cut lines it shows whole across the page: review 2026-11-09, M1), then two columns as on the task
-        page: the main one holds the netlist card; the side one the record and the proof (a record's page) or the
-        reference's facts and, since 2026-11-13 (the owner's UI feedback item 4: "move it to the right column or the
-        bottom of the page"), a record's checker card and a combinational record's post-synthesis check, folded: their
-        facts behind closed disclosures. A clocked record's post-synthesis table, the area-time plot and reproduce
-        come after the columns (they need the page's width), the post-synthesis table last."""
+    def test_every_detail_page_has_five_tabs(self):
+        """Decided 2026-11-16 (the owner's request: "Tab 1: source code and proof, Tab 2: Writeup, Tab 3: Schematics,
+        Tab 4: Plots/Charts, Tab 5: Reproduce and verify"): under the page's head and the overview, one tab bar of
+        exactly five tabs in this order, named "Source and proof", "Writeup", "Schematics", "Charts", "Reproduce and
+        verify", each a link to its pane (a `<section>` with the tab's id, the fragment that names the tab: `#writeup`),
+        each pane under its title (an `<h2>`, for heading navigation and for a reader without the script). No tab is
+        marked as chosen in the HTML (without the script the panes all stand there); site.js makes the tabs, the
+        first chosen. The record's head (title, who made it, badges) and the overview (the scores, the board) are
+        above the tabs, in no pane; nothing of the page is outside the head, the overview and the five panes."""
+        for t, path, rec, stem in self.detail_pages():
+            raw = self.files[path].decode("utf-8")
+            with self.subTest(page=path):
+                bars = re.findall(r'<div class="tabs tabs-page" data-tabs="page"><nav class="tabs-nav" '
+                                  r'aria-label="([^"]+)">(.*?)</nav>', raw, re.S)
+                self.assertEqual(len(bars), 1)
+                label, nav = bars[0]
+                self.assertEqual(label, "sections of this page")
+                self.assertEqual(re.findall(r'<a href="#([^"]+)">([^<]+)</a>', nav), [(i, n) for i, n in TABS])
+                self.assertNotIn("aria-selected", nav)
+                self.assertNotIn('class="on"', nav)
+                for pid, name in TABS:
+                    self.assertIn(f'<section class="tabs-pane" id="{pid}"><h2 class="tabs-pane-title">{name}</h2>',
+                                  raw)
+                    self.assertEqual(raw.count(f'id="{pid}"'), 1, pid)          # no card keeps a tab's id
+                main = raw[raw.index("<main"):raw.index("</main>")]
+                start = main.index('<div class="tabs tabs-page"')
+                before = main[:start]
+                for part in ('<header class="page-head">', "<h1>", 'class="head-tags"', 'id="dashboard"') + \
+                        (('class="head-sub"',) if rec else ('class="head-lead"',)):
+                    self.assertIn(part, before)
+                tabs = element_from(main, start)
+                self.assertEqual(main[start + len(tabs):].strip(), "")         # the tabs end the page's main column
+                self.assertEqual([pid for pid, _ in TABS if f'<section class="tabs-pane" id="{pid}">' in tabs],
+                                 [pid for pid, _ in TABS])
+
+    def test_each_card_is_in_its_tab(self):
+        """The mapping of the page's cards to its five tabs (decided 2026-11-16; every card of the page before kept):
+        Source and proof: the sources (the design file in a code box, the proof folded under it: in a column the code
+        box showed 81 columns at 1280 px, review 2026-11-09 M1, so it spans the pane), then the record's facts and the
+        proof's (a record's page) or the reference's facts, side by side where there is room; Writeup: the writeup;
+        Schematics: the netlist card with its own tabs; Charts: the area-time plot; Reproduce and verify: the commands,
+        then a record's checker card and post-synthesis check, folded (their facts behind closed disclosures; decided
+        2026-11-13, the owner's UI feedback item 4, "boring": out of the way), side by side where there is room, a
+        clocked record's per-point table across the pane, last."""
         for t, path, rec, stem in self.detail_pages():
             h = self.page(path)
-            main, side = section(h, "main-col"), section(h, "side-col")
+            raw = self.files[path].decode("utf-8")
             with self.subTest(page=path):
-                self.assertTrue(main and side, "no columns")
-                self.assertNotIn('id="more-col"', h)
-                self.assertLess(h.index('id="sources"'), h.index('id="main-col"'))
-                self.assertLess(h.index('id="main-col"'), h.index('id="side-col"'))
-                for sid in ("netlist", "schematic", "critical-path", "cells"):
-                    self.assertIn(f'id="{sid}"', main, sid)
-                for sid in (("record", "proof", "checker") if rec else ("reference",)):
-                    self.assertIn(f'id="{sid}"', side, sid)
-                    self.assertNotIn(f'id="{sid}"', main, sid)
-                for sid in ("dashboard", "sources", "area-time", "reproduce"):
-                    self.assertNotIn(f'id="{sid}"', main + side, sid)
+                want = {"sources": "source", "netlist": "schematics", "schematic": "schematics",
+                        "critical-path": "schematics", "cells": "schematics", "layout": "schematics",
+                        "area-time": "charts", "dashboard": None}
+                want.update({"record": "source", "proof": "source", "checker": "reproduce", "postsynth": "reproduce"}
+                            if rec else {"reference": "source"})
+                for sid, pid in want.items():
+                    if sid == "area-time" and 'id="area-time"' not in raw:
+                        continue
+                    self.assertEqual(tab_of(raw, sid), pid, sid)
+                self.assertNotIn('id="main-col"', raw)
+                self.assertNotIn('id="side-col"', raw)
+                src_pane = section(h, "source")
+                facts = element_from(src_pane, src_pane.index('<div class="card-row">'))
+                self.assertLess(src_pane.index('id="sources"'), src_pane.index(facts))
                 if rec is None:
                     self.assertNotIn('id="checker"', h)
+                    self.assertTrue(facts.startswith('<div class="card-row"><section class="card" id="reference">'))
                     continue
+                self.assertTrue(facts.startswith('<div class="card-row"><section class="card" id="record">'))
+                self.assertIn('<section class="card" id="proof">', facts)
                 clocked = isinstance(rec["postsynth"].get("points"), list)
-                self.assertEqual('id="postsynth"' in side, not clocked)     # a clocked table needs the page's width
-                self.assertNotIn('id="postsynth"', main)
+                rp = section(h, "reproduce")
+                row = element_from(rp, rp.index('<div class="card-row">'))
+                self.assertLess(rp.index('<h2 class="card-title">Reproduce and verify</h2>'), rp.index(row))
+                self.assertTrue(row.startswith('<div class="card-row"><section class="card" id="checker">'))
+                self.assertEqual('id="postsynth"' in row, not clocked)       # a clocked table needs the width
                 if clocked:
-                    self.assertGreater(h.index('id="postsynth"'), h.index('id="reproduce"'))
-                for sid in ("checker",) + (() if clocked else ("postsynth",)):
-                    card = section(side, sid)
+                    self.assertGreater(rp.index('id="postsynth"'), rp.index(row) + len(row) - 1)
+                for sid in ("checker", "postsynth"):
+                    card = section(h, sid)
                     self.assertNotIn("<details open", card)                     # folded: closed disclosures
-                    self.assertNotIn("<dl", card.split("<details", 1)[0])       # no fact list outside a fold
+                    if sid == "checker" or not clocked:
+                        self.assertNotIn("<dl", card.split("<details", 1)[0])   # no fact list outside a fold
                 src = section(h, "sources")
                 self.assertLess(src.index("<pre"), src.index("<details"))        # the design file, then the proof
                 # the box's download link downloads, under the name the box's head shows (L8)
@@ -723,6 +870,75 @@ class DetailTest(unittest.TestCase):
                     self.assertIn(f'href="{posixpath.relpath(out, posixpath.dirname(path))}"', src)
                     with open(os.path.join(lic_dir, f), "rb") as fh:
                         self.assertEqual(self.files[out], fh.read())
+
+    def test_an_empty_tab_says_so_in_one_line(self):
+        """Every tab is kept on every detail page (decided 2026-11-16: kept, never hidden): a tab with nothing to show
+        says so in one plain line, in the site's empty box. A reference's Writeup: a writeup belongs to a record. Charts,
+        for a design with no ranked numbers on the course shown (the overview says why)."""
+        for t, path, rec, stem in self.detail_pages():
+            for pdk in ("sky130", "asap7pnr"):
+                h = self.page(path, pdk)
+                with self.subTest(page=path, pdk=pdk):
+                    w = section(h, "writeup")
+                    if rec is None:
+                        self.assertEqual(w + ">", '<section class="tabs-pane" id="writeup"><h2 class="tabs-pane-title">'
+                                            f'Writeup</h2><p class="empty">{html.escape(build.NO_WRITEUP_REFERENCE)}</p>'
+                                            "</section>")
+                    else:
+                        self.assertTrue('<section class="card writeup">' in w or 'class="empty writeup-none"' in w)
+                    charts = section(h, "charts")
+                    if 'id="area-time' not in charts:
+                        self.assertIn(f'<p class="empty">{html.escape(build.NO_CHART)}</p>', charts)
+                        self.assertIn("No ranked numbers to show", text_of(section(h, "dashboard")))
+                    else:
+                        self.assertNotIn(build.NO_CHART, charts)
+
+    def test_a_record_without_a_writeup_keeps_its_tab(self):
+        """A record without a writeup (every record has one today: a writeup is kept beside the record, never in it,
+        and anyone may add one later) keeps its Writeup tab, which says so in one line and links how to add one."""
+        site = build.Site(build.load_config())
+        refusals = json.loads(site.doc_text(site.config["refusals_json"]))
+        site.stages = [s["id"] for s in refusals["svgolf"]["stages"]]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            tasks = build.collect(site, True)
+        t = next(t for t in tasks if t.name == "add")
+        rec = next(r for r in t.records if r["player"] != self.config["reference_player"])
+        site.writeups.pop(rec["record_hash"], None)
+        build.record_page(site, t, rec, build.load_ge_tables())
+        h = site.files[f"tasks/add/records/{rec['record_hash']}.html"].decode("utf-8")
+        self.assertEqual(section(h, "writeup") + ">",                  # (section() stops before the last ">")
+                         '<section class="tabs-pane" id="writeup"><h2 class="tabs-pane-title">Writeup</h2>'
+                         f'<p class="empty writeup-none">{html.escape(build.WRITEUP_PROMPT)} '
+                         '<a href="../../../rules.html#writeups">How to add a writeup</a>.</p></section>')
+        self.assertEqual([pid for pid, _ in TABS if f'<section class="tabs-pane" id="{pid}">' in h], [p for p, _ in TABS])
+        self.assertEqual(text_of(re.search(r"<h1\b[^>]*>(.*?)</h1>", h, re.S).group(1)),
+                         posixpath.splitext(rec["files"]["sv"]["name"])[0])          # the file's stem as the title
+
+    def test_the_tab_script(self):
+        """site.js's tabs and charts.js's schematic under node (tests/site/tabsjs_check.js, with the skeleton of two
+        real record pages: the sorter's 61bf6f8d1, the owner's example, clocked, and a combinational record with a
+        drawing and critical-path links; skipped without node): the ARIA wiring and the roving tabindex, a click a new
+        history entry, the keys, a fragment on load or by a link opening every tab around its target (the netlist
+        card's inside the Schematics tab), Back and Forward, and the drawing in a hidden tab fitted when its tab is
+        first shown (decided 2026-11-16: a chart or drawing measured in a hidden pane would get no width)."""
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node is not installed")
+        drawn = [path for _, path, rec, _ in self.detail_pages() if rec is not None and 'class="sch-link"' in
+                 self.files[path].decode("utf-8")]
+        sorter = [p for p in drawn if p.startswith("tasks/sorter/records/61bf6f8d1")] or \
+            [p for p in drawn if p.startswith("tasks/sorter/")]
+        comb = [p for p in drawn if p.startswith("tasks/add/")] or [p for p in drawn if "/sorter/" not in p]
+        self.assertTrue(sorter and comb)
+        for path in (sorter[0], comb[0]):
+            with self.subTest(page=path):
+                sk = os.path.join(self.tmp.name, "skeleton.json")
+                with open(sk, "w", encoding="utf-8") as fh:
+                    json.dump(skeleton(self.files[path].decode("utf-8")), fh)
+                proc = subprocess.run([node, os.path.join(HERE, "tabsjs_check.js"), os.path.join(SITE, "site.js"),
+                                       os.path.join(SITE, "charts.js"), sk], capture_output=True, text=True, timeout=120)
+                self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+                self.assertIn("all ok", proc.stdout)
 
     def test_reproduce_names_the_command_and_the_hashes(self):
         for t, path, rec, stem in self.detail_pages():

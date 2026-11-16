@@ -8,7 +8,7 @@ directory.)
 Every function returns a string of HTML. Arguments named `*_html` (and the
 cells of `table`) are already HTML; everything else is text and is escaped
 here. Pages read without JavaScript: site.js only adds the copy buttons of
-code blocks and the property panel's tabs.
+code blocks and makes the tabs (the property panel's, a card's, a detail page's).
 """
 
 import html
@@ -223,23 +223,28 @@ def seg(options, on=0, *, label_text):
     return f'<div class="seg" role="group" aria-label="{esc(label_text)}">{items}</div>'
 
 
-def tabs(panes, *, label_text):
-    """Tabs in a card (a detail page's netlist: Schematic, Critical path, Cells and, on the routed course, Layout).
+def tabs(panes, *, label_text, page=False):
+    """Tabs in a card (a detail page's netlist: Schematic, Critical path, Cells and, on the routed course, Layout), or
+    with `page` the tabs of a whole page (a detail page's five, under its head: decided 2026-11-16).
     `panes`: (id, tab label, body HTML) or (id, tab label, body HTML, class): each pane is a `<section>` with that id,
     so a link to the id lands on it; a class goes on both the tab and its pane (`pdk-asap7pnr`: a tab of the routed
     course only, which style.css hides on sky130 and without JavaScript). Without JavaScript the tab links jump to the
-    panes, which stand one under the other, each under its own title, and no tab is marked as chosen; site.js makes
-    them tabs (the first one shown) and shows the pane a link or the URL's fragment names (or holds), and a tab chosen
-    names its pane in the URL; a tab its course hides is never the one shown."""
+    panes, which stand one under the other, each under its own title (an `<h2>` for a page's panes, an `<h3>` for a
+    card's), and no tab is marked as chosen; site.js makes them tabs (the first one shown) and shows the pane a link or
+    the URL's fragment names (or holds), and a tab chosen names its pane in the URL (a page's tab as a new history
+    entry, so that Back returns to the tab before); a tab its course hides is never the one shown. Printed, every pane
+    stands under its title, as without the script."""
     panes = [p if len(p) == 4 else (*p, None) for p in panes]
 
     def cls(c, base=""):
         names = " ".join(x for x in (base, c) if x)
         return f' class="{esc(names)}"' if names else ""
+    h = "h2" if page else "h3"
     links = "".join(f'<a href="#{esc(pid)}"{cls(c)}>{esc(label)}</a>' for pid, label, _, c in panes)
-    body = "".join(f'<section{cls(c, "tabs-pane")} id="{esc(pid)}"><h3 class="tabs-pane-title">{esc(label)}</h3>'
+    body = "".join(f'<section{cls(c, "tabs-pane")} id="{esc(pid)}"><{h} class="tabs-pane-title">{esc(label)}</{h}>'
                    f"{html_}</section>" for pid, label, html_, c in panes)
-    return f'<div class="tabs" data-tabs><nav class="tabs-nav" aria-label="{esc(label_text)}">{links}</nav>{body}</div>'
+    kind = ' class="tabs tabs-page" data-tabs="page"' if page else ' class="tabs" data-tabs'
+    return f'<div{kind}><nav class="tabs-nav" aria-label="{esc(label_text)}">{links}</nav>{body}</div>'
 
 
 # ---------------------------------------------------------------------------

@@ -874,7 +874,8 @@ class PdkTest(unittest.TestCase):
                 h = site.files[f"tasks/sorter/records/{rec['record_hash']}.html"].decode("utf-8")
                 # (a writeup is its author's prose, dated by its author, and may quote the numbers of its day: the
                 # site's own numbers are checked here, the page without its writeup card)
-                h = re.sub(r'<section class="card writeup[^"]*" id="writeup">.*?</section>', "", h, flags=re.S)
+                h = re.sub(r'<section class="card writeup">.*?</section>', "", h, flags=re.S)
+                self.assertNotIn("The writeup</h2>", h)                       # (the card was found and removed)
                 self.assertIn(why, text_of(view_of(h, R)))
                 self.assertNotIn(flat(combined.fmt(combined.um2ns(vo["exact"], R))), text_of(view_of(h, R)))
                 if rec in mine:

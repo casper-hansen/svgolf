@@ -5246,21 +5246,21 @@ def writeup_ask(config):
     """The request for a writeup in How to submit and llms.txt (decided 2026-11-13), with where it goes in the state
     the tree is in: the pull request only where submissions are open."""
     return WRITEUP_ASK + (WRITEUP_ASK_PR if submissions_open(config) else "")
-WRITEUP_PROMPT = ("No writeup yet. A writeup is the story of a submission: the idea, why it scores as it does, how the "
-                  "proof goes and what did not work. Anyone may add one in a pull request; it never changes the record.")
+# one line (decided 2026-11-16, the record page's Writeup tab): what a writeup is, the rules page says ("How to add a
+# writeup" links it)
+WRITEUP_PROMPT = "No writeup yet. Anyone may add one in a pull request; it never changes the record."
 
 
 def writeup_card(site, here, rec):
-    """A record's writeup as a card of the main column (decided 2026-11-13, the owner's UI feedback item 3), its title
-    being the page's heading; without one, a short prompt card that says what a writeup is and links how to add one
-    (the rules page's "Writeups")."""
+    """A record's writeup as a card (decided 2026-11-13, the owner's UI feedback item 3; since 2026-11-16 the page's
+    Writeup tab, whose pane holds the id `writeup`), its title being the page's heading; without one, one line that
+    says so and links how to add one (the rules page's "Writeups")."""
     w = site.writeups.get(rec["record_hash"])
     how = page.link(rel_link(here, f"rules.html#{WRITEUPS_ANCHOR}"), "How to add a writeup")
     if w is None:
-        return page.card(f'<p class="small">{esc(WRITEUP_PROMPT)} {how}.</p>', tag="section", id_="writeup",
-                         title_html="No writeup yet", cls="writeup writeup-none")
+        return f'<p class="empty writeup-none">{esc(WRITEUP_PROMPT)} {how}.</p>'
     src = f"svgolf/leaderboard/writeups/{rec['record_hash']}.md"
-    return page.card(f'<div class="writeup-body">{w[1]}</div>', tag="section", id_="writeup", title_html="The writeup",
+    return page.card(f'<div class="writeup-body">{w[1]}</div>', tag="section", title_html="The writeup",
                      cls="writeup", foot_html=f'<p class="fine">From {code(shown_path(src))}, kept beside the record '
                                               f"(it is not part of the record or its hash). {how}.</p>")
 
@@ -5376,8 +5376,8 @@ def detail_sections(site, s, ge_tables):
                          actions_html=f'<span class="label">{size_tag(t, s.here, " · ") if sky_plot else ""}'
                                       f'{nocase(esc("µm² × ps · lower left is better"))}'
                                       f'{pdk_text("", " · ASAP7 routed")}</span>')
-        if not sky_plot:                 # numbers on the routed course only: the card is that course's alone
-            plot = f'<div class="pdk-{COURSE2}">{plot}</div>'
+        if not sky_plot:                 # numbers on the routed course only: the card is that course's alone (the
+            plot = dual(f'<p class="empty">{esc(NO_CHART)}</p>', plot)      # Charts tab says so on sky130)
     # each pane says the size it shows (the drawing is at a smaller one, the other two at the scoring point), as the
     # three cards' heads did
     disp = (s.sch or {}).get("display") or {}
@@ -5402,17 +5402,39 @@ def scale_label(text):
     return f'<p class="label pane-scale">{esc(text)}</p>'
 
 
-def detail_layout(overview, sources, main, side, after):
-    """A detail page's body under its head: the overview, then the sources, across the page (the code at the page's
-    width: in a column its lines ran past the edge), then two columns (the main one: a record's writeup and the
-    netlist card; the side one: the record's or the reference's facts and the proof's, then, folded and compact, a
-    record's checker and a combinational record's post-synthesis check: decided 2026-11-13, the owner's UI feedback
-    item 4), then what needs the page's width (the area-time plot, reproduce, and last a clocked record's
-    post-synthesis check, whose per-point table needs the width). In one column (under 72rem) the order is the main
-    column's, then the side column's cards."""
-    return (overview + sources + '<div class="split split-detail">'
-            f'<div class="col col-main" id="main-col">{"".join(main)}</div>'
-            f'<div class="col col-side" id="side-col">{"".join(side)}</div></div>' + "".join(after))
+# A detail page's tabs, in this order and with these names (decided 2026-11-16): (pane id, tab label). The ids are
+# the URL fragments that name the tabs (`#writeup`); the cards inside keep their own ids (`#sources`, `#netlist`,
+# `#area-time`, ...), so a link to a card opens its tab and lands on the card.
+DETAIL_TABS = (("source", "Source and proof"), ("writeup", "Writeup"), ("schematics", "Schematics"),
+               ("charts", "Charts"), ("reproduce", "Reproduce and verify"))
+NO_CHART = "No chart: this design has no ranked numbers to plot."
+NO_WRITEUP_REFERENCE = "No writeup: writeups belong to records, and this proof of par's design has no record."
+
+
+def card_row(cards):
+    """Cards side by side where the page is wide enough (one under the other on a phone): the facts of a record and
+    of its proof, the checker and a combinational record's post-synthesis check. A lone card takes the width."""
+    cards = [c for c in cards if c]
+    return f'<div class="card-row">{"".join(cards)}</div>' if cards else ""
+
+
+def detail_layout(overview, panes):
+    """A detail page's body under its head (decided 2026-11-16: tabs): the overview (the dashboard: the scores, the
+    place on the board and its note), which every tab shares, then the tab bar and its five panes, `panes` keyed by
+    DETAIL_TABS' ids: "Source and proof" (the sources, across the page, then the record's or the reference's facts and
+    the proof's), "Writeup", "Schematics" (the netlist card and its own tabs), "Charts" (the area-time plot) and
+    "Reproduce and verify" (the commands, then a record's checker and post-synthesis check: decided 2026-11-13, the
+    owner's UI feedback item 4, "boring": out of the way). Every tab is kept on every page: a tab with nothing to show
+    says so in one line (`NO_CHART`, a record's writeup prompt, `NO_WRITEUP_REFERENCE`). Without JavaScript, and
+    printed, the panes stand one under the other in this order, each under its title, and the tab bar is a row of
+    links to them (page.tabs)."""
+    return overview + page.tabs([(pid, label, panes[pid]) for pid, label in DETAIL_TABS],
+                                label_text="sections of this page", page=True)
+
+
+def chart_pane(plot):
+    """The Charts tab's content: the area-time plot's card, or one line when the design has no ranked numbers."""
+    return plot or f'<p class="empty">{esc(NO_CHART)}</p>'
 
 
 def sources_card(s, sv_text, lean_text, sv_name, lean_name, sv_src, lean_src, lines, downloads):
@@ -5539,7 +5561,7 @@ def record_page(site, t, rec, ge_tables):
             ps_rows.insert(2, ("full set", esc(ps["full_vectors"])))
         agreed = ("agreed on every one" if ps.get("mismatches") == 0
                   else f"disagreed on {ps.get('mismatches')} (a record the checker accepted should have none)")
-        # compact, in the side column (decided 2026-11-13): the verdict, the run's facts folded
+        # compact (decided 2026-11-13): the verdict, the run's facts folded
         postsynth = card("postsynth", "Post-synthesis check",
                          f'<p class="small">ls-sv\'s reading of the design and the scored netlist, simulated on the same '
                          f"vectors, {esc(agreed)}. The vectors are a sample of the inputs: a guard against the two tools "
@@ -5551,20 +5573,27 @@ def record_page(site, t, rec, ge_tables):
               f"H={h}\n"
               f"mkdir -p rec/{t.name} && cp \"$H.json\" \"$H.sv\" \"$H.lean\" rec/{t.name}/\n"
               f"python3.12 leaderboard/leaderboard.py verify --data-dir rec --task {t.name} --full\n")
-    reproduce = card("reproduce", "Reproduce and verify", dual(reproduce_html(s), reproduce_pnr_html(site, s7))
-                     + "<h3>Verify the record</h3><p>Download the three files, then from <code>svgolf/</code>:</p>"
-                     + page.code_block(verify, "bash", name="shell", term=True)
-                     + "<p><code>verify --offline</code> checks only the hashes and the arithmetic; plain "
-                       "<code>verify</code> also rescores the design (no Lean; seconds for most designs, a minute or "
-                       "more for the largest), on sky130 and on ASAP7 (cells only).</p>")
-    # the checker's card and a combinational record's post-synthesis facts go to the side column, folded, under the
-    # record and the proof (decided 2026-11-13, the owner's UI feedback item 4: out of the main column); a clocked
-    # record's per-point table needs the page's width (in a column its point column wrapped and its table scrolled),
-    # so it goes to the bottom of the page
+    # the card's id is its tab's (the pane `reproduce`, DETAIL_TABS)
+    reproduce = page.card(dual(reproduce_html(s), reproduce_pnr_html(site, s7))
+                          + "<h3>Verify the record</h3><p>Download the three files, then from <code>svgolf/</code>:</p>"
+                          + page.code_block(verify, "bash", name="shell", term=True)
+                          + "<p><code>verify --offline</code> checks only the hashes and the arithmetic; plain "
+                            "<code>verify</code> also rescores the design (no Lean; seconds for most designs, a minute or "
+                            "more for the largest), on sky130 and on ASAP7 (cells only).</p>",
+                          tag="section", title_html="Reproduce and verify")
+    # the checker's card and a combinational record's post-synthesis facts, folded, under the commands (decided
+    # 2026-11-13, the owner's UI feedback item 4: out of the way; since 2026-11-16 in the Reproduce and verify tab), side
+    # by side where there is room; a clocked record's per-point table needs the width (in a column its point column
+    # wrapped and its table scrolled), so it comes last, across the pane
     clocked_ps = isinstance(ps.get("points"), list)
-    body = head + detail_layout(overview, sources, [writeup_card(site, here, rec), netlist], [record, proof_card, checker]
-                                + ([] if clocked_ps else [postsynth]),
-                                [plot, reproduce] + ([postsynth] if clocked_ps else []))
+    body = head + detail_layout(overview, {
+        "source": sources + card_row([record, proof_card]),
+        "writeup": writeup_card(site, here, rec),
+        "schematics": netlist,
+        "charts": chart_pane(plot),
+        "reproduce": reproduce + card_row([checker] + ([] if clocked_ps else [postsynth]))
+                     + (postsynth if clocked_ps else ""),
+    })
     site.page(here, f"{title} · {who} on {where} · record {h[:12]}", body,
               scripts=("charts.js",), scores=True,
               description=f"svGolf {task_word(t)}: record {h[:12]} by {rec['player']}")
@@ -5704,9 +5733,15 @@ def reference_detail_page(site, t, ref, ge_tables):
     ]), tag="section", id_="reference", title_html="The reference")
     sources = sources_card(s, sv_text, lean_text, posixpath.basename(ref["sv"]), posixpath.basename(ref["lean"]),
                            ref["sv"], ref["lean"], ref["proof_lines"], [(base + ".sv", "download")])
-    reproduce = page.card(dual(reproduce_html(s), reproduce_pnr_html(site, s7)), tag="section", id_="reproduce",
-                          title_html="Reproduce")
-    body = head + detail_layout(overview, sources, [netlist], [facts], [plot, reproduce])
+    reproduce = page.card(dual(reproduce_html(s), reproduce_pnr_html(site, s7)), tag="section", title_html="Reproduce")
+    # the same five tabs as a record page's (detail_layout); a reference has no record, so no writeup, no checker run
+    body = head + detail_layout(overview, {
+        "source": sources + card_row([facts]),
+        "writeup": f'<p class="empty">{esc(NO_WRITEUP_REFERENCE)}</p>',
+        "schematics": netlist,
+        "charts": chart_pane(plot),
+        "reproduce": reproduce,
+    })
     site.page(here, f"{task_word(t)} reference {ref['stem']}", body, scripts=("charts.js",), scores=True,
               description=f"svGolf {task_word(t)}: {ref['stem']}, a proof of par's design")
 
