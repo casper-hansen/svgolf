@@ -195,7 +195,9 @@ HOSTILE = [
     ("text loose at the top", "Just Markdown, no tags", "outside a block", 3),
     ("Markdown heading", "## The idea", "outside a block", 3),
     ("a lone <", "<p>a</p>\n<", "outside a block", 4),
-    ("unterminated comment", "<p>a</p>\n<!-- x", "outside a block", 4),
+    # refused either way: Python's html.parser reads an unterminated comment as loose text before
+    # 3.12.11 and as a comment from then on
+    ("unterminated comment", "<p>a</p>\n<!-- x", ("outside a block", "a comment is not allowed"), 4),
     # -- mutation XSS: nesting a browser would rearrange
     ("p in svg breakout", fig('<p><style><img src=x onerror=alert(1)></style></p>'), "<p> inside a drawing", 4),
     ("math mglyph", "<math><mtext><table><mglyph><style><img src=x onerror=alert(1)>", "<math> is not allowed", 3),
@@ -284,7 +286,8 @@ class HostileTest(unittest.TestCase):
                                lambda: render(body)):
                     with self.assertRaises(safehtml.HtmlError) as cm:
                         refuse()
-                    self.assertIn(msg, cm.exception.message)
+                    msgs = msg if isinstance(msg, tuple) else (msg,)
+                    self.assertTrue(any(m in cm.exception.message for m in msgs), cm.exception.message)
                     self.assertEqual(cm.exception.line, line, cm.exception.message)
                     self.assertTrue(str(cm.exception).startswith(f"w.html:{line}: "))
 
