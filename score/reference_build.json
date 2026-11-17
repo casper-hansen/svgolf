@@ -8,7 +8,13 @@
     "version_line": "Yosys 0.53 (git sha1 53c22ab7c0ced80861c7536c5dae682c30fb5834, clang++ 17.0.0 -fPIC -O3)",
     "build": "the Homebrew build for macOS arm64",
     "compiler": "clang++ 17, -O3",
-    "sha256": "011e094340da48932dd0af17da0846519af24cee7de9ae84c11cc78753ab7732"
+    "sha256": "011e094340da48932dd0af17da0846519af24cee7de9ae84c11cc78753ab7732",
+    "source": {
+      "_comment": "The release archive the rating build's own package is made from (Homebrew's yosys 0.53 formula: the same address and sha256), and the Ubuntu packages its build needs: what the public repository's records workflow builds on Ubuntu (tools/export_public.py writes that workflow from the same values; tests/site/test_rating_build.py compares them), and what Step 0 on the site gives a player as the recipe. A build made from it is another build than the rating build: its version line names another compiler.",
+      "url": "https://github.com/YosysHQ/yosys/releases/download/v0.53/yosys.tar.gz",
+      "sha256": "126e93d82ceca9ece1cf973b395b46a1cc8105651a8ecf3de9afbe786cdeea58",
+      "ubuntu_packages": ["build-essential", "autoconf", "bison", "flex", "gawk", "help2man", "libfl-dev", "libffi-dev", "libreadline-dev", "perl", "pkg-config", "tcl", "tcl-dev", "zlib1g-dev"]
+    }
   },
   "abc": {
     "binary": "yosys-abc",

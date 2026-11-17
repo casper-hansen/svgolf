@@ -239,6 +239,12 @@ without one is accepted), it lies outside the record (adding or improving one ne
 hash), and `verify --offline` checks it, refusing anything outside the lists with the line it is on (README.md,
 "Writeups", has the lists and how to preview a writeup).
 
+**A record derived from another** (decided 2026-11-17): when your design starts from a record already on the board, a
+change to its design rather than a new one, say so in your writeup. Name that record by its hash, and show the change
+as a diff of the two design files (`diff -u THEIRS.sv YOURS.sv`) in a code block, `<pre><code
+class="language-text">...</code></pre>`, with `<`, `>` and `&` written `&lt;`, `&gt;` and `&amp;` as everywhere in
+a writeup. A reader then sees what changed at a glance; the site shows no diff of its own (decided 2026-11-13).
+
 A record is one JSON file, `data/<task>/<record_hash>.json`, with your `.sv` and `.lean` copied next to it
 (`leaderboard/README.md` has the full schema, `svgolf-leaderboard-record/1`):
 
@@ -400,4 +406,5 @@ proof (or, where that no longer compiles, a maintainers' port of it, marked as s
 PORT.lean] --reason "..."`, which carries the scores, says so in the record (`remade`), removes the old record and
 re-points its writeup and the derived tables (leaderboard/README.md, "Re-making a record"). With the first record of a player outside the maintainers,
 update the line on who made the records so far: `FIRST_ENTRIES_MD` in `site/build.py` and the same sentence in
-README.md, "Leaderboard".
+README.md, "Leaderboard", and the board's provenance beside it in `site/build.py` (`provenance_front_html`, the front
+page's sentence, and `provenance_md`, About's "Who made the records"; their counts come from the records).

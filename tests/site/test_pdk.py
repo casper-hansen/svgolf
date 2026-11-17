@@ -409,8 +409,11 @@ class PdkTest(unittest.TestCase):
                 self.assertIn(flat(f"{combined.fmt(combined.um2ns(exact, R))} µm²·ns {stem}"), head)
                 best = min([exact] + [r["exact"] for r in a7["ranking"]])
                 self.assertIn(flat(combined.fmt(combined.um2ns(best, R))), head)
-                pct = round((exact - best) * 100 / exact)
-                self.assertIn("0%" if pct == 0 else f"{pct}%", head)       # no minus sign (2026-11-11)
+                share = (exact - best) * 100 / exact
+                pct = round(share)
+                # no minus sign (2026-11-11); a share that would round to 0% keeps two digits (2026-11-17)
+                said = f"{share:.2g}%" if 0 < share < 0.5 else "0%" if pct == 0 else f"{pct}%"
+                self.assertIn(said, head)
                 self.assertNotIn("−", head)
                 cards = self.view("index.html", R).split('<li class="task-card">')[1:]
                 (card,) = [c.split("</li>", 1)[0] for c in cards if f'href="tasks/{t}/index.html"' in c.split("</li>", 1)[0]]
@@ -497,8 +500,10 @@ class PdkTest(unittest.TestCase):
                 self.assertIn(flat(combined.fmt(combined.um2ns(vo["exact"], R))), dash)
                 self.assertIn("cells only (A0′)", dash)
                 self.assertIn(f"seed {vo['seed']}, valid", dash)
-                wire = vo["exact"] / (a0["area_e5um2"] * a0["time_ps"]) - 1
-                self.assertIn(("+" if wire > 0 else "−") + f"{abs(wire) * 100:.1f}%", dash)
+                # the cells-only score, a row of its own (decided 2026-11-17: no "wire cost", the routed score
+                # against it, which was negative on some designs and never analysed)
+                self.assertIn(flat(combined.fmt(combined.um2ns(a0["area_e5um2"] * a0["time_ps"], "asap7"))), dash)
+                self.assertNotIn("wire cost", dash)
                 run = next(r for r in e["runs"] if r["role"] == "scoring")
                 for h in (run["artifacts"]["6_final.v"], run["artifacts"]["6_final.odb"], run["config_mk_sha256"],
                           str(run["area_e5um2"])):

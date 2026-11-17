@@ -403,6 +403,31 @@ class AllowedTest(unittest.TestCase):
         self.assertIn('<circle class="n-hot" cx="200" cy="100" r="5"/>', once)
         self.assertIn("<br>", once)
 
+    def test_a_diff_against_the_parent_record_is_accepted(self):
+        """Decided 2026-11-17 (CONTRIBUTING.md, "A record derived from another"): a writeup of a record derived from
+        another shows the diff of the two design files in a code block. `diff -u`'s lines (---, +++, @@, the - and +
+        lines, the context), with <, > and & written as references, are accepted, kept byte for byte (a context line's
+        leading space included) and written back as the same text; with or without a language class."""
+        diff = ("--- a/add_n.sv\n+++ b/add_mux.sv\n@@ -9,3 +9,3 @@\n"
+                "   for (i = 0; i &lt; N; i++) begin : g_bit\n"
+                "-    assign c[i+1] = (a[i] &amp; b[i]) | (c[i] &amp; (a[i] ^ b[i]));\n"
+                "+    assign c[i+1] = (a[i] ^ b[i]) ? c[i] : a[i];\n"
+                "   end\n")
+        for cls in (' class="language-text"', ""):
+            with self.subTest(cls=cls):
+                body = (f"<p>Derived from record <code>e30d319a06ed</code>, one line changed:</p>\n"
+                        f"<pre><code{cls}>{diff}</code></pre>")
+                once = safehtml.sanitize(body)
+                self.assertEqual(safehtml.sanitize(once), once)
+                h = render(body)
+                code = re.search(r"<pre\b[^>]*><code>(.*?)</code></pre>", h, re.S).group(1)
+                self.assertEqual(code, diff)
+                for line in ("--- a/add_n.sv", "+++ b/add_mux.sv", "@@ -9,3 +9,3 @@", "   end"):
+                    self.assertIn("\n" + line + "\n", "\n" + code)
+        # an unwritten < before a letter reads as a tag: refused with its line, never guessed (write &lt;)
+        with self.assertRaises(safehtml.HtmlError):
+            safehtml.parse("<pre><code>-  if (a<b) y = 1;\n</code></pre>", source="w.html")
+
     def test_the_committed_writeups_and_the_template_are_accepted_and_idempotent(self):
         n = 0
         for name in sorted(os.listdir(WRITEUPS)):

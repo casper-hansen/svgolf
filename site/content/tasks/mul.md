@@ -1,4 +1,4 @@
-Multiply two unsigned `N`-bit numbers: `p = a * b`, all `2N` bits of the product, for every `N ≥ 1`,
+Multiply two unsigned `N`-bit numbers: `p = a * b`, all `2N` bits of the product, for {{range}},
 scored at `N = 16`.
 
 Run-time `+ - * / % **` and the ordering comparisons `< <= > >=` are banned, so the multiplier is built from partial products and adders made of

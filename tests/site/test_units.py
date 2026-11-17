@@ -655,6 +655,84 @@ class FaviconTest(unittest.TestCase):
         self.assertEqual(png, pixelart.favicon_png())
 
 
+class PreviewTest(unittest.TestCase):
+    """pixelart.py's link preview (decided 2026-11-17): og.png, 1200 x 630, the hero's scene and the site's name and
+    headline in pixel letters, in the day theme's colours, a palette PNG whose deflate stream the module writes itself
+    (fixed Huffman codes, distance-1 runs), so that its bytes do not depend on the zlib build."""
+
+    def chunks(self, png):
+        import struct
+        import zlib
+        out, at = {}, 8
+        while at < len(png):
+            n, kind = struct.unpack(">I4s", png[at:at + 8])
+            data = png[at + 8:at + 8 + n]
+            self.assertEqual(struct.unpack(">I", png[at + 8 + n:at + 12 + n])[0], zlib.crc32(kind + data) & 0xFFFFFFFF)
+            out[kind] = data
+            at += 12 + n
+        return out
+
+    def test_the_png_is_the_pixels_and_stable(self):
+        import struct
+        import zlib
+        import pixelart
+        png = pixelart.preview_png()
+        self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n")
+        chunks = self.chunks(png)
+        self.assertEqual(list(chunks), [b"IHDR", b"PLTE", b"IDAT", b"IEND"])
+        self.assertEqual(struct.unpack(">IIBBBBB", chunks[b"IHDR"]), (1200, 630, 8, 3, 0, 0, 0))
+        idat = chunks[b"IDAT"]
+        self.assertEqual(idat[:2], b"\x78\x01")
+        self.assertEqual(idat[2] & 7, 0b011)                  # one final block (BFINAL 1) of the fixed codes (BTYPE 01)
+        raw = zlib.decompress(idat)                            # zlib reads the module's stream, adler32 included
+        palette = [chunks[b"PLTE"][i:i + 3] for i in range(0, len(chunks[b"PLTE"]), 3)]
+        rows, prev = [], bytes(1200)
+        for y in range(630):
+            line = raw[y * 1201:(y + 1) * 1201]
+            self.assertEqual(line[0], 2)                       # Up
+            cur = bytes((a + b) & 0xFF for a, b in zip(line[1:], prev))
+            rows.append(["#" + palette[i].hex() for i in cur])
+            prev = cur
+        self.assertEqual(rows, pixelart.preview_pixels())
+        self.assertLess(len(png), 64 * 1024)
+        self.assertEqual(png, pixelart.preview_png())
+
+    def test_its_colours_are_the_day_themes_tokens(self):
+        import pixelart
+        with open(os.path.join(SITE, "style.css"), encoding="utf-8") as fh:
+            css = fh.read()
+        root = re.search(r"^:root \{(.*?)^\}", css, re.S | re.M).group(1)      # the day theme (the first :root)
+        tokens = dict(re.findall(r"^\s*(--[\w-]+):\s*(#[0-9a-fA-F]{6});", root, re.M))
+        fills = {ch: re.search(r"\.px-" + re.escape(cls) + r" \{ fill: var\((--[\w-]+)\); \}", css).group(1)
+                 for ch, cls in pixelart.INKS.items()}
+        for ch, colour in pixelart.PREVIEW_FILLS.items():
+            with self.subTest(ink=ch):
+                self.assertEqual(colour.lower(), tokens[fills[ch]].lower())
+        self.assertEqual(set(pixelart.INKS) - set(pixelart.PREVIEW_FILLS), {"m", "M", "s"})   # by day: transparent
+        self.assertEqual([c.lower() for c in pixelart.PREVIEW_SKY],
+                         [tokens[f"--sky-{k}"].lower() for k in range(1, 5)])
+        self.assertEqual(pixelart.PREVIEW_INK.lower(), tokens["--px-ink"].lower())
+        self.assertEqual(pixelart.PREVIEW_MARKER.lower(), tokens["--marker"].lower())
+
+    def test_the_words_fit_and_every_letter_is_drawn(self):
+        import pixelart
+        for text, x0, y0, k, _ in pixelart.PREVIEW_TEXT:
+            with self.subTest(text=text):
+                self.assertLessEqual(set(text), set(pixelart.PREVIEW_FONT))
+                self.assertLessEqual(x0 + len(text) * 6 * k, pixelart.PREVIEW_W)
+                self.assertLessEqual(y0 + 9 * k, pixelart.PREVIEW_H)
+        for ch, rows in pixelart.PREVIEW_FONT.items():
+            self.assertEqual(len(rows), 9, ch)
+            self.assertTrue(all(len(r) == 5 and set(r) <= {".", "#"} for r in rows), ch)
+        rows = pixelart.preview_pixels()
+        ink = pixelart.PREVIEW_INK
+        # the title's first letter, s: the top bar of its body, three letter-pixels down
+        _, x0, y0, k, _ = pixelart.PREVIEW_TEXT[0]
+        self.assertEqual(rows[y0 + 2 * k][x0 + k], ink)
+        self.assertEqual(rows[y0][x0], pixelart.PREVIEW_SKY[0])
+        self.assertIn(pixelart.PREVIEW_FILLS["f"], {c for r in rows for c in r})     # the flag
+
+
 class CombinedTest(unittest.TestCase):
     """leaderboard/combined.py: the score is area x time, exact in integers."""
 

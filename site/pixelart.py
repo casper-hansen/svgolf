@@ -355,11 +355,19 @@ def scene():
     """The home page's hero art: the green with the chip, the flag and the ball, trees behind, clouds
     above (by night: dim clouds, the moon and stars). Its left fifth may lie under the hero's text
     (style.css), so the sky there stays empty."""
+    # anchored at the bottom right: where style.css narrows the drawing's box (a phone), the left of
+    # the course (the far trees) is cut off and the chip and the flag stay
+    return _scene().svg("scene", extra=' preserveAspectRatio="xMaxYMax slice"')
+
+
+def _scene(cloud=(36, 9)):
+    """The hero's scene as a canvas; `cloud`: where its big cloud floats (the link preview moves it out of the way of
+    its title)."""
     c = Canvas(SCENE_W, SCENE_H)
     for x, y in ((30, 18), (44, 1), (54, 9), (84, 3), (116, 22), (116, 4), (84, 20), (105, 25)):
         c.put(STAR if (x + y) % 3 else ["s"], x, y)
     c.put(MOON, 28, 2)
-    c.put(CLOUD, 36, 9).put(CLOUD_SMALL, 66, 2)
+    c.put(CLOUD, *cloud).put(CLOUD_SMALL, 66, 2)
     for sprite, x in ((TREE_SMALL, 13), (TREE, 27), (TREE, 108)):
         base = max(_ground(i) for i in range(x, x + len(sprite[0])))
         c.put(sprite, x, base - len(sprite) + 2)
@@ -378,9 +386,7 @@ def scene():
     c.put(BALL, 84, _ground(86) - 5)
     chip_x = 46
     c.put(CHIP, chip_x, _ground(chip_x + 16) - len(CHIP) + 1)
-    # anchored at the bottom right: where style.css narrows the drawing's box (a phone), the left of
-    # the course (the far trees) is cut off and the chip and the flag stay
-    return c.svg("scene", extra=' preserveAspectRatio="xMaxYMax slice"')
+    return c
 
 
 def icon(name):
@@ -402,6 +408,172 @@ def hole_flag():
     c.put(["kkkk", "kppk", "kppk", "kkkk"], 3, 0)
     c.put(PENNANT_SMALL, 6, 4)
     return c.svg("hole-flag", scale=2)
+
+
+# ---------------------------------------------------------------------------
+# the link preview (decided 2026-11-17): og.png, the one picture every page's og:image names, 1200 x 630
+# ---------------------------------------------------------------------------
+# The hero's scene, ten pixels to a map pixel, its bottom 63 rows under bands of the day sky, its big cloud moved out
+# of the title's way, and the site's name and headline in the pixel letters of PREVIEW_FONT, "with proofs." on the
+# highlighter as in the hero. The colours are the day theme's tokens, written out (a preview has no style.css):
+# PREVIEW_FILLS by map character, the sky's four bands, the highlighter. Encoded as a palette PNG whose IDAT is ONE
+# deflate block with the fixed Huffman codes and only distance-1 matches, written here (`_deflate_runs`), so that the
+# bytes do not depend on the zlib build: the same maps give the same file.
+PREVIEW_W, PREVIEW_H, PREVIEW_PX = 1200, 630, 10      # the picture, and screen pixels to a map pixel
+# the day theme's tokens (style.css :root) by map character: the scene's colours (by day no moon, no stars)
+PREVIEW_FILLS = {
+    "k": "#24331c", "K": "#3b4a33", "w": "#ffffff", "c": "#d9e3ea", "C": "#ffffff", "x": "#d3e3ee",
+    "g": "#c9d0d6", "h": "#e6eaee", "G": "#9aa4ad", "p": "#f2b33d", "P": "#c98a1f", "o": "#f6ead0",
+    "f": "#ef5a2e", "F": "#c23f1b", "q": "#6cc04a", "l": "#9be06a", "v": "#4f9d34", "T": "#3f8f3a",
+    "t": "#5aae4a", "D": "#2d6e2c", "b": "#7a5230", "d": "#1f3a17",
+}
+PREVIEW_SKY = ("#bfe2f8", "#cce8fa", "#d8eefb", "#e3f3fc")       # --sky-1 .. --sky-4, top to bottom
+PREVIEW_INK = "#24331c"                                        # --px-ink: the letters
+PREVIEW_MARKER = "#b6ec7c"                                     # --marker: the highlighter behind "with proofs."
+# the words: (text, left, top, screen pixels to a letter pixel, on the highlighter)
+PREVIEW_TEXT = (("svGolf", 50, 40, 15, False), ("Hardware golf,", 52, 182, 4, False),
+                ("with proofs.", 52, 226, 4, True))
+# the letters, 5 wide and 9 high (the baseline under row 6, rows 7 and 8 the descenders), each 6 columns apart
+PREVIEW_FONT = {
+    "s": [".....", ".....", ".####", "#....", ".###.", "....#", "####.", ".....", "....."],
+    "v": [".....", ".....", "#...#", "#...#", "#...#", ".#.#.", "..#..", ".....", "....."],
+    "G": [".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".###.", ".....", "....."],
+    "g": [".....", ".....", ".####", "#...#", "#...#", "#...#", ".####", "....#", ".###."],
+    "o": [".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###.", ".....", "....."],
+    "l": [".##..", "..#..", "..#..", "..#..", "..#..", "..#..", ".###.", ".....", "....."],
+    "f": ["..##.", ".#..#", ".#...", "###..", ".#...", ".#...", ".#...", ".....", "....."],
+    "H": ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#", ".....", "....."],
+    "a": [".....", ".....", ".###.", "....#", ".####", "#...#", ".####", ".....", "....."],
+    "r": [".....", ".....", "#.##.", "##..#", "#....", "#....", "#....", ".....", "....."],
+    "d": ["....#", "....#", ".##.#", "#..##", "#...#", "#...#", ".####", ".....", "....."],
+    "w": [".....", ".....", "#...#", "#...#", "#.#.#", "#.#.#", ".#.#.", ".....", "....."],
+    "e": [".....", ".....", ".###.", "#...#", "#####", "#....", ".###.", ".....", "....."],
+    ",": [".....", ".....", ".....", ".....", ".....", "..##.", "..##.", "...#.", "..#.."],
+    "i": ["..#..", ".....", ".##..", "..#..", "..#..", "..#..", ".###.", ".....", "....."],
+    "t": [".#...", ".#...", "###..", ".#...", ".#...", ".#..#", "..##.", ".....", "....."],
+    "h": ["#....", "#....", "#.##.", "##..#", "#...#", "#...#", "#...#", ".....", "....."],
+    "p": [".....", ".....", "####.", "#...#", "#...#", "#...#", "####.", "#....", "#...."],
+    ".": [".....", ".....", ".....", ".....", ".....", ".##..", ".##..", ".....", "....."],
+    " ": ["....."] * 9,
+}
+
+
+def preview_pixels():
+    """The link preview as PREVIEW_H rows of PREVIEW_W colours ('#rrggbb')."""
+    w, h, s = PREVIEW_W, PREVIEW_H, PREVIEW_PX
+    rows = [[PREVIEW_SKY[y * len(PREVIEW_SKY) // h]] * w for y in range(h)]
+    top = SCENE_H - h // s                                    # the scene's rows above the picture
+    for (x, y), ch in _scene(cloud=(76, 9)).px.items():
+        fill = PREVIEW_FILLS.get(ch)                          # None: the night's moon and stars
+        if fill is None or y < top:
+            continue
+        for yy in range((y - top) * s, (y - top + 1) * s):
+            rows[yy][x * s:(x + 1) * s] = [fill] * s
+    for text, x0, y0, k, marker in PREVIEW_TEXT:
+        if marker:
+            width = len(text) * 6 * k - k
+            for yy in range(y0 + k, y0 + 8 * k):
+                rows[yy][x0 - k:x0 + width + k] = [PREVIEW_MARKER] * (width + 2 * k)
+        for i, ch in enumerate(text):
+            for gy, line in enumerate(PREVIEW_FONT[ch]):
+                for gx, bit in enumerate(line):
+                    if bit == "#":
+                        x1 = x0 + (i * 6 + gx) * k
+                        for yy in range(y0 + gy * k, y0 + (gy + 1) * k):
+                            rows[yy][x1:x1 + k] = [PREVIEW_INK] * k
+    return rows
+
+
+class _Bits:
+    """A deflate bit stream: values least significant bit first, Huffman codes most significant bit first."""
+
+    def __init__(self):
+        self.out, self.acc, self.n = bytearray(), 0, 0
+
+    def put(self, value, nbits):
+        self.acc |= value << self.n
+        self.n += nbits
+        while self.n >= 8:
+            self.out.append(self.acc & 0xFF)
+            self.acc >>= 8
+            self.n -= 8
+
+    def code(self, code, nbits):
+        self.put(int(format(code, f"0{nbits}b")[::-1], 2), nbits)
+
+    def done(self):
+        return bytes(self.out + (bytes([self.acc & 0xFF]) if self.n else b""))
+
+
+# deflate's length codes (RFC 1951, 3.2.5): (code, the least length, extra bits)
+_LENGTHS = ((257, 3, 0), (258, 4, 0), (259, 5, 0), (260, 6, 0), (261, 7, 0), (262, 8, 0), (263, 9, 0), (264, 10, 0),
+            (265, 11, 1), (266, 13, 1), (267, 15, 1), (268, 17, 1), (269, 19, 2), (270, 23, 2), (271, 27, 2),
+            (272, 31, 2), (273, 35, 3), (274, 43, 3), (275, 51, 3), (276, 59, 3), (277, 67, 4), (278, 83, 4),
+            (279, 99, 4), (280, 115, 4), (281, 131, 5), (282, 163, 5), (283, 195, 5), (284, 227, 5), (285, 258, 0))
+
+
+def _fixed(bits, v):
+    """Literal/length symbol `v` in the fixed Huffman code (RFC 1951, 3.2.6)."""
+    if v <= 143:
+        bits.code(0x30 + v, 8)
+    elif v <= 255:
+        bits.code(0x190 + v - 144, 9)
+    elif v <= 279:
+        bits.code(v - 256, 7)
+    else:
+        bits.code(0xC0 + v - 280, 8)
+
+
+def _deflate_runs(data):
+    """`data` as ONE final deflate block with the fixed Huffman codes: every byte a literal, but each run of a repeated
+    byte after its first, at least three long, a match at distance 1 (at most 258 a match, no tail of one or two left
+    behind one). No zlib: the bytes are a function of `data` alone."""
+    bits = _Bits()
+    bits.put(1, 1)                                            # BFINAL
+    bits.put(1, 2)                                            # BTYPE 01: the fixed codes
+    i, n = 0, len(data)
+    while i < n:
+        b = data[i]
+        _fixed(bits, b)
+        i += 1
+        j = i
+        while j < n and data[j] == b:
+            j += 1
+        while j - i >= 3:
+            m = min(258, j - i)
+            if 0 < j - i - m < 3:
+                m -= 3 - (j - i - m)
+            code, least, extra = next(e for e in reversed(_LENGTHS) if e[1] <= m)
+            _fixed(bits, code)
+            if extra:
+                bits.put(m - least, extra)
+            bits.code(0, 5)                                   # distance code 0: distance 1
+            i += m
+    _fixed(bits, 256)                                         # the end of the block
+    return bits.done()
+
+
+def _png_chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+
+def preview_png():
+    """og.png: the link preview (above) as a PNG of PREVIEW_W x PREVIEW_H pixels, 8-bit palette in the order the colours
+    first appear, every row filtered by Up (the row above it; most rows repeat theirs), the IDAT `_deflate_runs`'s."""
+    rows = preview_pixels()
+    colours = list(dict.fromkeys(c for r in rows for c in r))
+    index = {c: k for k, c in enumerate(colours)}
+    raw, prev = bytearray(), bytes(PREVIEW_W)
+    for r in rows:
+        line = bytes(index[c] for c in r)
+        raw.append(2)                                         # filter type 2, Up
+        raw += bytes((a - b) & 0xFF for a, b in zip(line, prev))
+        prev = line
+    raw = bytes(raw)
+    stream = b"\x78\x01" + _deflate_runs(raw) + struct.pack(">I", zlib.adler32(raw) & 0xFFFFFFFF)
+    return (b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", PREVIEW_W, PREVIEW_H, 8, 3, 0, 0, 0))
+            + _png_chunk(b"PLTE", b"".join(bytes.fromhex(c[1:]) for c in colours)) + _png_chunk(b"IDAT", stream)
+            + _png_chunk(b"IEND", b""))
 
 
 def _favicon_cells():

@@ -623,8 +623,8 @@ class DetailTest(unittest.TestCase):
     def test_the_cards_show_the_number_vs_par_and_on_this_page(self):
         """Decided 2026-11-16 (the owner's item 3, "Trim the overview cards"): a card keeps its number with its unit, the
         line under it, the field's line, "vs par" and "on this page"; nothing else. Its secondary numbers (cells,
-        flops, repair, GE, the cells-only columns, Fmax-equivalent, the critical path's cells, unit depth, wire cost,
-        the routed run) and the time's measurement sentence are the overview's fold's, one click away, a column per
+        flops, repair, GE, the cells-only columns, Fmax-equivalent, the critical path's cells, unit depth, the
+        routed run) and the time's measurement sentence are the overview's fold's, one click away, a column per
         card, the cells and critical-path links with them; the place on the board and on the plot's front are the
         Charts tab's (test_charts_compare_with_par_and_the_neighbours)."""
         checked = 0
@@ -649,8 +649,12 @@ class DetailTest(unittest.TestCase):
                     for row in ("cells", "flops", "GE", "Fmax-eq.", "unit depth"):
                         self.assertIn(f"<dt>{row}</dt>", facts)
                     if pdk == build.COURSE2:
-                        for row in ("cells only (A0′)", "wire cost", "routed run"):
+                        for row in ("cells only (A0′)", "routed run"):
                             self.assertIn(f"<dt>{html.escape(row)}</dt>", facts)
+                        # decided 2026-11-17: no "wire cost" (negative on some designs, never analysed); the
+                        # cells-only score is a row of its own, beside the routed one
+                        self.assertNotIn("wire cost", facts)
+                        self.assertEqual(facts.count("<dt>cells only (A0′)</dt>"), 3)
                     else:
                         self.assertIn('<a href="#cells">', facts)
                         if rec is not None and (rec.get("ppa") or {}).get("repair"):

@@ -594,8 +594,9 @@ then gives `ppa.py`'s arrivals to 1 fs per arc; `set_driving_cell` instead would
 drive's zero-load delay ("The input drive"). `score/test_ppa_opensta.py` holds the script (`OPENSTA_TCL`) and OpenSTA's
 recorded numbers.
 
-**The ASAP7 view's numbers** (decided 2026-11-09: a reader may see the golf scores on ASAP7; sky130 stays the default).
-The same command with `--pdk asap7` weighs the same scored netlist on the five pinned ASAP7 liberty files (flow A0',
+**The ASAP7 view's numbers, cells only** (decided 2026-11-09: a reader may see the golf scores on ASAP7; sky130 stays the
+default; since 2026-11-12 the routed course stands in its place on the site, and these numbers are its input and a
+column of each record page). The same command with `--pdk asap7` weighs the same scored netlist on the five pinned ASAP7 liberty files (flow A0',
 `asap7_a0_v1`, "ASAP7: an alternative library" below); `leaderboard/asap7/<task>.json` keeps each design's numbers, and
 `leaderboard.py asap7 --rescore` weighs them all again and compares, bit for bit:
 
@@ -606,7 +607,10 @@ python3.12 leaderboard/leaderboard.py asap7 --rescore --task add
 ```
 
 `add_n_asap7.json` has `ppa.netlist_sha256` `3b7da549…` (the sky130 run's: the scored netlist does not depend on the
-library), `area_e5um2_asap7` 699840 (6.99840 um^2) and `delay_ps_asap7` 563, so area x time is 3.940 um2*ns.
+library), `area_e5um2_asap7` 699840 (6.99840 um^2) and `delay_ps_asap7` 563, so area x time is 3.940 um2*ns, cells
+only: before place and route, without wires. The routed course's number for the same design is another quantity,
+made by one place-and-route run of this netlist ("ASAP7 placed and routed" below; `score/pnr/README.md` has the
+commands).
 
 ## The liberty
 

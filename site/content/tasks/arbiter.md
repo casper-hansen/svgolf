@@ -2,7 +2,7 @@ Give the grant to at most one of `N` requesters per cycle, only to one that asks
 anyone asks, and never let a requester ask `N` cycles in a row without being granted. This is svGolf's
 first reactive task: a controller that runs for ever, specified by a safety property on every cycle and a
 bounded response over the whole input trace, with no assumption about the requesters. The proof covers
-every `N` with `1 ≤ N` and `N·N < 2^31`; the score is taken at `N = 8`.
+{{range}}; the score is taken at `N = 8`.
 
 The design is clocked by `clk` alone, on its rising edge, with the synchronous reset `rst`: no asynchronous
 process, and `clk` is never read as data. The grant is registered, a Moore output: a clock edge samples `req`,

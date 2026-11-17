@@ -1,5 +1,5 @@
 Add two `N`-bit numbers and a carry in: `s` is the low `N` bits of `a + b + cin` and `cout` the carry
-out of the top bit. The proof covers every width `N ≥ 1`; the score is taken at `N = 16`.
+out of the top bit. The proof covers {{range}}; the score is taken at `N = 16`.
 
 The circuit must be built from bitwise logic, multiplexers, selects and concatenations: run-time
 `+ - * / % **` and the ordering comparisons `< <= > >=` are banned, because addition is the task (`==` and `!=`

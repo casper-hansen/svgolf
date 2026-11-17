@@ -51,6 +51,7 @@ Python 3.9 or later, standard library only. It writes the whole site to
                                   proving guide in plain text
   data/site.json data/tasks/<t>.json style.css site.js charts.js pdk.js
   favicon.svg favicon-32.png      the browser tab's mark (pixelart.FAVICON), as SVG and as a 32 px PNG
+  og.png                          the link preview's picture, 1200 x 630 (pixelart.preview_png): every page's og:image
   404.html                        what the host serves for an address with no page: links from the root
   sitemap.xml                     every page's published address (config.json `site_url`); robots.txt too
                                   where the site is a host's root, the only place crawlers read it
@@ -377,6 +378,78 @@ ROUTE_FILES = ("svgolf/leaderboard/leaderboard.py", "svgolf/leaderboard/pr_check
 FIRST_ENTRIES_MD = ("The board is seeded with entries the maintainers made with AI assistance (each record names the "
                     "tools), each proved and scored like any entry: they are ordinary entries and can be beaten. There "
                     "are no outside entries yet.")
+# the board's provenance, said plainly (decided 2026-11-17): one sentence on the front page under the task cards, and
+# About's section "Who made the records" (`provenance_md`), each count computed from the records (`provenance`); like
+# FIRST_ENTRIES_MD, the maintainers' to change with the first record of a player outside the maintainers
+PROVENANCE_ANCHOR = "who-made-the-records"          # about.md's "## Who made the records"
+PROVENANCE_PLACEHOLDER = "{{provenance}}"           # in about.md: that section's text
+
+
+def reference_designs():
+    """sha256 -> repository path of every design file under `tasks/*/reference/`, every task's, the first path in
+    sorted order where two are byte for byte the same: what a record's "reference design" mark compares its design
+    file with (decided 2026-11-17)."""
+    out = {}
+    root = repo_file("svgolf/tasks")
+    for name in sorted(os.listdir(root)):
+        ref_dir = os.path.join(root, name, "reference")
+        if not os.path.isdir(ref_dir):
+            continue
+        for f in sorted(os.listdir(ref_dir)):
+            if f.endswith(".sv"):
+                rel = f"svgolf/tasks/{name}/reference/{f}"
+                out.setdefault(sha256(read_bytes(rel)), rel)
+    return out
+
+
+def reference_mark(path):
+    """The "reference design" mark of an entry whose design file is byte for byte the reference design at `path`
+    (a repository path); the file is named on hover."""
+    return (f'<span class="badge badge-reference" title="{esc("byte for byte " + shown_path(path))}">'
+            "reference design</span>")
+
+
+def provenance(site, tasks):
+    """What the records of the shown tasks say about who made them: how many there are, how many name the AI systems
+    or tools that helped (`assisted_by`), how many proofs are the maintainers' ports (`remade`), and how many of the
+    players' entries are a reference design byte for byte (`reference_designs`)."""
+    recs = [r for t in tasks for r in t.records]
+    entries = [r for r in recs if r["player"] != site.config["reference_player"]]
+    return {"records": len(recs), "assisted": sum(1 for r in recs if r.get("assisted_by")),
+            "ported": sum(1 for r in recs if (r.get(lb.REMADE_KEY) or {}).get("proof") == "maintainer port"),
+            "entries": len(entries),
+            "copies": sum(1 for r in entries if r["files"]["sv"]["sha256"] in site.reference_designs)}
+
+
+def assisted_words(p):
+    """'all 49 records were made with AI assistance', or 'm of the n records name the AI systems or tools that
+    helped' when some name none."""
+    if p["assisted"] == p["records"]:
+        return f"all {p['records']} records were made with AI assistance"
+    return f"{p['assisted']} of the {p['records']} records name the AI systems or tools that helped"
+
+
+def provenance_front_html(p, here):
+    """The front page's one sentence under the task cards."""
+    return (f'<p class="board-note">The board so far was seeded by the maintainers: {esc(assisted_words(p))}, each '
+            "naming its assistant (" + page.link(rel_link(here, f"about.html#{PROVENANCE_ANCHOR}"),
+                                                 "who made the records") + ").</p>")
+
+
+def provenance_md(p):
+    """About's section "Who made the records" (Markdown): who seeded the board, the AI assistance, the newcomer
+    study, the ported proofs and the reference designs, with the counts of `provenance`."""
+    words = assisted_words(p)
+    copies = (f"{p['copies']} of the {p['entries']} entries carry the mark \"reference design\": their design file "
+              "is byte for byte one of the reference designs under `tasks/<task>/reference/` (the mark names it). "
+              "They are entries like any other and are ranked as usual." if p["copies"] else "")
+    return (f"The board so far was seeded by the maintainers. {words[:1].upper()}{words[1:]}: each record's page "
+            "names the systems that helped, under \"assisted by\". Several came from a newcomer study run by the "
+            "maintainers; those records' notes say so.\n\n"
+            f"{p['ported']} of the {p['records']} proofs are marked as ported: the maintainers re-made them, porting "
+            "the player's proof to the current checker, while the design file stays the player's, byte for byte. Such "
+            "a record's page says so under \"re-made\", and the player's own proof is in the repository's history. "
+            + copies)
 
 
 def record_salts(rec):
@@ -487,6 +560,8 @@ class Site:
         self.pnr_identity = None                  # the routed course's pins (lb.asap7pnr_identity)
         self.notes = []                           # what the build says without failing (a design not routed yet)
         self.stages = []                          # the checker's stages, in order (the refusal register)
+        self.reference_designs = {}               # sha256 -> every tasks/*/reference/*.sv (`reference_designs`)
+        self.provenance = None                    # the records' counts on who made them (`provenance`)
         self._sky = None
 
     def warn(self, msg):
@@ -542,7 +617,8 @@ class Site:
                                    banner_html=moved_note(path) if scores else "", header_pdk=header_pdk,
                                    url=None if not_found else page_url(url, path),
                                    base_href=urllib.parse.urlsplit(url).path if not_found and url else None,
-                                   skip_link=not not_found, robots="noindex" if not_found else None))
+                                   skip_link=not not_found, robots="noindex" if not_found else None,
+                                   image=preview_image(url)))
 
     # -- links from documents --------------------------------------------
 
@@ -997,6 +1073,7 @@ def collect(site, offline):
     loaded = lb.load_records(os.path.join(SVGOLF, "leaderboard", "data"))
     records = lb.good_records(loaded, warn=site.warn)
     load_writeups(site, records)
+    site.reference_designs = reference_designs()
     listing = site.config["tasks"]                 # (task names may start with `_`: `_example`)
     tasks_dir = os.path.join(SVGOLF, "tasks")
     on_disk = lb.all_task_names(tasks_dir)
@@ -1219,9 +1296,13 @@ def task_designs(site, t):
         rec = next((r for r in t.ref_records if r["record_hash"] == ref["record_hash"]), None)
         gold = sky.of_file(t.name, t.point, repo_file(ref["sv"]))
         # no golden: the sky130 columns of the reference's own record, when they are comparable (the
-        # current flow, point, sky130 identity and the task's input drive: leaderboard.py's rule)
-        own = (rec.get("ppa") if gold is None and rec is not None and not lb.unranked_reason(
-            rec, t.task, flow=t.flow, identity=site.ppa_identity, input_drive=t.drive, statement=t.statement)
+        # current flow, point, sky130 identity and the task's input drive: leaderboard.py's rule). A second proof of
+        # par's design has no record of its own: its design file's numbers are those of the record of the same file
+        # (the score reads the design file alone; decided 2026-11-17: the tutorial's band_tactics, the pair its
+        # walk-through copies, showed a dash at the scoring point where band, the same file, has numbers)
+        weighed = rec or next((r for r in t.ref_records if r["files"]["sv"]["sha256"] == ref["sha256"]), None)
+        own = (weighed.get("ppa") if gold is None and weighed is not None and not lb.unranked_reason(
+            weighed, t.task, flow=t.flow, identity=site.ppa_identity, input_drive=t.drive, statement=t.statement)
                else None)
         if gold is None and own is None:
             gold = measured_at_scored(t, ref)
@@ -1677,11 +1758,21 @@ def headline(t):
 
 def under_text(under):
     """'68%' for a record 68% under par (the label says under: no minus sign, decided 2026-11-11, since "under par
-    −68%" read as a double negative); '0%' at par; a record above par, which the board cannot make, '5% over par'."""
+    −68%" read as a double negative); '0%' at par; a record above par, which the board cannot make, '5% over par'.
+    A difference that would round to 0% shows two significant digits, '0.35%' (decided 2026-11-17: "0%" under a
+    record that beats par read as no record)."""
     if under is None:
         return "–"
-    pct = round(under * 100)
+    pct = under * 100
+    if 0 < abs(pct) < 0.5:
+        small = f"{abs(pct):.2g}"
+        return f"{small}%" if pct > 0 else f"{small}% over par"
+    pct = round(pct)
     return "0%" if pct == 0 else f"{pct}%" if pct > 0 else f"{-pct}% over par"
+
+
+OPEN_WORD = "OPEN"
+OPEN_TITLE = "No record is under par yet: the record is par itself, and the first design under it sets one."
 
 
 def big_numbers(t, *, notes=True):
@@ -1704,13 +1795,18 @@ def big_numbers(t, *, notes=True):
         """The design's name and its ranked factors, area × time ('add_n · 460.4 µm² × 2.59 ns'; a latency kind's
         time with its factors named, 'matmul_g1 · 87 174 µm² × 4 cycles × 10.7 ns period')."""
         return f"{name} · {breakdown(d, t, labels=True)}" if d and breakdown(d, t) else name
+    # a front page card of a task where no record is under par says so: OPEN (decided 2026-11-17, computed: the record
+    # is par itself), its meaning on hover
+    open_ = not notes and h["under"] is not None and h["under"] <= 0
+    under = (page.Stat(lab["Under par"], OPEN_WORD, kind="open", title=OPEN_TITLE) if open_ else
+             page.Stat(lab["Under par"], under_text(h["under"]), kind="accent" if h["under"] and h["under"] > 0 else None,
+                       label_href=href))
     return page.stats([
         page.Stat(lab["Par"], combined.fmt(h["par"]), unit=h["unit"],
                   note=note(h["par_name"], h["par_design"]) if notes else None, label_href=href),
         page.Stat(lab["Record"], combined.fmt(h["record"]), unit=h["unit"],
                   note=note(h["record_name"], h["record_design"]) if notes else None, label_href=href),
-        page.Stat(lab["Under par"], under_text(h["under"]), kind="accent" if h["under"] and h["under"] > 0 else None,
-                  label_href=href)])
+        under])
 
 
 def ns(ps, pdk="sky130"):
@@ -1845,12 +1941,20 @@ def check_headline(t, d):
 # `{{TASK/DESIGN.headline}}`, the last line check.py prints for that design (`check_headline`), or, alone on its
 # line, `{{TASK/DESIGN.sv}}`, the design's source without its comments (`strip_sv_comments`), indented as the line.
 HOME_PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z0-9_]+)/([A-Za-z0-9_]+)\.([a-z]+)\s*\}\}")
+HOME_RANGE = re.compile(r"\{\{\s*([A-Za-z0-9_]+)\.range\s*\}\}")     # `{{TASK.range}}` (`param_range_md`)
 
 
 def fill_home(site, tasks, text, source):
     """home.md with its `{{TASK/DESIGN.FIELD}}` placeholders filled (HOME_PLACEHOLDER); an unknown task, design
     or field fails the build, a hand-typed number with a unit is a warning (fatal under --strict)."""
     by_name = {t.name: t for t in tasks}
+
+    def task_range(m):
+        """`{{TASK.range}}`: the parameters the task's statement is proved for (`param_range_md`)."""
+        if m.group(1) not in by_name:
+            raise BuildError(f"{source}: {m.group(0)}: no listed task {m.group(1)!r}")
+        return param_range_md(by_name[m.group(1)])
+    text = HOME_RANGE.sub(task_range, text)
     for i, line in enumerate(text.split("\n"), 1):
         for m in HAND_TYPED.finditer(HOME_PLACEHOLDER.sub("", line)):
             site.warn(f"{source}:{i}: the hand-typed number {m.group(0)!r}: write a placeholder "
@@ -1917,7 +2021,8 @@ def statement_html(site, t, here, slugger):
             site.warn(f"{path}: the task text does not name the banned run-time operator"
                       f"{'s' if len(missing) > 1 else ''} {' '.join(missing)} (in a code span); it is the page's one "
                       "statement of the bans")
-        text = fill_placeholders(site, t, raw, path, gloss_ge=True)
+        # `{{range}}`: the parameters the statement is proved for, from task.json (`param_range_md`)
+        text = fill_placeholders(site, t, raw.replace(RANGE_PLACEHOLDER, param_range_md(t)), path, gloss_ge=True)
         # the text quotes sky130's numbers (area, time, score; GE and depth are the same on either library) and
         # compares designs by them: the ASAP7 view says so above it, as it does on the netlist card
         quotes = any(m.group(2) in LIBRARY_FIELDS for m in PLACEHOLDER.finditer(raw))
@@ -2099,17 +2204,123 @@ def spec_html(site, t, here):
         rows.append([design_cell(cells[0], "", f'<span class="cell-meta">{esc(shown_path(path))}</span>')]
                     + cells[1:2] + cells[3:])
     parts.append("<h4 id=\"closure\">Its trusted text</h4>")
+    # (decided 2026-11-17: no "Nothing else is trusted": the kernel, the front end and the scoring flow are trusted too,
+    # and the page that says so is linked)
     parts.append("<p>The modules specific to this task. Like every task, it also rests on the "
-                 + page.link(rel_link(here, SHARED_TRUSTED_PAGE), "shared trusted base")
+                 + page.link(rel_link(here, f"{SHARED_TRUSTED_PAGE}#{TRUST_MODULES}"), "shared trusted modules")
                  + " (the ls-sv semantics of SystemVerilog and svGolf's statement helpers), and a proof may "
-                 "import any module of the ls-sv library. Nothing else is trusted: proof helpers are "
-                 "kernel-checked like any submission.</p>")
+                 "import any module of the ls-sv library. Proof helpers are not trusted: the kernel checks every "
+                 "proof term they make. What else a record rests on, the Lean kernel, the SystemVerilog front end "
+                 "and, for the score, the synthesis flow, is on "
+                 + page.link(rel_link(here, f"{SHARED_TRUSTED_PAGE}#{TRUST_TRUSTED}"), esc(TRUST_TITLE)) + ".</p>")
     parts.append(page.table(["module", "role", "lines", "sha256 (first 12)"], rows, numeric=(2,), cls="closure",
                             stack=True))
     return lead + "\n" + page.details(spec_fold_summary(t), "\n".join(parts), cls="spec-fold", id_=SPEC_FOLD)
 
 
 SHARED_TRUSTED_PAGE = "trusted/index.html"
+# the page on what a record proves and what it trusts (decided 2026-11-17: the one such page, made exact and complete,
+# linked from every page's footer; before, "The shared trusted base", linked from the task pages' closed folds only)
+TRUST_TITLE = "What is proved, and what is trusted"
+TRUST_CRUMB = "what is trusted"
+TRUST_FOOT = "What is trusted"                       # its link in every footer (page.py `layout`)
+TRUST_PROVED, TRUST_TRUSTED, TRUST_MEASURED, TRUST_SAMPLED, TRUST_MODULES = (
+    "what-is-proved", "what-is-trusted", "only-measured", "only-sanity-checked", "the-trusted-modules")
+
+
+def trust_html(site, tasks, here):
+    """The cards of TRUST_TITLE's page: what an accepted record proves (each task's statement and the parameters it
+    is proved for, from task.json: `param_range_html`), what is trusted for it (each part with what it does, read from
+    the checker's code: check/Comparator.lean, check.py, check/envelope.py, the library's extractor and loader,
+    score/srcgate.py, the scoring flow), what is only measured (the scores) and what is only a sanity check (the
+    post-synthesis check, the 4-state rules, the oracle, the library's differential tests)."""
+    v = prerequisites(site)
+    lib = site.config["library"]
+    lib_link = page.link(lib["url"], esc(lib["name"]))
+    shown = [t for t in tasks if not t.preview]
+    # the statement's constant under the task's name (a phone stacks the row: no long name in a narrow column)
+    rows = [[design_cell(page.link(rel_link(here, f"{t.page}#spec"),
+                                   esc(page_title(t)) if t.listing == "tutorial" else code(t.name)), "",
+                         f'<span class="cell-meta">{code(t.task["statement"]["constant"])}</span>'),
+             param_range_html(t).removeprefix("for ").removeprefix("at "), esc(point_text(t.point))]
+            for t in shown]
+    lat = [t.name for t in shown if t.kind in LATENCY_KINDS]
+    proved = ("<p>An accepted record proves, in Lean, that its design meets its task's trusted statement for every "
+              "parameter value in the range below (the score is taken at one point), and the Lean kernel checks the "
+              "proof. The statement is about the design as ls-sv, the SystemVerilog semantics of " + lib_link + ", runs "
+              "it: it says nothing directly about the netlist that is scored, which the checker only samples "
+              "(below).</p>"
+              + page.table(["task and its statement", "proved for", "scored at"], rows, stack=True)
+              + (f"<p>On {and_list([code(n) for n in lat])} the proof also proves the latency in cycles that the record "
+                 "declares.</p>" if lat else ""))
+    rb = rating_build()
+    img = ((site.pnr_identity or {}).get("image") or {})
+    routed = (f"; on the routed course, OpenROAD-flow-scripts in the pinned image "
+              f"{code(str(img.get('repo')) + ':' + str(img.get('tag')))}, used by its digest, places and routes it"
+              if img.get("repo") else "")
+    items = [
+        ("The Lean kernel", "It checks the proof. " + code("check/Comparator.lean") + " loads the compiled modules "
+         "without running their code and asks the kernel to accept " + code("theorem _ : Submission.Goal := "
+                                                                           "Submission.solution") + "; it refuses "
+         "every axiom outside the task's list (" + code("propext") + ", " + code("Classical.choice") + ", "
+         + code("Quot.sound") + "), found by walking the dependencies through their kernel values, refuses "
+         + code("extern") + " and " + code("implemented_by") + ", and sends every dependency outside the Lean "
+         "toolchain through the kernel again; " + code("leanchecker") + " replays the submission's own modules. The "
+         "comparator is trusted with the kernel, and so is the Lean toolchain svGolf pins (" + code(v["lean"]) + ")."),
+        ("The statements", "Each task's " + code("Spec.lean") + " (its task page shows it and the modules of its own) "
+         "and the shared modules " + page.link(f"#{TRUST_MODULES}", "below") + ": the ls-sv semantics, svGolf's "
+         "statement helpers and the IEEE 754 library. The maintainers wrote and reviewed them; they are what you "
+         "read to know what a record proves."),
+        ("The SystemVerilog front end", "It turns the " + code(".sv") + " into the Lean constant " + code("design")
+         + " the statement is about. slang (" + code(v["pyslang"]) + ") parses and elaborates the text; the pinned "
+         "extractor of " + lib_link + " (" + code("extractors/sv/extract.py") + ", run by " + code("check/envelope.py")
+         + ") writes the elaborated design as an envelope, with slang's own values at several parameter points; the "
+         "loader, " + code("load_design_sv2") + " (" + code("LeanModels.Sv.Ingest2") + "), reads the envelope into "
+         + code("design") + " and compares its own reading with slang's values at those points; and " + code("check.py")
+         + " writes the module " + code("Submission.Design") + " that holds " + code("design") + " and " + code("Goal")
+         + ", the task's statement of " + code("design.sem") + ". If they misread a design, the proof is about "
+         "another circuit; the loader's comparison with slang and the post-synthesis check (below) are what would "
+         "show it."),
+        ("The source gate", code("score/srcgate.py") + " refuses preprocessor directives, attributes, synthesis "
+         "pragmas, " + code("unique") + " and " + code("priority") + ", " + code("x") + " and " + code("z")
+         + " literal digits and every use of the host, strips the comments, and hands one canonical text to the "
+         "extractor, the banlist and Yosys, so that the proof and the score read one program."),
+        ("For the score only, the synthesis and timing flow", f"Yosys {esc(rb['yosys']['version'])} and its ABC ("
+         + code("score/canon.ys") + ", " + code("score/svgolf.ys") + ", or " + code("score/svgolf_seq.ys") + " on a "
+         "clocked task) make the scored netlist, and " + code("score/ppa.py") + ", with " + code("score/ppa_pins.json")
+         + " and the pinned sky130 liberty, weighs its area and time (" + page.link(
+             rel_link(here, f"rules.html#{RATING_BUILD_ANCHOR}"), "the build ratings use") + ")" + routed + ". They "
+         "decide the number a record is ranked by, never what its proof says."),
+    ]
+    trusted = ("<p>A record is worth what these parts are worth. None of them is proved; each says how it is "
+               "checked.</p><ul class=\"trust-list\">"
+               + "".join(f"<li><strong>{esc(k)}.</strong> {v_}</li>" for k, v_ in items) + "</ul>"
+               + "<p>Not trusted: proof helpers, the " + code("sv_comb") + " tactics and the proof library, which only "
+               "make proof terms the kernel checks; and the references, oracles and tests, where a mistake gives a "
+               "wrong warning, never a wrong verdict.</p>")
+    measured = ("<p>Area, time and the score, area × time, are measured by the pinned flow on one build of the tools, "
+                "not proved: another build can give slightly other numbers (" + page.link(
+                    rel_link(here, REPRODUCE_PAGE), "reproduce a score") + "). The routed course's numbers come from "
+                "one place-and-route run per design. Area in gate equivalents and depth are extra columns of the same "
+                "netlist.</p>")
+    sampled = [
+        ("The post-synthesis check", code("check/postsynth.py") + " runs ls-sv's evaluator and a Verilator model of "
+         "the scored netlist on the same input vectors at the scoring point and refuses any disagreement (on a "
+         "clocked task, seeded input traces from several power-up states). That is sampling, not a proof."),
+        ("The 4-state rules", code("score/fourstate.py") + " refuses a design in which an unknown value could arise "
+         "(an undriven net, a select out of range, a logic loop, ...), at the parameter points the checker probes, "
+         "not at every point of the range."),
+        ("The task's oracle", code("tasks/<task>/oracle.py") + ": ls-sv's outputs on those vectors are compared with "
+         "it, and a mismatch is a warning, never a verdict."),
+        ("The library's differential tests", lib_link + " compares ls-sv with simulators case by case, a reference "
+         "simulator's traces kept as data; that is evidence that ls-sv follows the language, outside svGolf's check."),
+    ]
+    sanity = ("<ul class=\"trust-list\">" + "".join(f"<li><strong>{esc(k)}.</strong> {v_}</li>" for k, v_ in sampled)
+              + "</ul>")
+    cards = [(TRUST_PROVED, "What is proved", proved), (TRUST_TRUSTED, "What is trusted", trusted),
+             (TRUST_MEASURED, "What is only measured", measured),
+             (TRUST_SAMPLED, "What is only a sanity check", sanity)]
+    return "".join(page.card(body, tag="section", id_=i, title_html=esc(title)) for i, title, body in cards)
 
 
 def is_shared_trusted(mod):
@@ -2966,7 +3177,6 @@ def leaderboard_html(site, t, here):
     par_exact = p["exact"] if p else None
     shown = [d["exact"] for d in ranked + ([p] if p else []) if d["exact"] is not None]
     worst = max(shown) if shown else None
-    ref_hashes = {r["sha256"] for r in t.refs}
 
     def beats_par(d):
         return par_exact is None or (d["exact"] is not None and d["exact"] < par_exact)
@@ -2977,8 +3187,10 @@ def leaderboard_html(site, t, here):
         if d["exact"] is None or d["exact"] != prev:
             rank, prev = k, d["exact"]
         tags = []
-        if d["sha"] in ref_hashes:
-            tags.append(page.badge("reference design", "par"))
+        # an entry whose design file is byte for byte a reference design of tasks/*/reference/ (decided 2026-11-17:
+        # marked, never removed or re-ranked)
+        if d["sha"] in site.reference_designs:
+            tags.append(reference_mark(site.reference_designs[d["sha"]]))
         if d.get("light"):
             tags.append(page.badge("light check", "light"))
         # the player and, under it, the submission's title (decided 2026-11-13: its writeup's, else its file's stem)
@@ -3215,6 +3427,20 @@ def site_url(config):
     return url
 
 
+PREVIEW_IMAGE = "og.png"                    # the link preview's picture (decided 2026-11-17; pixelart.preview_png)
+PREVIEW_ALT = ("svGolf: Hardware golf, with proofs. A pixel-art chip lettered SV stands on a golf green beside the "
+               "ball and the flag.")
+
+
+def preview_image(url):
+    """Every page's link-preview picture (page.layout `image`): og.png at the site's published address, or None
+    without a `site_url` (a preview's picture must be an absolute address)."""
+    if not url:
+        return None
+    return {"url": url + PREVIEW_IMAGE, "type": "image/png", "width": pixelart.PREVIEW_W,
+            "height": pixelart.PREVIEW_H, "alt": PREVIEW_ALT}
+
+
 def page_url(url, path):
     """The published address of the output page `path` (`index.html` as its directory), or None without a
     `site_url`."""
@@ -3290,8 +3516,8 @@ LAKE_BUILD_COST = ("about 6 minutes and 1 GB of disk the first time on a laptop 
 # the task page's shorter form (2026-11-11; llms.txt keeps LAKE_BUILD_COST)
 LAKE_BUILD_SHORT = ("about 6 minutes and 1 GB of disk the first time on a laptop that already had the Lean toolchain, "
                     "and about 20 minutes, plus 8 for elan's first download of the toolchain, on a slower Linux "
-                    "machine; it needs network access to github.com, since it clones the Lean libraries svGolf builds "
-                    "on (Mathlib is cloned, never built)")
+                    "machine, at a peak of 3.75 GB of memory there; it needs network access to github.com, since it "
+                    "clones the Lean libraries svGolf builds on (Mathlib is cloned, never built)")
 
 
 def lake_build_cost(config):
@@ -3322,31 +3548,86 @@ def clone_commands(repo_url):
     return f"git clone {repo_url}\ncd {top}" + ("/svgolf\n" if LAYOUT == "inside" else "\n")
 
 
+YOSYS_RECIPE = "build-yosys"            # the id of Step 0's fold with the recipe (a link to it opens it: site.js)
+
+
+def yosys_recipe(site):
+    """The commands that build the rating build's Yosys version from its release archive (score/reference_build.json
+    `yosys.source`): the recipe of the public repository's records workflow, on Ubuntu, as a player copies it."""
+    src = rating_build()["yosys"]["source"]
+    y = rating_build()["yosys"]
+    pkgs = src["ubuntu_packages"]
+    half = (len(pkgs) + 1) // 2
+    return ("# Ubuntu: what the Yosys and Verilator builds need (the repository's CI installs the same)\n"
+            "sudo apt-get install -y --no-install-recommends \\\n    " + " ".join(pkgs[:half]) + " \\\n    "
+            + " ".join(pkgs[half:]) + "\n"
+            f"# Yosys {y['version']} from its release archive, checked by its sha256\n"
+            f"curl -sSfL -o yosys.tar.gz {src['url']}\n"
+            f"echo \"{src['sha256']}  yosys.tar.gz\" | sha256sum -c -\n"
+            "mkdir yosys && tar -xzf yosys.tar.gz -C yosys\n"
+            "src=yosys; [ -f yosys/Makefile ] || src=$(find yosys -mindepth 1 -maxdepth 1 -type d | head -n 1)\n"
+            "make -C \"$src\" -j\"$(nproc)\" PREFIX=\"$HOME/tools\" PRETTY=0 install\n"
+            "export PATH=\"$HOME/tools/bin:$PATH\"\n"
+            f"yosys -V      # Yosys {y['version']} (git sha1 {y['git_sha1'][:12]}..., then this machine's compiler)\n")
+
+
 def step0_html(site, here, id_=None):
-    """Step 0: what to install, then (from the clone) `lake build` and the liberty, once per machine. `id_`: an
-    anchor on its first line (`step-0`: How to submit's, or on the tutorial the walk-through's, which How to submit
-    there points to)."""
+    """Step 0: the systems svGolf runs on, what to install (decided 2026-11-17, completed: the pinned Yosys and how to
+    build it, the virtual environment, bubblewrap on Linux, `gh` for handing a record in), then (from the clone) the
+    virtual environment, `pyslang`, `lake build` and the liberty, once per machine, and what they cost. Only what the
+    repository's own files say. `id_`: an anchor on its first line (`step-0`: How to submit's, or on the tutorial the
+    walk-through's, which How to submit there points to)."""
     v = prerequisites(site)
+    rb = rating_build()
+    other = rb["determinism"]["other_build"]
     rating = page.link(rel_link(here, "rules.html") + "#" + RATING_BUILD_ANCHOR, "the rating build")
+    sandbox = page.link(rel_link(here, "rules.html") + "#checker-stages", "the checker")
+    recipe = page.details(f"Build Yosys {esc(v['yosys'])} from its release archive (the recipe the repository's CI "
+                          "runs on Ubuntu)",
+                          page.code_block(yosys_recipe(site), "bash", name="yosys " + v["yosys"], term=True),
+                          id_=YOSYS_RECIPE)
     tools = ("<ul>"
              f"<li>{page.link('https://github.com/leanprover/elan', 'elan')}, which installs the pinned Lean toolchain "
              f"(<code>{esc(v['lean'])}</code>) on first use;</li>"
-             f"<li>Yosys {esc(v['yosys'])} with its <code>yosys-abc</code>: the board is rated with one build of it "
-             f"({rating}); another build may differ slightly;</li>"
+             f"<li>Yosys {esc(v['yosys'])} with its <code>yosys-abc</code>. The board's numbers are made with one build "
+             f"of it ({rating}). Package managers now ship newer versions of Yosys: the commands run with them, but the "
+             "numbers are then estimates. Any other build, the one below included, makes a record that is listed as "
+             "not ranked until a maintainer re-makes it on the rating build; a build of the same version from its "
+             f"release archive comes close (another build of {esc(v['yosys'])} moved {other['designs_differing']} of "
+             f"{rb['determinism']['designs']} designs, by up to {other['max_delay_change_pct']:g}% in time). "
+             + recipe + "</li>"
              # check/postsynth.py tool(): "the postsynth stage needs Verilator 5, a C++ compiler, make and Yosys"
              "<li>Verilator 5, a C++ compiler and <code>make</code>, for the post-synthesis check;</li>"
-             f"<li>Python 3.12 (the block below installs <code>{esc(v['pyslang'])}</code>, the SystemVerilog "
-             "frontend).</li></ul>")
+             f"<li>Python 3.12: the block below makes a virtual environment, since a system that manages its own "
+             f"Python refuses <code>pip</code> into it, and installs <code>{esc(v['pyslang'])}</code>, the "
+             "SystemVerilog frontend; run every later command in it;</li>"
+             # README.md "Sandbox": bwrap needs unprivileged user namespaces; not yet checked end to end with Lean
+             "<li>on Linux, bubblewrap (<code>bwrap</code>) with unprivileged user namespaces (Debian: "
+             "<code>kernel.unprivileged_userns_clone=1</code>; Ubuntu 24.04: an AppArmor profile for "
+             f"<code>bwrap</code>): {sandbox} runs the proof and the tools inside it to make a record (on macOS the "
+             "sandbox is built in). On Linux it has not yet been checked end to end with Lean.</li>"
+             # leaderboard.py cmd_submit: `gh repo fork`, `gh pr create`; without gh it prints the steps (said only
+             # where a record can be handed in: `submissions_open`)
+             + ("<li>to hand a record in: git and the GitHub command-line tool <code>gh</code>, logged in "
+                "(<code>gh auth login</code>). <code>leaderboard.py submit</code> forks the repository and opens the "
+                "pull request with them; without <code>gh</code> it prints the steps to do by hand.</li>"
+                if submissions_open(site.config) else "") + "</ul>")
     cmds = (clone_commands(site.config.get("repo_url"))
-            + "python3.12 -m pip install -r requirements.txt\n"
+            + "# a virtual environment (pip refuses a system-managed Python)\n"
+            "python3.12 -m venv .venv && . .venv/bin/activate\n"
+            "python3.12 -m pip install -r requirements.txt\n"
             "# the trusted Lean and the checker's evaluator\n"
             "lake build\n"
             "# the pinned sky130 liberty, checked by its hash\n"
             "python3.12 score/ppa.py --fetch-liberty\n")
     anchor = f' id="{esc(id_)}"' if id_ else ""
-    return (f"<p{anchor}><strong>Step 0, once per machine.</strong> Install:</p>{tools}"
+    return (f"<p{anchor}><strong>Step 0, once per machine.</strong> svGolf runs on macOS and Linux; Windows is not "
+            "supported. Install:</p>" + tools
             + page.code_block(cmds, "bash", name="step 0", term=True)
-            + f"<p class=\"small muted\"><code>lake build</code> takes {esc(LAKE_BUILD_SHORT)}.</p>")
+            + f"<p class=\"small muted\"><code>lake build</code> takes {esc(LAKE_BUILD_SHORT)}. Then the golfing "
+            "loop, <code>score/ppa.py</code>, takes about 2 seconds, the check without a proof about 15 seconds and "
+            "the whole check about a minute on a laptop; <code>leaderboard.py add</code> runs the whole check again "
+            "in full mode, which on a clocked task can take an hour.</p>")
 
 
 def design_module(t):
@@ -3626,15 +3907,16 @@ def handle_max():
     return 1 + int(m.group(1))
 
 
-def ppa_loop_html(t):
+def ppa_loop_html(t, step="step 1"):
     """What score/ppa.py does and does not check, under How to submit's commands on a page without a "Start a new
-    design" card (the tutorial's); a page with one says it under the card's text on its two commands, NEW_DESIGN_PPA."""
+    design" card (the tutorial's); a page with one says it under the card's text on its two commands, NEW_DESIGN_PPA.
+    `step`: the step that checks without a proof (the tutorial's walk-through numbers it 3)."""
     seq = " (with <code>--seq</code>, the clocked flow, the register-to-register period)" if metrics.is_clocked(t.task) \
         else ""
     return ("<p><code>score/ppa.py</code> is the inner loop of golfing: it runs the source gate and the pinned flow and "
             f"prints the ranked numbers, <code>area_um2_sky130</code> and <code>delay_ps_sky130</code>{seq}. It does "
             "not check the banlist, the 4-state rules, whether ls-sv can read the design, the post-synthesis simulation "
-            "or the task's function, and needs no proof: run step 1 before you prove.</p>")
+            f"or the task's function, and needs no proof: run {step} before you prove.</p>")
 
 
 # the same facts under the "Proving a new design" card's text on its two commands (which How to submit shows first;
@@ -3703,8 +3985,7 @@ def submit_html(site, t, repo_url, card=None, skeleton=None, checks="", fresh=""
     files = ("<p><strong>You hand in two files</strong>: <code>solution.sv</code>, a module with the exact header "
              f"under {page.link('#interface', 'Interface')}, and <code>Solution.lean</code>, a Lean 4 proof that it "
              f"meets {page.link('#spec', 'the trusted statement')}" + (", at the latency you declare" if lat else "")
-             + "." + (f" {page.link('#first-submission', 'Your first submission')}, above, copies a reference pair "
-                      "and runs each command below with what it prints." if t.listing == "tutorial" else "") + "</p>")
+             + ".</p>")
     copy = reference_copy(t) if t.listing != "tutorial" else ""
     # par's design adapted from licensed code (licence_ids, as the Files card says): the copy keeps its notice
     lic = licence_ids(read_text(t.par["sv"])) if copy else []
@@ -3773,6 +4054,9 @@ def submit_html(site, t, repo_url, card=None, skeleton=None, checks="", fresh=""
     # the last part, on a task with a card: the route of a design of your own (decided 2026-11-11)
     new = (f'<section id="new-design" class="nd-part"><h3>{esc(NEW_DESIGN)} <a class="anchor" href="#new-design" '
            f'aria-label="link to this section">#</a></h3>{fresh}</section>') if fresh else ""
+    if t.listing == "tutorial":
+        return go_public_html(site, t, here, intro=intro, files=files, a7_cmds=a7_cmds, done=done, after=after,
+                              hand=hand, sandbox=sandbox, lean_parts=lean_parts, skeleton=skeleton)
     return (intro + files + step0 + start + then + a7_cmds
             + page.code_block(cmds, "bash", name="shell", term=True) + done + after + hand
             + page.details("What the golfing loop and step 1 check, and what only step 1 catches", loop)
@@ -3780,6 +4064,40 @@ def submit_html(site, t, repo_url, card=None, skeleton=None, checks="", fresh=""
                            lean_contract_html(t, here, skeleton=skeleton, library=site.config["library"]))
             + page.details("the sandbox, and machines without one", sandbox)
             + new)
+
+
+GO_PUBLIC = "To go public"
+
+
+def go_public_html(site, t, here, *, intro, files, a7_cmds, done, after, hand, sandbox, lean_parts, skeleton):
+    """The tutorial's How to submit (decided 2026-11-17, one instruction set): its walk-through, above, runs every
+    command with what it prints and ends in a private trial (the reference is par's design), so this, its last part,
+    says only how a design of your own goes public: the record without `--data-dir`, naming the tools that helped and
+    the design in one line, what "done" is, the handle and the writeup, the hand-in where a record can be handed in,
+    and the folds of How to submit (what the golfing loop checks, the Lean file, the sandbox), each step named by
+    the walk-through's number. The parts are How to submit's own (`submit_html`), renumbered."""
+    n = t.name
+    record = (f"python3.12 leaderboard/leaderboard.py add --task {n} \\\n"
+              "    --player YOUR_HANDLE --assisted-by \"TOOL OR MODEL\" \\\n"
+              "    --sv solution.sv --lean Solution.lean \\\n"
+              "    --notes \"YOUR DESIGN IN ONE LINE\"\n")
+    lead = ("<p>The reference is par's own design, so step 6 above is a private trial: it records nothing on the "
+            "board. An entry is a design of your own, one that differs from par's: change <code>solution.sv</code> "
+            "(Then golf, above), check it without a proof and then with your proof (steps 3 and 5), and record it "
+            "without <code>--data-dir</code>, naming each tool or AI system that helped and the design in one line:</p>")
+    renumber = (("step 3 prints", "it prints"), ("Step 2's", "Step 5's"), ("Step 3 writes", "It writes"),
+                ("as step 3 prints it", "as the record prints it"), ("add <code>--data-dir DIR</code> to step 3",
+                                                                    "add <code>--data-dir DIR</code>, as in step 6"))
+    for old, new_ in renumber:
+        done, after, hand = (x.replace(old, new_) for x in (done, after, hand))
+    head = (f'<h3>{esc(GO_PUBLIC)} <a class="anchor" href="#submit" aria-label="link to this section">#</a></h3>')
+    return (f'<section id="submit" class="go-public">{head}' + intro + files + lead + a7_cmds
+            + page.code_block(record, "bash", name="shell", term=True) + done + after + hand
+            + page.details("What the golfing loop and step 3 check, and what only step 3 catches",
+                           ppa_loop_html(t, step="step 3"))
+            + page.details(f"The Lean file: what <code>Solution.lean</code> must contain ({lean_parts})",
+                           lean_contract_html(t, here, skeleton=skeleton, library=site.config["library"]))
+            + page.details("the sandbox, and machines without one", sandbox) + "</section>")
 
 
 def preview_html(t):
@@ -4167,7 +4485,7 @@ def task_page(site, t):
                 "over-time", "facts", "files", "explore", "scaling", "references", "baselines", "does-not-count",
                 "submit", "first-submission", "props-properties",
                 "props-definitions", "new-design", NEW_DESIGN_FOLD,
-                "step-0") + tuple(f"reject-{g}" for g, _, _ in REJECT_GROUPS)
+                "step-0", YOSYS_RECIPE) + tuple(f"reject-{g}" for g, _, _ in REJECT_GROUPS)
     slugger = md.Slugger(reserved)
     tutorial = t.listing == "tutorial"
     # (2026-11-12) the tutorial's title says "Tutorial" (`page_title`), so no badge says it a second time
@@ -4219,13 +4537,16 @@ def task_page(site, t):
         statement + interface + spec,
         tag="article", label_html="This task",
         actions_html=page.button(rel_link(here, "proving.html"), "Proving guide", arrow=True))
-    submit = page.card(submit_html(site, t, site.config.get("repo_url"), card=card if fresh else None,
-                                   skeleton=new_design_skeleton(card) if fresh else None, checks=checks, fresh=fresh),
-                       tag="section", id_="submit", label_html="How to submit")
+    submit_body = submit_html(site, t, site.config.get("repo_url"), card=card if fresh else None,
+                              skeleton=new_design_skeleton(card) if fresh else None, checks=checks, fresh=fresh)
+    submit = page.card(submit_body, tag="section", id_="submit", label_html="How to submit")
     walk = ""
     if t.listing == "tutorial":
-        walk = page.card(tutorial_html(site, t, here), tag="section", id_="first-submission",
+        # (decided 2026-11-17: one instruction set) the walk-through's last part is How to submit's ("To go public",
+        # `go_public_html`), and the page has no How to submit card of its own
+        walk = page.card(tutorial_html(site, t, here) + submit_body, tag="section", id_="first-submission",
                          title_html="Your first submission, step by step")
+        submit = ""
     # the legend names a row's middle number on a task with a latency: its cycles (2026-11-11)
     legend = "area × cycles × clock period" if t.kind in LATENCY_KINDS else "area × time"
     if t.preview:
@@ -4266,10 +4587,12 @@ def task_page(site, t):
     # the card's content is How to submit's last part (decided 2026-11-11): no card of its own after the columns.
     # How to submit spans the page's width under the two columns (decided 2026-11-12): in the left column its last
     # part's code ran past the column's edge and the column ran long beside a blank half
-    body = (head + score + walk
-            + f'<div class="split"><div class="col">{task_card}</div>'
-              f'<div class="col">{board}{facts}{downloads}</div></div>'
-            + submit + explore + "".join(wide))
+    # the tutorial: its steps first, the charts after them (decided 2026-11-17: before, the page opened with a score
+    # chart of one flat line, and the steps began below the fold)
+    split = (f'<div class="split"><div class="col">{task_card}</div>'
+             f'<div class="col">{board}{facts}{downloads}</div></div>')
+    body = (head + walk + split + score + explore + "".join(wide) if tutorial
+            else head + score + split + submit + explore + "".join(wide))
     commands_once(t, body, submit_commands(t, card if fresh else None))
     # the tutorial's <title> and description name it as one, not by its slug
     site.page(here, page_title(t) if tutorial else f"{t.title} ({t.name})", body, scripts=("charts.js",), scores=True,
@@ -4730,7 +5053,10 @@ def dashboard_html(s, st, par, designs):
     score_facts = []
     run = p.get("run") if pdk == COURSE2 else None
     if a0 and a0["exact"]:
-        score_facts.append(("wire cost", esc(signed_pct(ex / a0["exact"] - 1)) + tag("derived")))
+        # (decided 2026-11-17: no "wire cost", the routed score against the cells-only one: it was negative on some
+        # designs and is not the wires' cost alone; the cells-only score is shown as what it is)
+        score_facts.append(("cells only (A0′)", esc(combined.fmt(a0["adp"])) + " " + nocase(esc(combined.UNIT))
+                            + tag("extra")))
     if run:
         slow = (run.get("drv") or {}).get("max_slew") or 0
         score_facts.append(("routed run", esc(f"seed {run['seed']}, valid"
@@ -4772,8 +5098,10 @@ def dashboard_html(s, st, par, designs):
                    else "")) if pdk == "sky130" else (
         "Area: the ASAP7 cells of the placed and routed netlist (the buffers and clock tree the flow adds included; tap "
         "and fill cells not). Time: the clock period minus the worst setup slack, with the wires extracted from the "
-        "layout, at the typical corner, setup only. Cells only (A0′) is the same design's ASAP7 netlist before place "
-        "and route, without wires; the wire cost is the score against it. " + pnr_words(s.here))
+        "layout, at the typical corner, setup only. Cells only (A0′) is the same design's ASAP7 netlist weighed "
+        "before place and route, without wires, by the ASAP7 view: another quantity, shown beside the routed one and "
+        "never ranked. The difference between the two is not the wires' cost alone: on some designs the routed number "
+        "is the lower one, which has not been analysed yet. " + pnr_words(s.here))
     ranked = (("Area, time and score are ranked (the leaderboard orders by the score)" if pdk == "sky130" else
                "Area, time and score are ranked on this course (its leaderboard orders by the score)")
               + "; a number tagged extra, derived or research is shown, never ranked. Fmax-equivalent = 10⁶ / time "
@@ -5592,12 +5920,32 @@ def param_range_html(t):
     params = t.task.get("parameters") or []
     if not params:
         return "at its one fixed size"
+    names, conds = param_ranges(t)
+    return f"for every {and_list([code(n) for n in names])} with " + ", ".join(code(c) for c in conds)
+
+
+def param_ranges(t):
+    """(the parameters' names, their range conditions) of task.json's `parameters`, each condition once, in the task's
+    order: what the statement's `inRange` bounds (tests/site checks the two agree)."""
     conds = []
-    for p in params:
+    for p in t.task.get("parameters") or []:
         for c in str(p["range"]).split(", "):
             if c not in conds:
                 conds.append(c)
-    return f"for every {and_list([code(p['name']) for p in params])} with " + ", ".join(code(c) for c in conds)
+    return [p["name"] for p in t.task.get("parameters") or []], conds
+
+
+RANGE_PLACEHOLDER = "{{range}}"                     # in content/tasks/<t>.md: `param_range_md`
+
+
+def param_range_md(t):
+    """The range a task's statement is proved for, as Markdown for its text (decided 2026-11-17: generated, so that no
+    sentence says "every N >= 1" where the statement bounds N): "every `N` with `1 <= N < 2^20`", "every `N`, `W` and
+    `AccW` with ...", or "its one fixed size"."""
+    names, conds = param_ranges(t)
+    if not names:
+        return "its one fixed size"
+    return f"every {and_list([f'`{n}`' for n in names])} with " + ", ".join(f"`{c}`" for c in conds)
 
 
 TIME_LIMITS = "svgolf/score/time_limits.json"       # the references' measured proof builds (score/time_limits.py)
@@ -5700,7 +6048,10 @@ def record_page(site, t, rec, ge_tables):
     # (decided 2026-11-13) the heading is the submission's title (its writeup's, else its file's stem); who made it,
     # on which task and when is the line under it
     title = record_title(site, rec)
-    head = detail_head(s, esc(title), status, lead, "record", chips=[page.badge(f"record {h[:12]}", "plain")],
+    # a player's entry whose design file is byte for byte a reference design: its mark (decided 2026-11-17)
+    copy_of = None if is_ref else site.reference_designs.get(rec["files"]["sv"]["sha256"])
+    chips = ([reference_mark(copy_of)] if copy_of else []) + [page.badge(f"record {h[:12]}", "plain")]
+    head = detail_head(s, esc(title), status, lead, "record", chips=chips,
                        sub_html=f"{esc(who)} on {esc(where)} · {esc(when)}")
     overview, plot, netlist, s7 = detail_sections(site, s, ge_tables)
 
@@ -5960,29 +6311,34 @@ def trusted_pages(site, tasks):
     toolchain = sorted({m for t in tasks for m, p in t.closure if p is None})
     tasks_crumb = f'<a href="{rel_link(here, "index.html")}"><span class="back" aria-hidden="true">‹</span>Tasks</a>'
     body = (page.page_head(
-                crumbs_html=f"{tasks_crumb} / trusted base", title_html="The shared trusted base",
-                sub_html="The modules every task statement rests on.",
+                crumbs_html=f"{tasks_crumb} / {esc(TRUST_CRUMB)}", title_html=esc(TRUST_TITLE),
+                sub_html="The claim an accepted record makes, what you have to trust for it, and what is only measured "
+                         "or only sampled.",
                 aside_html=page.stats([page.Stat("Modules", str(len(shared))),
                                        page.Stat("Lines", str(sum(line_count(read_text(p)) for _, p in shared)))]))
+            + trust_html(site, tasks, here)
             + page.card(
-                "<p>Every task statement rests on these modules: the ls-sv semantics of SystemVerilog and svGolf's "
-                "statement helpers. A proved submission guarantees what its task's statement says under them. "
-                "Each task page lists only the trusted text specific to that task. Any module of the ls-sv library "
-                "may be imported by a proof; only the modules below are trusted, since proof helpers are "
-                "kernel-checked like any submission. The list is computed from the <code>import</code> lines of the "
-                "task statements.</p>"
+                "<p>Every task statement rests on these modules: the ls-sv semantics of SystemVerilog, svGolf's "
+                "statement helpers and, for " + code("fdivp") + ", the IEEE 754 library. A proved submission "
+                "guarantees what its task's statement says under them. Each task page lists only the trusted text "
+                "specific to that task. Of the library's modules, only these are trusted: a proof may import any "
+                "other, since proof helpers are kernel-checked like any submission. The list is computed from the "
+                "<code>import</code> lines of the task statements.</p>"
                 + page.table(["module", "role", "file", "lines", "sha256"],
                              [trusted_row(m, p, here) for m, p in shared], numeric=(3,))
-                + (f"<p>Also trusted: the Lean toolchain ({', '.join(code(m) for m in toolchain)}).</p>"
-                   if toolchain else "")))
-    site.page(here, "Shared trusted base", body, description="svGolf: the trusted base every task shares")
+                + (f"<p>The statements also import modules of the Lean toolchain itself "
+                   f"({', '.join(code(m) for m in toolchain)}), trusted with Lean.</p>" if toolchain else ""),
+                tag="section", id_=TRUST_MODULES, title_html="The trusted modules"))
+    site.page(here, TRUST_TITLE, body, description="svGolf: what an accepted record proves, what it trusts (the Lean "
+                                                    "kernel, the statements, the SystemVerilog front end, the source "
+                                                    "gate, the scoring flow), and what is only measured or sampled")
     for mod, path in mods:
         here = trusted_page(mod)
         data = read_bytes(path)
         text = data.decode("utf-8")
         users = sorted(t.name for t in tasks if any(m == mod for m, _ in t.closure))
         crumbs = (f'<a href="{rel_link(here, "index.html")}"><span class="back" aria-hidden="true">‹</span>Tasks</a>'
-                  f' / <a href="{rel_link(here, SHARED_TRUSTED_PAGE)}">trusted base</a>')
+                  f' / <a href="{rel_link(here, SHARED_TRUSTED_PAGE)}">{esc(TRUST_CRUMB)}</a>')
         dl_ = page.button(rel_link(here, f"trusted/{mod}.lean"), f"{mod}.lean", "quiet sm", download=True)
         body = (page.page_head(crumbs_html=crumbs, title_html=code(mod), sub_html=esc(module_role(mod)),
                                aside_html=page.stats([page.Stat("Lines", str(line_count(text)))]))
@@ -6021,6 +6377,70 @@ def task_card(t, here):
             f'<h3>{page.link(rel_link(here, t.page), esc(page_title(t)))}</h3>'
             + (f"<p>{esc(t.subtitle)}</p>" if t.subtitle else "")
             + f'{tags}' + (preview_html(t) if t.preview else both(t, lambda: big_numbers(t, notes=False))) + "</li>")
+
+
+TRY_ID = "try-it-without-lean"          # the front page's box under the hero (decided 2026-11-17)
+
+
+def ppa_summary_line(d):
+    """The last line `score/ppa.py` prints on stderr for the combinational design `d` (its `summary_line`, the same
+    format): its sky130 area, delay and area x delay."""
+    m = d["m"]
+    return (f"ppa (sky130 A0'): area {m['area_um2']} um^2, delay {m['time_ps']} ps; area x delay = "
+            f"{combined.um2ns(d['exact']):.2f} {combined.UNIT_ASCII}")
+
+
+def try_html(site, tasks, here):
+    """"Try it without Lean" (decided 2026-11-17, the box under the front page's hero): score a design on your own
+    machine with the real tools, no Lean, as exact commands from the clone (Step 0's virtual environment, pyslang, the
+    liberty, then `score/ppa.py` on the adder's par design), what its last line says (par's numbers, from the data),
+    and one sentence that a record also needs a proof. "" without the adder or its par numbers."""
+    t = next((t for t in tasks if t.name == "add"), None)
+    p = par_design(t) if t else None
+    tut = next((t for t in tasks if t.listing == "tutorial"), None)
+    if p is None or p.get("exact") is None or "area_um2" not in p["m"] or not t.par:
+        return ""
+    sv = shown_path(t.par["sv"])
+    v = prerequisites(site)
+    cmds = (clone_commands(site.config.get("repo_url"))
+            + "python3.12 -m venv .venv && . .venv/bin/activate\n"
+            "python3.12 -m pip install -r requirements.txt\n"
+            "python3.12 score/ppa.py --fetch-liberty\n"
+            f"python3.12 score/ppa.py {sv} \\\n    --task tasks/{t.name} --no-mapped\n")
+    recipe = (page.link(rel_link(here, f"{tut.page}#{YOSYS_RECIPE}"), "how to build it") if tut else "Step 0")
+    # the text beside the commands (one column on a phone); the line the last command prints ends the block
+    line = ppa_summary_line(p).split("; ", 1)
+    cmds += f"# its last line, on stderr:\n# {line[0]};\n#     {line[1]}\n"
+    text = (f"<p>Score a design with the real tools on your own machine, with no Lean and no proof: you need "
+            f"Python 3.12 and Yosys {esc(v['yosys'])} ({recipe}). From a clone of the repository, the commands score "
+            f"the adder's par, {code(t.par['stem'] + '.sv')}; edit it and score it again. The same file always scores "
+            "the same on the rating build (another build of Yosys can differ slightly: "
+            + page.link(rel_link(here, REPRODUCE_PAGE), "reproduce a score") + ").</p>"
+            "<p><strong>A record on the board also needs a Lean proof</strong> that the design meets the task's "
+            "statement; scoring needs none.</p>")
+    body = (f'<div class="try-grid"><div class="try-text">{text}</div>'
+            + page.code_block(cmds, "bash", name="shell", term=True) + "</div>")
+    return page.card(body, tag="section", id_=TRY_ID, cls="try", title_html="Try it without Lean")
+
+
+def routed_how_note(tasks, here):
+    """Under "How it works, on the adder", on the routed course only (decided 2026-11-17: the steps quote sky130's
+    numbers, the check's own output): the adder's par on that course, its score and factors from the data, and that
+    the commands print sky130's numbers while a record's routed ones come from a place-and-route run. "" without
+    the adder or its routed par."""
+    t = next((t for t in tasks if t.name == "add"), None)
+    if t is None or COURSE2 not in t.states:
+        return ""
+    with t.view(COURSE2):
+        h = headline(t)
+        factors = breakdown(h["par_design"], t) if h["par_design"] else ""
+    if h["par"] is None or not factors:
+        return ""
+    return (f'<p class="pdk-{COURSE2} pdk-note small">On this course, ASAP7 placed and routed, the adder\'s par is '
+            f"{esc(combined.fmt(h['par']))} {esc(combined.UNIT)} ({esc(factors)}). The commands above "
+            "print sky130's numbers, the default course's; a record's routed numbers come from one place-and-route run "
+            "made after it is recorded (" + page.link(rel_link(here, f"rules.html#{ASAP7PNR_ANCHOR}"),
+                                                      "how the routed course is scored") + ").</p>")
 
 
 def home_page(site, tasks):
@@ -6071,6 +6491,14 @@ def home_page(site, tasks):
         raise BuildError(f"{src}: the first '## ' section ({how_title}) starts with its numbered steps")
     hid = slugger.slug(how_title)
     how_body = how_body.replace("<ol>", '<ol class="how-steps">', 1)
+    # on the routed course, right under the steps (step 3 quotes the check's sky130 line): that course's numbers
+    depth, at = 0, 0
+    for m in re.finditer(r"<(/?)ol\b[^>]*>", how_body):
+        depth += -1 if m.group(1) else 1
+        if depth == 0:
+            at = m.end()
+            break
+    how_body = how_body[:at] + routed_how_note(tasks, here) + how_body[at:]
     steps_html = (f'<section class="how" aria-labelledby="{esc(hid)}"><h2 id="{esc(hid)}">{md_inline(how_title)} '
                   f'<a class="anchor" href="#{esc(hid)}" aria-label="link to this section">#</a></h2>'
                   f'{how_body}</section>')
@@ -6080,9 +6508,10 @@ def home_page(site, tasks):
     # and the block over the cards is the heading alone; the courses' lines and the note on par, record and under par
     # are the rules page's ("The courses", "Par, record and under par"), linked from every footer ("How it is scored")
     head = "<h2>Tasks</h2>"
-    parts = [hero,
+    # under the cards, who made the board's records so far (decided 2026-11-17), one sentence
+    parts = [hero, try_html(site, tasks, here),
              f'<section class="course"><div class="section-head" id="tasks">{head}</div>'
-             + f'<ul class="task-cards">{cards}</ul></section>',
+             + f'<ul class="task-cards">{cards}</ul>{provenance_front_html(site.provenance, here)}</section>',
              steps_html]
     # the rest of home.md: a section that is a numbered list as cards, any other as a card
     for level, sec_title, s0, s1 in secs:
@@ -6153,10 +6582,52 @@ def rules_page(site, refusals, tasks=()):
 REPRODUCE_PAGE = "reproduce.html"
 
 
-def reproduce_page(site):
+PNR_README = "svgolf/score/pnr/README.md"           # the routed course's run tools (reproduce.html's routed section)
+PNR_README_SECTIONS = ("What a run needs", "The commands, for one design")
+REPRODUCE_ROUTED = "the-routed-course"               # reproduce.html's routed section (decided 2026-11-17)
+
+
+def reproduce_routed_html(site, tasks, here):
+    """reproduce.html's section on the routed course (decided 2026-11-17: the page covered sky130 and the cells-only
+    ASAP7 view, not the course the selector offers): the adder's par on the routed course and its cells-only numbers
+    as two quantities, from the data, then score/pnr/README.md's "What a run needs" and "The commands, for one design"
+    (the pinned image by digest, the commands)."""
+    t = next((t for t in tasks if t.name == "add"), None)
+    lead = ""
+    if t is not None and COURSE2 in t.states:
+        with t.view(COURSE2):
+            p = par_design(t)
+            routed = breakdown(p, t) if p and "adp" in p["m"] else ""
+            a0 = (p or {}).get("a0")
+        if routed and a0:
+            dest = reference_page(t, t.par)
+            page_link = (" Its page lists the run's pins and hashes, under " + page.link(
+                rel_link(here, dest) + "#reproduce", "Reproduce and verify") + " (on this course)." if dest else "")
+            lead = (f"<p>Two different numbers for one design: on the routed course the adder's par, "
+                    f"{code(t.par['stem'] + '.sv')}, scores {esc(combined.fmt(p['m']['adp']))} {esc(combined.UNIT)} "
+                    f"({esc(routed)}), placed and routed, wires included; the cells-only ASAP7 numbers above give "
+                    f"{esc(combined.fmt(a0['adp']))} {esc(combined.UNIT)} for its netlist "
+                    f"({esc(area_short(a0['area_um2'], 'asap7'))} µm² × {esc(ns(a0['time_ps'], 'asap7'))} ns), before "
+                    "place and route and without wires. The routed number is the one the course ranks; on some designs "
+                    "it is the lower of the two, which has not been analysed yet." + page_link + "</p>")
+    text = site.doc_text(PNR_README)
+    slugger = md.Slugger([REPRODUCE_ROUTED])
+    parts = []
+    for title, fragment, first in doc_sections(text, PNR_README_SECTIONS):
+        parts.append(site.render_md(fragment, source=PNR_README, here=here, first_line=first, slugger=slugger,
+                                    heading_shift=1).html)
+    return (f'<section><h2 id="{REPRODUCE_ROUTED}">The routed course: ASAP7 placed and routed <a class="anchor" '
+            f'href="#{REPRODUCE_ROUTED}" aria-label="link to this section">#</a></h2>' + lead
+            + f"<p>From {code(shown_path(PNR_README))}: a routed number is made again from the repository with the "
+            "pinned image ("
+            + page.link(rel_link(here, f"rules.html#{ASAP7PNR_ANCHOR}"), "how the routed course is scored") + ").</p>"
+            + "".join(parts) + "</section>")
+
+
+def reproduce_page(site, tasks=()):
     """reproduce.html: the "Reproduce a score" section of score/PPA.md (config.json `pages.reproduce`),
     rendered as it is: the tools and pinned files with their hashes, the pinned flow step by step, and
-    the commands that give a recorded number again, bit for bit."""
+    the commands that give a recorded number again, bit for bit; then the routed course's (`reproduce_routed_html`)."""
     here = REPRODUCE_PAGE
     cfg = site.config["pages"]["reproduce"]
     src = cfg["source"]
@@ -6168,6 +6639,7 @@ def reproduce_page(site):
         head, _, rest = fragment.partition("\n")
         r = site.render_md(rest, source=src, here=here, first_line=first + 1, slugger=slugger)
         parts.append(f"<section>{r.html}</section>")
+    parts.append(reproduce_routed_html(site, tasks, here))
     body = (page.page_head(title_html="Reproduce a score", sub_html=(
                 f"From {code(shown_path(src))} of the repository. The ranked score, the sky130 A0′ area and time, is a pure "
                 "function of the design's text, the pinned flow and tool build, the pins and the task's scoring point and input "
@@ -6200,11 +6672,12 @@ def doc_body(r, title):
 
 def content_page(site, name, here, title, description=""):
     """A page of site/content/<name> (Markdown); `{{library}}` is the library's name, linked (config.json `library`),
-    `{{handoff}}` the sentence on how a record reaches the board (`handoff_md`) and `{{issues}}` the public
-    repository's issues (`issues_md`)."""
+    `{{handoff}}` the sentence on how a record reaches the board (`handoff_md`), `{{issues}}` the public
+    repository's issues (`issues_md`) and `{{provenance}}` who made the board's records (`provenance_md`)."""
     path = f"{CONTENT}/{name}"
     text = (read_text(path).replace("{{library}}", library_md(site.config))
-            .replace("{{handoff}}", handoff_md(site.config)).replace("{{issues}}", issues_md(site.config)))
+            .replace("{{handoff}}", handoff_md(site.config)).replace("{{issues}}", issues_md(site.config))
+            .replace(PROVENANCE_PLACEHOLDER, provenance_md(site.provenance)))
     r = site.render_md(text, source=path, here=here)
     site.page(here, title, doc_body(r, title), active=here, description=description)
 
@@ -6516,10 +6989,19 @@ def llms_txt(site, tasks):
              f"{site.config['reference_player']} are par's, not entries, and every other design is an entry. "
              "[llms-full.txt](llms-full.txt) is the whole proving guide in plain text.", "",
              "## Step 0, once per machine", "",
+             f"svGolf runs on macOS and Linux (Linux: bubblewrap, `bwrap`, for the sandbox); Windows is not supported. "
              f"Install elan (it installs the Lean toolchain that lean-toolchain pins, {v['lean']}), Yosys "
              f"{v['yosys']} with yosys-abc, Verilator 5, a C++ compiler and make (the post-synthesis check compiles "
-             "Verilator's model of the netlist) and Python 3.12. Then, from the root of a clone:", "",
+             "Verilator's model of the netlist) and Python 3.12" + ("; to hand a record in, git and gh, logged in"
+                                                                   if submissions_open(site.config) else "")
+             + ". Package "
+             "managers ship newer versions of Yosys: with any other build than the rating build the numbers are "
+             f"estimates, and a record made with it is not ranked until re-made on the rating build. Yosys "
+             f"{v['yosys']}'s release archive: {rating_build()['yosys']['source']['url']} (sha256 "
+             f"{rating_build()['yosys']['source']['sha256']}; build it with `make PREFIX=... install`, as the "
+             "repository's records workflow does). Then:", "",
              "```bash", *clone,
+             "python3.12 -m venv .venv && . .venv/bin/activate   # where pip refuses a system-managed Python",
              "python3.12 -m pip install -r requirements.txt   # " + v["pyslang"],
              "lake build                                      # the trusted Lean and the checker's evaluator",
              "python3.12 score/ppa.py --fetch-liberty         # the pinned sky130 liberty, checked by its hash",
@@ -6769,6 +7251,7 @@ def build_site(*, offline=False, strict=False, revision=None, config=None, denyl
     refusals = json.loads(site.doc_text(site.config["refusals_json"]))
     site.stages = [s["id"] for s in refusals["svgolf"]["stages"]]
     tasks = collect(site, offline)
+    site.provenance = provenance(site, tasks)
     ge_tables = load_ge_tables()
     site.add("style.css", read_bytes("svgolf/site/style.css"))
     site.add("site.js", read_bytes("svgolf/site/site.js"))
@@ -6776,6 +7259,7 @@ def build_site(*, offline=False, strict=False, revision=None, config=None, denyl
     site.add("pdk.js", read_bytes("svgolf/site/pdk.js"))
     site.add("favicon.svg", pixelart.favicon_svg())
     site.add("favicon-32.png", pixelart.favicon_png())
+    site.add(PREVIEW_IMAGE, pixelart.preview_png())
     home_page(site, tasks)
     for t in tasks:
         task_page(site, t)
@@ -6787,7 +7271,7 @@ def build_site(*, offline=False, strict=False, revision=None, config=None, denyl
         licence_texts(site, t)
     trusted_pages(site, tasks)
     rules_page(site, refusals, tasks)
-    reproduce_page(site)
+    reproduce_page(site, tasks)
     doc_page(site, "proving", "proving.html", "Proving")
     refusals_page(site, refusals)
     roadmap_page(site)

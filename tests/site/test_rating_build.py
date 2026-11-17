@@ -99,6 +99,44 @@ class RatingBuild(unittest.TestCase):
         self.assertIn(build.page.link("../../rules.html#" + build.ASAP7PNR_ANCHOR, "How the routed course is scored"),
                       line)
 
+    def test_the_source_archive_is_the_workflows(self):
+        """Decided 2026-11-17 (Step 0 completed): the release archive and the Ubuntu packages Step 0's recipe gives a
+        player are score/reference_build.json's `yosys.source`, which are the public repository's records workflow's:
+        in the development tree tools/export_public.py writes that workflow from its own copy of the values, in the
+        public tree the workflow is a file; whichever this tree has must say the same. The recipe on the site is made
+        from the data, checked by its sha256, and its build is never called the rating build."""
+        src = self.rb["yosys"]["source"]
+        self.assertRegex(src["url"], r"^https://github\.com/YosysHQ/yosys/releases/download/v" + re.escape(
+            self.rb["yosys"]["version"]) + r"/")
+        self.assertRegex(src["sha256"], r"^[0-9a-f]{64}$")
+        export = os.path.join(SVGOLF, "tools", "export_public.py")
+        workflow = os.path.join(SVGOLF, ".github", "workflows", "records.yml")
+        seen = 0
+        if os.path.isfile(export):
+            text_ = text("tools/export_public.py")
+            self.assertIn(f'YOSYS_URL = "{src["url"]}"', text_)
+            self.assertIn(f'YOSYS_SHA256 = "{src["sha256"]}"', text_)
+            seen += 1
+        if os.path.isfile(workflow):
+            text_ = text(".github/workflows/records.yml")
+            self.assertIn(src["url"], text_)
+            self.assertIn(src["sha256"], text_)
+            seen += 1
+        self.assertGreater(seen, 0, "neither the export script nor the records workflow is in this tree")
+        for kind in (("export", export), ("workflow", workflow)):
+            if os.path.isfile(kind[1]):
+                body = text(os.path.relpath(kind[1], SVGOLF).replace(os.sep, "/"))
+                line = next(ln for ln in body.split("\n") if "apt-get install" in ln)
+                at = body.index(line)
+                apt = " ".join(body[at:at + 600].split("\n")[:3]).replace("\\", " ")
+                for pkg in src["ubuntu_packages"]:
+                    self.assertRegex(apt, rf"(?<![\w-]){re.escape(pkg)}(?![\w-])", (kind[0], pkg))
+        recipe = load_build().yosys_recipe(None)
+        self.assertIn(f"curl -sSfL -o yosys.tar.gz {src['url']}", recipe)
+        self.assertIn(f'echo "{src["sha256"]}  yosys.tar.gz" | sha256sum -c -', recipe)
+        self.assertIn("make -C", recipe)
+        self.assertNotIn("rating build", recipe)
+
 
 if __name__ == "__main__":
     unittest.main()

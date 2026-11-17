@@ -22,7 +22,7 @@
 
 <h2>The proof</h2>
 
-<p>The proof (238 code lines) covers every <code>N &gt;= 1</code>, and its arithmetic is what the other tactic-proved entries of this task reuse:</p>
+<p>The proof (238 code lines) covers every <code>N</code> in the statement's range, and its arithmetic is what the other tactic-proved entries of this task reuse:</p>
 
 <ol>
 <li><code>clmul_struct</code>: <code>sv_structure</code> with a lexicographic key <code>(row, 0, 0)</code> (<code>clmulKey</code>). The key goes through a partial classifier of the five site families, <code>clmulFamily?</code>, and <code>clmul_sites_classified</code> proves every site is classified, so a change of layout fails loudly instead of falling into a default rank. A <code>#guard_msgs</code> check prints the (empty) list of unclassified sites.</li>

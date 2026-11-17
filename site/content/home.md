@@ -15,8 +15,8 @@ clock period, times the latency in cycles where the task has one). Lower is bett
 2. **Prove** `Solution.lean`: one theorem. The checker turns your `.sv` into the Lean constant `design`,
    the circuit as [ls-sv](site:index.html#how-a-design-becomes-lean), the formal semantics of SystemVerilog
    in Lean, runs it. `Goal` is the task's [trusted statement](site:tasks/add/index.html#spec) about it
-   (trusted: you read it, and Lean's kernel checks your proof against it): for every `N` with
-   `1 ≤ N < 2^20`, whenever the inputs are known, `{cout, s} = a + b + cin`.
+   (trusted: you read it, and Lean's kernel checks your proof against it): for
+   {{add.range}}, whenever the inputs are known, `{cout, s} = a + b + cin`.
 
    ```lean
    import Submission.Design   -- written by the checker: `design`, `Goal`
@@ -39,11 +39,8 @@ clock period, times the latency in cycles where the task has one). Lower is bett
    {{add/add_n.headline}}
    ```
 
-**You submit two files**, `solution.sv` and `Solution.lean` (any names). {{handoff}} Golf without Lean:
-`python3.12 score/ppa.py solution.sv --task tasks/add --no-mapped` prints the same area and delay in a
-second or two, and the same file always scores the same on the rating build (another build of Yosys can differ
-slightly: [reproduce a score](site:reproduce.html)).
-Install once: [Step 0](site:tasks/_example/index.html#first-submission).
+**You submit two files**, `solution.sv` and `Solution.lean` (any names). {{handoff}} To score without Lean,
+see [Try it without Lean](#try-it-without-lean), above. Install once: [Step 0](site:tasks/_example/index.html#first-submission).
 
 ## How a design becomes Lean
 

@@ -1204,7 +1204,7 @@ Today's limits of the tools, as the proofs on the board met them: not rules of t
 ## 8. A tree multiplier: what it needed, what was hard
 
 `tasks/mul/reference/mul_tree.{sv,lean}` is a parametric log-depth carry-save tree, proved for
-every `N ≥ 1` with the same tactics (571 code lines on 2026-10-30, 322 since 2026-10-31; `check.py` `solution` stage 74.4 s before 2026-10-30, score
+every `N` in the statement's range with the same tactics (571 code lines on 2026-10-30, 322 since 2026-10-31; `check.py` `solution` stage 74.4 s before 2026-10-30, score
 2034.904 GE / depth 63 at `N = 16`). An early trial found that a Dadda or Wallace tree needs a stage count
 `⌈log_{3/2} N⌉`, column heights, a 3-D array, conditional generate and `localparam`, and that
 `sv_structure` refuses each. This reference needs none of them, because of four choices about the
@@ -1284,7 +1284,7 @@ tape instead of a heap).
 
 `tasks/mul/reference/mul_wallace.{sv,lean}` (423 code lines on 2026-10-30, 264 since 2026-10-31; `check.py` `solution` stage 40.9 s before 2026-10-30, score
 2113.894 GE / depth 62 at `N = 16`) is Wallace's reduction by groups of three rows, proved for every
-`N ≥ 1`. The design choice that keeps it in the fragment is again a numbering, now a TAPE: one 2-D
+`N` in the statement's range. The design choice that keeps it in the fragment is again a numbering, now a TAPE: one 2-D
 array `T` of `3N-1` rows of `2N` bits holds the `N` partial products (rows `0 .. N-1`), an all-zero
 dummy row (row `N`, so that `N+1` rows are live and `N = 1` needs no case) and the rows the adders
 append. CSA `g` (`g = 0 .. N-2`) reads the rows `3g`, `3g+1`, `3g+2` and writes the sum row `x ^ y ^ z`
@@ -1840,7 +1840,7 @@ always_comb begin
 end
 ```
 
-and `tasks/add/reference/add_proc.lean` proves the same statement for every `N ≥ 1` (accepted by
+and `tasks/add/reference/add_proc.lean` proves the same statement, for every `N` in its range (accepted by
 `check.py`; it scores like `add_n`, because Yosys turns the mux into the same NAND/XOR netlist).
 
 **What the tactics accept (the first fragment).** One `always_comb` per target window; the body is a

@@ -1038,6 +1038,19 @@ pre.code.source .decl:target .ln:first-child::before, pre.code.source .ln:target
 .course > .section-head { margin-top: 0; }
 .course > .section-head h2 { font-size: var(--fs-xl); }
 .course > .section-head > div { flex: 0 0 auto; }
+/* under the cards: who made the board's records so far (decided 2026-11-17), one sentence */
+.course > .board-note { margin: var(--sp-5) var(--px) 0; font-size: var(--fs-sm); color: var(--text-2); max-width: 52rem; }
+/* the front page's "Try it without Lean" (decided 2026-11-17): the text beside the commands, one column on a phone */
+.try { margin: 0 var(--px) var(--sp-6); }
+.try .try-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: var(--sp-5); align-items: start; }
+.try .try-text p { margin: 0 0 var(--sp-3); }
+.try .try-grid > .codebox { margin: 0; }
+@media (max-width: 60rem) { .try .try-grid { grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); } }
+/* a front page card's Under par where no record beats par yet (decided 2026-11-17): OPEN, in the course's green */
+.stat-open dd { color: var(--green-ink); letter-spacing: 0.06em; }
+/* the trusted page's lists: one part a paragraph (decided 2026-11-17) */
+.trust-list { max-width: 62rem; }
+.trust-list > li { margin: 0 0 var(--sp-3); }
 
 .task-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); gap: calc(var(--sp-4) + 6px) var(--sp-4); }
 .task-card { margin: 0 var(--px); position: relative; display: flex; flex-direction: column; gap: var(--sp-3); background: var(--surface); padding: var(--sp-5); transition: transform 0.12s; }

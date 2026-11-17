@@ -15,6 +15,10 @@ syntax tree becomes a Lean value, and a definitional interpreter gives it meanin
 SystemVerilog semantics every svGolf statement is written over, the loader that turns a design into Lean, and
 the tactics that prove designs. It also covers Python and C++.
 
+## Who made the records
+
+{{provenance}}
+
 ## A statement must not be satisfiable without computing anything
 
 A machine-checked proof is worth exactly what its statement says. In a competition the cheapest way to

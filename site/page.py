@@ -170,13 +170,13 @@ def toc(entries, label_text="On this page"):
 
 class Stat:
     """One big number: `value` over a small-caps `label`, with an optional `unit` after the value
-    and a `note` under it. `kind` styles it: good, accent, empty. `icon_html`: a decorative drawing
+    and a `note` under it. `kind` styles it: good, accent, empty, open. `icon_html`: a decorative drawing
     (pixelart.icon, aria-hidden) beside the number. `label_href`: the label is a link there (where the
-    page defines the term)."""
+    page defines the term). `title`: what it means, on hover."""
 
-    def __init__(self, label, value, *, unit=None, note=None, kind=None, icon_html=None, label_href=None):
+    def __init__(self, label, value, *, unit=None, note=None, kind=None, icon_html=None, label_href=None, title=None):
         self.label, self.value, self.unit, self.note, self.kind = label, value, unit, note, kind
-        self.icon_html, self.label_href = icon_html, label_href
+        self.icon_html, self.label_href, self.title = icon_html, label_href, title
 
     def html(self):
         k = f" stat-{esc(self.kind)}" if self.kind else ""
@@ -184,7 +184,8 @@ class Stat:
         note = f'<span class="stat-note">{esc(self.note)}</span>' if self.note else ""
         ico = self.icon_html or ""
         label = link(self.label_href, esc(self.label)) if self.label_href else esc(self.label)
-        return f'<div class="stat{k}"><dt>{label}</dt><dd>{ico}{esc(self.value)}{unit}{note}</dd></div>'
+        t = f' title="{esc(self.title)}"' if self.title else ""
+        return f'<div class="stat{k}"{t}><dt>{label}</dt><dd>{ico}{esc(self.value)}{unit}{note}</dd></div>'
 
 
 def stats(items, *, cls=None):
@@ -382,7 +383,7 @@ def pdk_nojs(text_html, cls="pdk-nojs"):
 
 def layout(*, title, body_html, root, active=None, description="", revision=None, site_name="svGolf",
            tagline="", library=None, foot_repo=(), scripts=(), banner_html="", header_pdk=True, url=None,
-           base_href=None, skip_link=True, robots=None):
+           base_href=None, skip_link=True, robots=None, image=None):
     """A complete page. `root` is the relative path from the page to the site
     root ("" for a top-level page, "../../" for tasks/<t>/index.html). `scripts`: the site's own
     script files the page loads after site.js (a task page: charts.js). The header carries the library
@@ -393,11 +394,13 @@ def layout(*, title, body_html, root, active=None, description="", revision=None
     licence, then `foot_repo` ([(label, url)]: the public repository's Source, Issues and Contributing; empty
     without one), `library` ({name, url}: the Lean library the proofs are written with), the roadmap, how to
     reproduce a score, llms.txt, the data and the revision; since 2026-11-13 also "How it is scored" (the rules
-    page's "The courses", which holds what the routed course's banner and the front page's course lines said).
+    page's "The courses", which holds what the routed course's banner and the front page's course lines said), and
+    since 2026-11-17 "What is trusted" (trusted/index.html: what a record proves, trusts, measures and samples).
     `foot_repo` may hold ("Apache-2.0", url) first: the licence's link. A `title` that starts with the site's name ("svGolf: ...", the front page's) is the whole title;
     any other gets " | svGolf". The link preview: the page's `url` (its published address, absolute) is its canonical
-    address and og:url; og:title and og:description repeat the title and the description; no image (decided
-    2026-11-12). `base_href` (the 404 page, which the host serves at any depth): every relative address resolves from
+    address and og:url; og:title and og:description repeat the title and the description; `image` (decided
+    2026-11-17, before no image): the link preview's picture, {"url" (absolute), "width", "height", "alt", "type"},
+    og:image with its size, type and text, and the large twitter:card. `base_href` (the 404 page, which the host serves at any depth): every relative address resolves from
     the site's root; `skip_link` false leaves out the skip link (an in-page `#main` would resolve to the root under a
     base); `robots`: the robots meta tag's value."""
     current = ' aria-current="page"'
@@ -414,6 +417,8 @@ def layout(*, title, body_html, root, active=None, description="", revision=None
                        if label != "Apache-2.0")
              + (f'<li>Lean library: <a href="{esc(library["url"])}">{esc(library["name"])}</a></li>' if library else "")
              + f'<li><a href="{root}rules.html#courses">How it is scored</a></li>'          # build.py COURSES_ANCHOR
+             # what a record proves and trusts (decided 2026-11-17; build.py TRUST_FOOT, SHARED_TRUSTED_PAGE)
+             + f'<li><a href="{root}trusted/index.html">What is trusted</a></li>'
              + f'<li><a href="{root}roadmap.html">Roadmap</a></li>'
              + f'<li><a href="{root}reproduce.html">Reproduce a score</a></li>'
              + f'<li><a href="{root}llms.txt">llms.txt</a></li><li><a href="{root}data/site.json">data</a></li>' + rev)
@@ -427,7 +432,11 @@ def layout(*, title, body_html, root, active=None, description="", revision=None
              f'\n<meta property="og:title" content="{esc(full_title)}">')
     meta += f'\n<meta property="og:description" content="{esc(description)}">' if description else ""
     meta += f'\n<meta property="og:url" content="{esc(url)}">' if url else ""
-    meta += '\n<meta name="twitter:card" content="summary">'
+    if image:
+        meta += "".join(f'\n<meta property="og:image{k}" content="{esc(v)}">' for k, v in (
+            ("", image["url"]), (":type", image["type"]), (":width", image["width"]), (":height", image["height"]),
+            (":alt", image["alt"])))
+    meta += f'\n<meta name="twitter:card" content="{"summary_large_image" if image else "summary"}">'
     skip = '<a class="skip" href="#main">Skip to the content</a>\n' if skip_link else ""
     return f"""<!DOCTYPE html>
 <html lang="en">

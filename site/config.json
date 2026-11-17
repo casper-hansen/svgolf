@@ -100,7 +100,10 @@
     {
       "text": "newcomer study",
       "scope": "site-text",
-      "why": "a development process word"
+      "why": "a development process word",
+      "allow": {
+        "about.html": "Who made the records (decided 2026-11-17): several records came from a newcomer study run by the maintainers"
+      }
     },
     {
       "text": "awaiting confirmation",

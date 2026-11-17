@@ -1,5 +1,5 @@
-Compute the bitwise AND of two `N`-bit inputs, `y = a & b`, combinationally, and prove it for every
-`N ≥ 1`.
+Compute the bitwise AND of two `N`-bit inputs, `y = a & b`, combinationally, and prove it for
+{{range}}.
 
 The optimum is obvious: one AND gate per bit, {{band.area}} with a {{band.time}} critical path on sky130
 for `N = 16` ({{band.ge}}, depth {{band.depth}}). The task exists to run

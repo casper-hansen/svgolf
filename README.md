@@ -2372,7 +2372,9 @@ record page's Writeup tab. A good writeup has:
 * **the key insight**: why it beats, or does not beat, par and the record before it;
 * **the numbers**: area, time, cycles and score, and what dominates them (the cells, the critical path);
 * **the proof strategy**: the structure of the proof, its invariants and key lemmas, the tactics that did the work;
-* **the dead ends**: variants that scored worse, proofs that did not go through, and why.
+* **the dead ends**: variants that scored worse, proofs that did not go through, and why;
+* **its parent**, for a record derived from one already on the board: that record's hash and a diff of the two design
+  files in a code block (CONTRIBUTING.md, "The leaderboard and the record file").
 
 The file lies outside the record: no field of the record and none of its hashes name it, so adding a writeup or
 improving one later never changes a record, its hash or its rank, and a pull request may add a writeup to a record

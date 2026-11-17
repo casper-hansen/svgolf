@@ -5,7 +5,7 @@ product, at most its declared latency after the cycle that samples `start` (cycl
 
 `C` is claimed only from the first `done` = 1 after a start until the next start, where it must hold the
 product; at every other cycle it may show anything, while `done` is known at every cycle from the release and 0
-until the first start. The proof covers every `1 ≤ N < 2^5`, `1 ≤ W < 2^10` and `1 ≤ AccW < 2^12` and
+until the first start. The proof covers {{range}} and
 proves the latency the submission declares; the score is taken at `N = 4, W = 8, AccW = 32`.
 
 The design is clocked by `clk` alone, on its rising edge, with the synchronous reset `rst`: no asynchronous
