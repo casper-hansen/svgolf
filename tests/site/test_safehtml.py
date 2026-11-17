@@ -195,8 +195,8 @@ HOSTILE = [
     ("text loose at the top", "Just Markdown, no tags", "outside a block", 3),
     ("Markdown heading", "## The idea", "outside a block", 3),
     ("a lone <", "<p>a</p>\n<", "outside a block", 4),
-    # refused either way: Python's html.parser reads an unterminated comment as loose text before
-    # 3.12.11 and as a comment from then on
+    # refused either way: Python's html.parser reads an unterminated comment as loose text in 3.12.8
+    # and as a comment in 3.12.16 (the change is in a patch release between them)
     ("unterminated comment", "<p>a</p>\n<!-- x", ("outside a block", "a comment is not allowed"), 4),
     # -- mutation XSS: nesting a browser would rearrange
     ("p in svg breakout", fig('<p><style><img src=x onerror=alert(1)></style></p>'), "<p> inside a drawing", 4),
