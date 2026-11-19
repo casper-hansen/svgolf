@@ -2624,9 +2624,12 @@ hypotheses). Without them `sv_mirror` refuses, printing the first value it reads
 
 `sv_mirror` defines `mm.p0` (the module's first process), `mm.g_col N W AccW i j` (the process of generate
 block `g_col`, the genvars as arguments), `mm.procs` (the static processes, then each generate loop as a
-`List.range` family, never unrolled), `mm.decls`, `mm.D`, and proves `mm.instantiate`. The one fact it needs from
-you is which process writes which window, `mm_disj`: `ProcDisj.of_all` decides one pair (`simp` lists both
-processes' windows), the row-major facts of `SvGolf.Clocked` do the arithmetic. `sv_cycle` then proves
+`List.range` family, never unrolled; a loop from another constant start, `for (genvar d = 1; d < N; d++)`, as a
+`List.range' 1 (N - 1)` family), `mm.decls`, `mm.D`, and proves `mm.instantiate`. The processes may be
+`always_ff` processes and comb processes (`always_comb`, continuous assignments), at the module level and inside
+generate loops, any number of each: the mirror is the instantiation, whatever the clock step needs. The one fact
+it needs from you is which process writes which window, `mm_disj`: `ProcDisj.of_all` decides one pair (`simp`
+lists both processes' windows), the row-major facts of `SvGolf.Clocked` do the arithmetic. `sv_cycle` then proves
 `mm.sem_eq` (`design.sem N W AccW = mm.D N W AccW`), `mm.profile` and `mm.apply`, defines `mm.St` (one value per
 declaration, in declaration order), the updates of each process (`mm.p0Q`, `mm.g_colQ`: the nested `if`s over
 `condTrue` a reference writes by hand, known literals as `LVec.ofBitVec (v#w)`) and `mm.next` (their commit, in
@@ -2643,13 +2646,36 @@ from the one-driver rule on `D` and the alias guard leaving `D` unchanged (`alia
 The side conditions of the instantiation (a part select inside its vector, a declared range not empty) are
 proved by `sv_disch`: positivity of the parameters, `omega`, and `sv_window`, which proves a window
 `lo + w ≤ total` of products of parameters and genvars by replacing each genvar by its bound
-(`Nat.mul_le_mul_right`) before `omega`. A window it cannot place stops the command with the condition printed;
-give a tactic for it before `:=`, `sv_mirror mm (window := by tac) := design …` (after the binders it would read as
-one more binder); it runs on each condition left, with the genvars and their bounds (`hk : k < N`) in scope, and a
-proof containing `sorry` is refused like no proof. The fuel option goes before `using` for the same reason:
+(`Nat.mul_le_mul_right`) before `omega`. A condition it decides neither way (with the window tactic below) is
+tried with `sv_disch_ext`, which also reads a difference inside a window (row `j - 1`'s `(j * N + j - 1) * W`), a
+negated width test, a negated disjunction, and linear arithmetic over the products of a condition with the bounds
+their factors give (`sv_prod`: `-31 * W ≤ (j - N) * W` from `N < 32`, which refutes the windows a split's case
+reads before row 0); a condition `sv_disch` decides is decided as before. A window neither places stops the
+command with the condition printed; give a tactic for it before `:=`,
+`sv_mirror mm (window := by tac) := design …` (after the binders it would read as one more binder); it runs on each
+condition left, with the genvars and their bounds (`hk : k < N`) in scope, and a proof containing `sorry` is refused
+like no proof. The fuel option goes before `using` for the same reason:
 `sv_cycle mm (fuel := 60) using mm_disj N W AccW`. `set_option sv_cycle.verbose true` prints every normal form,
 the time of each step and how many rounds each normalization took; each stage of the generation has its own
 heartbeat budget (`sv_cycle.stageHeartbeats`, 1000000 by default), so the commands need no `maxHeartbeats`.
+
+A window that leaves its vector at one end of a loop is no condition for the window tactic: `b[(j-1)*W +: W]` in
+the `else` of an `if (j == 0)` is read at `j = 0` too (the instantiation reads it there as `x`, in the branch that
+is not taken), so its condition is false at `j = 0` and no tactic proves it. When a condition is decided at every
+value of the loop but its first (`j ≠ 0`, or `j + 1 ≠ N` for the last), `sv_mirror` instantiates the process in
+each case, the case a hypothesis, and defines it as `if j = 0 then … else …` (a case may split again, on another
+genvar); the player's proof reads the case it is in by `simp` with the case's hypothesis. The case `j = 0` may need
+a range the 32-bit hypotheses do not give: the library refuses a part select whose offsets are far outside its
+vector (`partOffsetsWild`, at `2^30`), so a window `-W` needs `W < 2^30`, which the task's own range gives
+(`(hW10 : W < 1024)` for matmul).
+
+A **generate `if`** is evaluated as the library does (`evalGenGuard`, the condition at its own width). When the
+hypotheses decide its condition, the mirror has the branch taken, as if the `if` were not there (give the case as
+a hypothesis, `(h : N = 2)` and a second `sv_mirror` under `(h : ¬ N = 2)`, to have one mirror per case). Otherwise
+the mirror keeps both: `mm.procs` is `… ++ if N = 2 then [mm.gen_then N W AccW, …] else …` (for a condition on a
+genvar, the `if` is inside the family: `fun q => if q = 0 then [mm.g_pipe_then … q] else [mm.g_pipe_else … q]`),
+each branch instantiated under its case. Its processes are named `X.<label>_then` and `X.<label>_else`, `<label>`
+the enclosing generate block's (`gen` at the module level): the library's generate `if` keeps no label of its own.
 
 What it costs: less than the hand-written opening blocks it replaces (the matmul reference's, 293 code lines,
 compiles in about 14.6 s of CPU; the generated one, with the disjointness, in about 6.9 s, imports included). The side
@@ -2686,17 +2712,21 @@ ls-sv computes such a localparam on the width-exact path (`evalSized`, the const
 `SvGolf.run2ClockGuard_ok_of_clock clk` from "every process has the clock `clk` or none" (one comb process beside the
 registers).
 
-What they refuse, by name: two comb processes, or one in a generate loop (their settle in every schedule order needs
-a lemma that every order of the passes reaches one fixpoint, not proved yet), an
-asynchronous reset (`always_ff @(posedge clk or negedge rst_n)`), a plain `always @(posedge clk)`, a blocking
-assignment in an `always_ff`, a nonblocking write to a dynamic index, two clocks, a process writing an input, an
-out-of-tier statement or expression (named with its kind), a procedural `for` loop whose iterations depend on the
-parameters, a generate `if`, a generate loop other than `for (g = 0; g < e; g++)`, a loop bound that can be negative
-under the hypotheses (`N - 1` needs `1 ≤ N`), a module instance, package parameters, a parameter environment that
-does not evaluate at symbolic parameters (a comparison of parameters without its case hypothesis, above), a
-hypothesis or a disjointness argument containing `sorry`, and a process whose
-run is not a success. Nothing they produce is trusted: every definition and theorem goes through the kernel like a
-hand-written one, and `#print axioms mm.cycle` lists `propext`, `Classical.choice` and `Quot.sound`.
+What they refuse, by name: an asynchronous reset (`always_ff @(posedge clk or negedge rst_n)`), a plain
+`always @(posedge clk)`, a blocking assignment in an `always_ff`, a nonblocking write to a dynamic index, two clocks,
+a process writing an input, an out-of-tier statement or expression (named with its kind), a procedural `for` loop
+whose iterations depend on the parameters, a generate loop other than `for (g = s; g < e; g++)` with a constant
+start `s`, a loop bound or start that can be negative under the hypotheses (`N - 1` needs `1 ≤ N`), a generate `if`
+whose condition does not evaluate at symbolic parameters, a declaration inside a generate block, a module
+instance, package parameters, a parameter environment that does not evaluate at symbolic parameters (a comparison
+of parameters without its case hypothesis, above), a hypothesis or a disjointness argument containing `sorry`;
+and, at `sv_cycle` (the mirror covers them), two comb processes or one in a generate loop (their settle in every
+schedule order needs a lemma that every order of the passes reaches one fixpoint, not proved yet), a process list
+that branches on a generate `if` (give the case as a hypothesis instead, one mirror per case), a process split at a
+genvar's first or last value, and a process whose run is not a success; `sv_cycle`'s refusals of the mirror's
+shape come before it reads the disjointness term. Nothing they produce is trusted: every definition and theorem
+goes through the kernel like a hand-written one, and `#print axioms mm.cycle` lists `propext`, `Classical.choice`
+and `Quot.sound`.
 
 ## 20. A reactive task: the arbiter (`ReactTask`)
 

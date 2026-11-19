@@ -1,4 +1,5 @@
-// tests/cycle: an always_comb inside a generate loop (sv_mirror refuses it by name: a family of comb processes).
+// tests/cycle: an always_comb inside a generate loop (sv_mirror covers it; sv_cycle refuses a family of comb
+// processes by name).
 module combgen #(parameter int N = 4) (
   input  logic         clk,
   input  logic [N-1:0] a, b,

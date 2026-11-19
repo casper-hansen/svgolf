@@ -1,4 +1,4 @@
-// tests/cycle: a register behind a continuous assignment (sv_mirror refuses the assign).
+// tests/cycle: a register behind a continuous assignment (sv_mirror and sv_cycle cover it).
 module assign_ff #(parameter int N = 4) (
   input  logic         clk,
   input  logic [N-1:0] a, b,

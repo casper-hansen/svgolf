@@ -23,13 +23,24 @@ instantiates a design with exact 32-bit `int` arithmetic, so a parameter is its 
 * `lpcmp.sv`: a localparam chosen by a comparison of the parameters (`(N > W) ? N - W : 1`, an `int` localparam the
   exact 32-bit `int` instantiation computes on the width-exact path, `evalSized`): refused with the comparison
   printed, then generated under each case hypothesis, one mirror per case.
-* Refusals, each naming the construct: two comb processes (`comb2.sv`), a comb process inside a generate loop
-  (`combgen.sv`), a generate loop that does not start at 0 (`shift.sv`), a blocking assignment in an
-  `always_ff` (`blocking.sv`), an asynchronous reset (`areset.sv`), a plain `always @(posedge clk)`
-  (`plain.sv`), a nonblocking write to a dynamic index (`dynidx.sv`), a loop bound that can be negative under
-  the hypotheses, parameters given out of order, an ill-typed disjointness term, a prefix already in use, `sv_cycle` before `sv_mirror`. (A generate `if`, two
-  clocks and a process writing an input are refused too, by name, but the pinned loader refuses the small
-  designs written for them first, at load time; an x literal is refused earlier still, by the source gate.)
+* `assigngen.sv`, `comb2.sv`, `combgen.sv`: continuous assignments inside a generate loop, two at the module level,
+  an `always_comb` inside a generate loop: the mirror covers them; `sv_cycle` refuses their clock step by name
+  (several comb processes: their settle in every schedule order is not proved yet).
+* `shift.sv`: a generate loop from `1` (`for (k = 1; k < N; k++)`): a `List.range' 1 (N - 1)` family, the window
+  `(k-1)*W` decided from the loop's start; the clock step generated end to end.
+* `genif.sv`, `genifk.sv`: a generate `if` on a parameter and on a genvar: kept as an `if` of the process list (of
+  the family), each branch under its case, or the branch a hypothesis decides; `sv_cycle` covers the decided
+  mirror and refuses the branching one by name.
+* `edge.sv`: a window read at `k = 0` in the `else` of an `if (k == 0)`, outside its vector there: the process is
+  split at the loop's first value, `if k = 0 then … else …`; the case `k = 0` needs the range that keeps the
+  window's offsets near the vector (`W < 2^30`, the library's `partOffsetsWild`), and without it the refusal names
+  the case.
+* Refusals, each naming the construct: a blocking assignment in an `always_ff` (`blocking.sv`), an asynchronous
+  reset (`areset.sv`), a plain `always @(posedge clk)` (`plain.sv`), a nonblocking write to a dynamic index
+  (`dynidx.sv`), a loop bound that can be negative under the hypotheses, parameters given out of order, an
+  ill-typed disjointness term, a prefix already in use, `sv_cycle` before `sv_mirror`. (Two clocks and a process
+  writing an input are refused too, by name, but the pinned loader refuses the small designs written for them
+  first, at load time; an x literal is refused earlier still, by the source gate.)
 
 An unfinished hypothesis, disjointness term or window tactic is refused too; that test states one, so it is in the
 development tree only (`tests/cycle/Unfinished.lean`, compiled by `tests/run.py`; the public export leaves it out).
@@ -293,32 +304,185 @@ example (N AccW k j : Nat) (hN : 1 ≤ N) (hk : k < N - 1) (hj : j < N) :
     ((k + 1) * N + j) * AccW + AccW ≤ N * N * AccW := by
   sv_window
 
-/-! ## 7. Refusals: a shape the generator does not cover is an error that names it -/
+/-! ## 7. Comb processes inside a generate loop, and several: the mirror covers them
+
+The instantiation does not depend on how many comb processes there are, or where: the mirror covers them. The clock
+step does: their settle in every schedule order is not proved yet, so `sv_cycle` refuses it by name, before it reads
+the disjointness term (the name given here is never elaborated). -/
+
+load_sv agD from "tests/cycle/designs/assigngen.sv" (top := "assigngen")
+
+sv_mirror ag := agD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+
+/-- The module's continuous assignment and register, then the family of continuous assignments, word `k` of `t`. -/
+example (N W : Nat) : ag.procs N W = ag.p0 N W :: ag.p1 N W :: (List.range N).map (ag.g_word N W) := rfl
+
+/-- Word `k` of `t`, the `assign` of the loop body at the genvar. -/
+example (N W k : Nat) : ag.g_word N W k = .assign (.slice "t" (k * W) W)
+    (.binary .xor ((Expr2.ident "a").slice (k * W) W) ((Expr2.ident "b").slice (k * W) W)) := rfl
+
+/-- info: 'SvGolf.Tests.Cycle.ag.instantiate' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms ag.instantiate
+
+/-- error: sv_cycle: refused: a comb process inside a generate loop (`ag.g_word`): a family of comb processes is not
+covered (their settle in every schedule order needs the commutation of their runs over a permutation, `combPass2` of
+a family, which is not proved yet) -/
+#guard_msgs (whitespace := lax) in
+sv_cycle ag using ag_disj
 
 load_sv comb2D from "tests/cycle/designs/comb2.sv" (top := "comb2")
 
-/-- error: sv_mirror: refused: a second comb process (a continuous assignment (`assign`)): one `always_comb` or
-`assign` beside the `always_ff` processes is covered; several need the settle in every schedule order of runs
-that read each other's outputs (a lemma that every order of `combPass2` reaches the same fixpoint, from an
-acyclic order of the comb processes), which is not proved yet -/
-#guard_msgs (whitespace := lax) in
 sv_mirror c2 := comb2D (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
+
+example (N : Nat) : c2.procs N = [c2.p0 N, c2.p1 N, c2.p2 N] := rfl
+
+/-- error: sv_cycle: refused: a second comb process (`c2.p1`): one `always_comb` or `assign` beside the `always_ff`
+processes is covered; several need the settle in every schedule order of runs that read each other's outputs (a
+lemma that every order of `combPass2` reaches the same fixpoint, from an acyclic order of the comb processes), which
+is not proved yet -/
+#guard_msgs (whitespace := lax) in
+sv_cycle c2 using c2_disj
 
 load_sv combgenD from "tests/cycle/designs/combgen.sv" (top := "combgen")
 
-/-- error: sv_mirror: refused: an `always_comb` process inside generate block `g_and`: a family of comb processes
-is not covered (their settle in every schedule order needs the commutation of their runs over a permutation,
-`combPass2` of a family, which is not proved yet) -/
-#guard_msgs (whitespace := lax) in
 sv_mirror cg := combgenD (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
+
+/-- Bit `k` of `t`, an `always_comb` (its self-read guard decided at the symbolic genvar). -/
+example (N : Nat) : cg.procs N = cg.p0 N :: (List.range N).map (cg.g_and N) := rfl
+
+/-- error: sv_cycle: refused: a comb process inside a generate loop (`cg.g_and`): a family of comb processes is not
+covered (their settle in every schedule order needs the commutation of their runs over a permutation, `combPass2` of
+a family, which is not proved yet) -/
+#guard_msgs (whitespace := lax) in
+sv_cycle cg using cg_disj
+
+/-! ## 8. A generate loop from another start -/
 
 load_sv shift1D from "tests/cycle/designs/shift.sv" (top := "shift")
 
-/--
-error: sv_mirror: refused: generate loop `g_stage` does not start at 0 (only `for (g = 0; g < e; g++)` is covered)
--/
-#guard_msgs in
 sv_mirror s1 := shift1D (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+
+/-- The stages `k = 1, …, N - 1`, a `List.range' 1 (N - 1)` family. -/
+example (N W : Nat) : s1.procs N W = s1.p0 N W :: s1.p1 N W :: (List.range' 1 (N - 1)).map (s1.g_stage N W) := rfl
+
+/-- Stage `k` reads the window `(k - 1) * W` (decided from `1 ≤ k`, the loop's start). -/
+example (N W k : Nat) : s1.g_stage N W k = .alwaysFF "clk" (.ifStmt (.ident "rst")
+    (.nbaAssign (.slice "s" (k * W) W) (.lit (LVec.ofBitVec 0#W)))
+    (some (.nbaAssign (.slice "s" (k * W) W) ((Expr2.ident "s").slice ((k - 1) * W) W)))) := rfl
+
+/-- Stage `0` writes `s[0 +: W]`, the output register `q`, stage `1 + k` writes `s[(1 + k) * W +: W]`. -/
+theorem s1_disj (N W : Nat) : (s1.procs N W).Pairwise ProcDisj := by
+  simp only [s1.procs, List.range'_eq_map_range, List.map_map]
+  refine .cons (fun p hp => ?_) (.cons (fun p hp => ?_) (pairwise_map_range fun k k' h _ => ?_))
+  · rcases List.mem_cons.mp hp with rfl | hp
+    · exact ProcDisj.of_all (by simp [s1.p0, s1.p1, Process2.procWins, Stmt2.drvWins, Stmt2.drvWinsOpt,
+        Lhs2.drvWins, DrvWin.overlaps])
+    · obtain ⟨k, -, rfl⟩ := List.mem_map.mp hp
+      have : W ≤ (1 + k) * W := Nat.le_mul_of_pos_left W (by omega)
+      exact ProcDisj.of_all (by simp [s1.p0, s1.g_stage, Process2.procWins, Stmt2.drvWins, Stmt2.drvWinsOpt,
+        Lhs2.drvWins, DrvWin.overlaps] <;> omega)
+  · obtain ⟨k, -, rfl⟩ := List.mem_map.mp hp
+    exact ProcDisj.of_all (by simp [s1.p1, s1.g_stage, Process2.procWins, Stmt2.drvWins, Stmt2.drvWinsOpt,
+      Lhs2.drvWins, DrvWin.overlaps])
+  · have := Nat.mul_le_mul_right W (show 1 + k + 1 ≤ 1 + k' by omega)
+    rw [Nat.add_mul, Nat.one_mul] at this
+    exact ProcDisj.of_all (by simp [s1.g_stage, Process2.procWins, Stmt2.drvWins, Stmt2.drvWinsOpt,
+      Lhs2.drvWins, DrvWin.overlaps] <;> omega)
+
+sv_cycle s1 using s1_disj N W
+
+/-- info: 'SvGolf.Tests.Cycle.s1.cycle' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms s1.cycle
+
+/-! ## 9. A generate `if`: the branch the hypotheses decide, or both, each under its case -/
+
+load_sv genifD from "tests/cycle/designs/genif.sv" (top := "genif")
+
+sv_mirror gi := genifD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+
+/-- The condition is not decided: both branches, named after the module (`gen`), `_then` and `_else`. -/
+example (N W : Nat) : gi.procs N W = if N = 1 then [gi.gen_then N W] else [gi.gen_else N W] := rfl
+
+example (N W : Nat) : gi.gen_then N W = .alwaysFF "clk" (.nbaAssign (.ident "q") (.ident "d")) ∧
+    gi.gen_else N W = .alwaysFF "clk" (.nbaAssign (.ident "q") (.unary .bnot (.ident "d"))) := ⟨rfl, rfl⟩
+
+/-- info: 'SvGolf.Tests.Cycle.gi.instantiate' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms gi.instantiate
+
+/-- error: sv_cycle: refused: the process list of `SvGolf.Tests.Cycle.gi` branches on the condition of a generate
+`if` (`if … then … else …`, the condition not decided by the hypotheses): the clock step of a process list that
+branches is not covered; for a condition of the parameters alone, give the case as a hypothesis of `sv_mirror` (one
+mirror per case) -/
+#guard_msgs (whitespace := lax) in
+sv_cycle gi using gi_disj
+
+-- Under each case as a hypothesis, the branch taken, one mirror per case (the clock step of the first below).
+sv_mirror gi1 := genifD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (h : N = 1) (hN32 : N < 2147483648)
+  (hW32 : W < 2147483648)
+
+sv_mirror gi2 := genifD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (h : ¬ N = 1) (hN32 : N < 2147483648)
+  (hW32 : W < 2147483648)
+
+example (N W : Nat) : gi1.procs N W = [gi1.gen N W] ∧ gi2.procs N W = [gi2.gen N W] := ⟨rfl, rfl⟩
+
+sv_cycle gi1 using List.pairwise_singleton _ _
+
+/-- info: 'SvGolf.Tests.Cycle.gi1.cycle' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms gi1.cycle
+
+load_sv genifkD from "tests/cycle/designs/genifk.sv" (top := "genifk")
+
+sv_mirror gk := genifkD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+
+/-- A condition on the genvar: the `if` inside the family, each branch instantiated under its case (`k ≠ 0` decides
+the window `(k - 1) * W`). -/
+example (N W : Nat) : gk.procs N W =
+    (List.range N).flatMap fun k => if k = 0 then [gk.g_stage_then N W k] else [gk.g_stage_else N W k] := rfl
+
+example (N W k : Nat) : gk.g_stage_then N W k = .alwaysFF "clk" (.nbaAssign (.slice "s" 0 W) (.ident "d")) ∧
+    gk.g_stage_else N W k =
+      .alwaysFF "clk" (.nbaAssign (.slice "s" (k * W) W) ((Expr2.ident "s").slice ((k - 1) * W) W)) := ⟨rfl, rfl⟩
+
+/-- info: 'SvGolf.Tests.Cycle.gk.instantiate' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms gk.instantiate
+
+/-! ## 10. A process split at a loop's first value -/
+
+load_sv edgeD from "tests/cycle/designs/edge.sv" (top := "edge_split")
+
+/-- error: sv_mirror: cannot instantiate the process of generate block `g_stage`: the condition
+  1073741824 ≤ ↑W ∨ 1073741824 ≤ -↑W + ↑W - 1
+is neither proved nor refuted by `sv_disch`. If it is a window of a register family inside its vector, give a
+tactic that proves it with `sv_mirror X (window := by …) := …` (it runs on the condition, with the genvars and
+their bounds in scope).
+That is in the case
+  k = 0
+of the process: `sv_mirror` splits a process at a genvar's first or last value when a condition is decided in the
+other case. -/
+#guard_msgs (whitespace := lax) in
+sv_mirror ed0 := edgeD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+
+sv_mirror ed := edgeD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW10 : W < 1024)
+
+/-- At `k = 0` the `else` branch's window `-W` is outside `s` and reads `x`; at every other `k` it is `(k - 1) * W`. -/
+example (N W k : Nat) : ed.g_stage N W k = if k = 0 then
+      .alwaysFF "clk" (.ifStmt (.binary .eq (.lit (LVec.ofInt 32 0)) (.lit (LVec.ofInt 32 0)))
+        (.nbaAssign (.slice "s" 0 W) (.ident "d")) (some (.nbaAssign (.slice "s" 0 W) (.lit (LVec.xVec W)))))
+    else
+      .alwaysFF "clk" (.ifStmt (.binary .eq (.lit (LVec.ofInt 32 k)) (.lit (LVec.ofInt 32 0)))
+        (.nbaAssign (.slice "s" (k * W) W) (.ident "d"))
+        (some (.nbaAssign (.slice "s" (k * W) W) ((Expr2.ident "s").slice ((k - 1) * W) W)))) := rfl
+
+/-- info: 'SvGolf.Tests.Cycle.ed.instantiate' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms ed.instantiate
+
+/-- error: sv_cycle: refused: the process `ed.g_stage` is split at the first or last value of its genvar (`if … then
+… else …`: its instantiation differs there, a window that leaves its vector at one end of the loop): the run of a
+split process is not covered -/
+#guard_msgs (whitespace := lax) in
+sv_cycle ed using ed_disj
+
+/-! ## 11. Refusals: a shape the generator does not cover is an error that names it -/
 
 load_sv blockingD from "tests/cycle/designs/blocking.sv" (top := "blocking")
 

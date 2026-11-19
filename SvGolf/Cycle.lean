@@ -24,16 +24,29 @@ sv_cycle mm using mm_disj N W AccW
 * one definition per process: the module's processes `X.p0`, `X.p1`, … in source order and, per process inside
   a generate loop, `X.<label>` (the label of its innermost generate block) taking the genvars as `Nat`
   arguments (`X.static`, `X.gens` say so); `X.procs`, the process list, each generate loop a `List.range`
-  family, never unrolled; `X.D`, the design;
+  family (`List.range' S (M - S)` for a loop `for (g = s; g < e; g++)` from a constant `s` other than `0`),
+  never unrolled; `X.D`, the design. The processes are the `always_ff` processes and the comb processes
+  (`always_comb`, continuous assignments), at the module level and inside generate loops, any number of each;
 * `X.instantiate`: `instantiate2` at the surface fuel is `.ok (X.D …)`, under the hypotheses `hyps`.
 
 The instantiation is the library's own `instantiate2`, normalized by `simp` (the set every clocked proof uses),
 `unfold instExpr2` where its `resize` equation is out of `simp`'s reach, then the private helpers unfolded and the
 casts pulled out of the window offsets. A side condition it leaves (a part select inside its vector, a declared
 range not empty, a width comparison) is proved or refuted by `sv_disch` (positivity, `omega`, and `sv_window` for
-windows of products of parameters and genvars), added as a hypothesis, and the normalization runs again with it,
-so that `simp` decides it on the way. A condition neither proved nor refuted stops the command with the condition
-printed; the player gives a tactic for it with `sv_mirror X (window := by tac) := …`.
+windows of products of parameters and genvars) or, when it decides the condition neither way, by `sv_disch_ext`,
+added as a hypothesis, and the normalization runs again with it, so that `simp` decides it on the way. A condition neither proved nor refuted stops the command with the condition
+printed; the player gives a tactic for it with `sv_mirror X (window := by tac) := …`. One exception: a condition
+about a genvar that is decided at every value of the loop but its first (or its last) is a window that leaves its
+vector at that end of the loop (`b[(j-1)*W +: W]` in the `else` of an `if (j == 0)`, which the instantiation reads
+at `j = 0` too, as `x`): no tactic proves it, so the process is instantiated in each case, the case a hypothesis,
+and is `if j = 0 then … else …` (`instNormSplit`, `eq_ite_of_cases`).
+
+A **generate `if`** is evaluated as the library does (`evalGenGuard`, the condition at its own width): when the
+hypotheses decide its condition `P` (`sv_disch`, the window tactic), the mirror has the branch taken, as if the
+`if` were not there; otherwise the mirror keeps both, `if P then … else …` in the process list (in the family,
+for a condition on a genvar), each branch instantiated under its case, its processes named `X.<label>_then` and
+`X.<label>_else` (`<label>` the enclosing generate block's, `gen` at the module level: the library's generate
+`if` keeps no label of its own).
 
 **`sv_cycle X using h`**, `h : (X.procs params).Pairwise ProcDisj` (which process writes which window: the
 player's; `ProcDisj.of_all` decides one pair), defines and proves:
@@ -63,24 +76,27 @@ A `localparam` chosen by a comparison of the parameters is refused with the comp
 one of `hyps` (`(h : W < AccW)`, `(h : ¬ W < AccW)`, one `sv_mirror` per case) the parameter environment
 evaluates and the command proceeds.
 
-There is no `X.profile` (the design is not FF-only). Two comb processes, or one in a generate loop, are refused:
-their settle in every schedule order needs a lemma that every order of the passes reaches one fixpoint, not
-proved yet.
+There is no `X.profile` (the design is not FF-only). Two comb processes, or one in a generate loop, are refused by
+`sv_cycle` (the mirror covers them): their settle in every schedule order needs a lemma that every order of the
+passes reaches one fixpoint, not proved yet. So are a process list that branches on a generate `if` (a condition of
+the parameters alone can be given as a hypothesis of `sv_mirror` instead, one mirror per case) and a process split
+at a genvar's first or last value. These refusals come before the disjointness term is read.
 
 Nothing the commands produce is trusted: every definition and theorem is added to the environment through the
 kernel, and every proof is a proof term built by `simp`, `omega` and the library lemmas below, checked like
 hand-written Lean (no axiom, no `sorry`, no `native_decide`, no `bv_decide`); the player's terms (binders, window
 tactic, disjointness) are elaborated without error recovery, and one that contains `sorry` is refused. A command
-that stops adds nothing to the environment. A shape they do not cover is a refusal that names the construct (a
-second comb process or one in a generate loop, an asynchronous reset, a plain `always`, a blocking assignment in an
-`always_ff`, a nonblocking write to a dynamic index, two clocks, a process writing an input, an out-of-tier node,
-a procedural loop whose iterations depend on the parameters, a generate `if`, a generate loop other than
-`for (g = 0; g < e; g++)`, a loop bound that can be negative, a module instance, package parameters, a parameter
-environment that does not evaluate at symbolic parameters, a process whose run is not a success), never an
-approximation. The parameters are matched by position (a binder named after another parameter is refused), and
-a generate block labelled like a generated name gets the next free one. Options: `sv_cycle.verbose` (print every
-normal form, the time of each step and the rounds of each normalization), `sv_cycle.stageHeartbeats` (each
-stage's heartbeat budget).
+that stops adds nothing to the environment. A shape they do not cover is a refusal that names the construct (an
+asynchronous reset, a plain `always`, a blocking assignment in an `always_ff`, a nonblocking write to a dynamic
+index, two clocks, a process writing an input, an out-of-tier node, a procedural loop whose iterations depend on
+the parameters, a generate loop other than `for (g = s; g < e; g++)` with a constant start `s`, a loop bound or
+start that can be negative, a generate `if` whose condition does not evaluate at symbolic parameters, a
+declaration inside a generate block, a module instance, package parameters, a parameter environment that does not
+evaluate at symbolic parameters; and, at `sv_cycle`, the comb shapes above and a process whose run is not a
+success), never an approximation. The parameters are matched by position (a binder named after another parameter
+is refused), and a generate block labelled like a generated name gets the next free one. Options:
+`sv_cycle.verbose` (print every normal form, the time of each step and the rounds of each normalization),
+`sv_cycle.stageHeartbeats` (each stage's heartbeat budget).
 -/
 
 namespace SvGolf.Cycle
@@ -153,6 +169,27 @@ theorem natCast_mod_pow32 {n : Nat} (h : n < 2147483648) : (n : Int) % ((2 : Int
 
 theorem natCast_mod_4294967296 {n : Nat} (h : n < 2147483648) : (n : Int) % 4294967296 = n :=
   natCast_emod_4294967296 h
+
+/-- A parameter below `2^32` read as an unsigned 32-bit constant is itself (`convertConst 32 32 false`, the value of an
+`int` operand compared with an unsigned 32-bit one, IEEE 1800-2023 §11.8.2: a generate `if (N == 32'd2)`). -/
+theorem convertConst32u_natCast {n : Nat} (h : n < 4294967296) : convertConst 32 32 false (n : Int) = n := by
+  have he : (n : Int).emod ((2 : Int) ^ 32) = n :=
+    Int.emod_eq_of_lt (by omega) (by show (n : Int) < 4294967296; omega)
+  unfold convertConst canonInt
+  simp only [Bool.false_eq_true, ↓reduceIte, he, Bool.false_and]
+
+/-- Any value in the unsigned 32-bit range is its own unsigned 32-bit value (`canonInt 32 false`). -/
+theorem canonInt32u_of_range' {v : Int} (h0 : 0 ≤ v) (h1 : v < 4294967296) : canonInt 32 false v = v := by
+  have he : v.emod ((2 : Int) ^ 32) = v := Int.emod_eq_of_lt h0 (by show v < 4294967296; omega)
+  unfold canonInt
+  simp only [Bool.false_eq_true, ↓reduceIte, he, Bool.false_and]
+
+/-- The same read as an unsigned 32-bit constant (`convertConst 32 32 false`: a literal `32'd2`, a parameter
+compared with one). -/
+theorem convertConst32u_of_range' {v : Int} (h0 : 0 ≤ v) (h1 : v < 4294967296) : convertConst 32 32 false v = v := by
+  have he : v.emod ((2 : Int) ^ 32) = v := Int.emod_eq_of_lt h0 (by show v < 4294967296; omega)
+  unfold convertConst canonInt
+  simp only [Bool.false_eq_true, ↓reduceIte, he, Bool.false_and]
 
 /-- Any value in the signed 32-bit range is its own 32-bit value (a localparam computed from the parameters;
 `sv_mirror` discharges the range by `omega` from the player's hypotheses). -/
@@ -231,6 +268,75 @@ theorem ite_append_self {α : Type} (c : Prop) [Decidable c] (a b : List α) :
 theorem ite_self_append {α : Type} (c : Prop) [Decidable c] (a b : List α) :
     (if c then a else a ++ b) = a ++ (if c then [] else b) := by
   split <;> simp
+
+/-! ### Generate items beyond `for (g = 0; g < e; g++)` over processes
+
+The expansion steps of a loop from another start, of a generate `if`, and of a process whose instantiation differs
+at the first or last value of a genvar (`sv_mirror` keeps the cases as an `if`). -/
+
+/-- `(↑S + ↑k).toNat` is `S + k`. -/
+theorem toNat_natCast_add (S k : Nat) : ((S : Int) + (k : Int)).toNat = S + k := by omega
+
+/-- **A loop `for (g = s; g < e; g++)` from a start `s` whose value is `S`** (`for (genvar d = 1; d < N; d++)`)
+over any body whose expansion at `g = v` (`S ≤ v < M`) is `f v`: the family over `List.range' S (M - S)`. -/
+theorem GenItem.expand2_rangeFrom_flatMap {env : IEnv} {elems : List (String × Nat)} {F : Nat}
+    {label : Option String} {g : String} {initE e : PExpr} {rc : Option Nat} {body : List GenItem}
+    {S M : Nat} {f : Nat → List Process2}
+    (hi : evalInt env initE = .ok (S : Int))
+    (hei : ∀ i : Int, e.isInt (env.bindVal g i) = true)
+    (he : ∀ i : Int, evalInt (env.bindVal g i) e = .ok (M : Int)) (hF : M < F)
+    (hf : ∀ v, S ≤ v → v < M → expandList2 (env.bindVal g v) elems F body = .ok (f v)) :
+    (GenItem.genFor label g initE (.binary .slt (.genvarRef g) e) (.unary .inc (.genvarRef g)) rc body).expand2
+      env elems F = .ok ((List.range' S (M - S)).flatMap f) := by
+  rw [LeanModels.Sv.GenItem.expand2_genFor_ascending_flatMap (N := (M : Int)) (f := fun v => f v.toNat)
+    hi hei he (by omega) (fun v h0 hv => by
+      have h0' : (0 : Int) ≤ v := by omega
+      have := hf v.toNat (by omega) (by omega)
+      rwa [Int.toNat_of_nonneg h0'] at this)]
+  have hn : ((M : Int) - (S : Int)).toNat = M - S := by omega
+  simp only [hn, intRange_eq_map, List.flatMap_map, List.range'_eq_map_range, toNat_natCast_add]
+
+/-- A generate `if`'s condition `P` (its value `v ≠ 0`, normalized) gives `v ≠ 0`. -/
+theorem guard_ne_of {v : Int} {P : Prop} (hP : (v ≠ 0) = P) (h : P) : v ≠ 0 := by rw [hP]; exact h
+
+/-- Its negation gives `v = 0`. -/
+theorem guard_eq_of {v : Int} {P : Prop} (hP : (v ≠ 0) = P) (h : ¬ P) : v = 0 :=
+  Classical.byContradiction fun hv => h (by rw [← hP]; exact hv)
+
+/-- A generate `if` whose condition's value `v` is not zero: its `then` items. -/
+theorem GenItem.expand2_genIf_pos {env : IEnv} {elems : List (String × Nat)} {F : Nat} {cond : PExpr}
+    {thenB elseB : List GenItem} {v : Int} {ps : List Process2}
+    (hg : evalGenGuard env cond = .ok v) (hv : v ≠ 0) (ht : expandList2 env elems F thenB = .ok ps) :
+    (GenItem.genIf cond thenB elseB).expand2 env elems F = .ok ps := by
+  rw [GenItem.expand2_genIf_of_ne hg hv, ht]
+
+/-- A generate `if` whose condition's value is zero: its `else` items (none when there is no `else`). -/
+theorem GenItem.expand2_genIf_neg {env : IEnv} {elems : List (String × Nat)} {F : Nat} {cond : PExpr}
+    {thenB elseB : List GenItem} {v : Int} {qs : List Process2}
+    (hg : evalGenGuard env cond = .ok v) (hv : v = 0) (he : expandList2 env elems F elseB = .ok qs) :
+    (GenItem.genIf cond thenB elseB).expand2 env elems F = .ok qs := by
+  rw [hv] at hg
+  rw [GenItem.expand2_genIf_of_eq hg, he]
+
+/-- **A generate `if` whose condition the hypotheses do not decide**: `P` is its condition (`v ≠ 0`, normalized),
+the family is `if P then ps else qs`, each branch expanded under its case. -/
+theorem GenItem.expand2_genIf_ite {env : IEnv} {elems : List (String × Nat)} {F : Nat} {cond : PExpr}
+    {thenB elseB : List GenItem} {v : Int} {P : Prop} [Decidable P] {ps qs : List Process2}
+    (hg : evalGenGuard env cond = .ok v) (hP : (v ≠ 0) = P)
+    (ht : P → expandList2 env elems F thenB = .ok ps) (he : ¬ P → expandList2 env elems F elseB = .ok qs) :
+    (GenItem.genIf cond thenB elseB).expand2 env elems F = .ok (if P then ps else qs) := by
+  by_cases h : P
+  · simp only [h, ↓reduceIte]
+    exact GenItem.expand2_genIf_pos hg (guard_ne_of hP h) (ht h)
+  · simp only [h, ↓reduceIte]
+    exact GenItem.expand2_genIf_neg hg (guard_eq_of hP h) (he h)
+
+/-- An equation proved in each case of `P` (an instantiation split at the first or last value of a genvar). -/
+theorem eq_ite_of_cases {α : Sort _} {P : Prop} [Decidable P] {a b c : α} (h1 : P → a = b) (h2 : ¬ P → a = c) :
+    a = if P then b else c := by
+  by_cases h : P
+  · simp only [h, ↓reduceIte]; exact h1 h
+  · simp only [h, ↓reduceIte]; exact h2 h
 
 /-! ### Two `evalExpr2` cases whose `match` returns a success on every branch
 
@@ -780,6 +886,30 @@ theorem min_sub_one_zero {w : Int} (h : 0 < w) : min (w - 1) 0 = 0 := by omega
 /-- `↑n - 1` of a positive `n`, as a cast (the bound `N - 1` of a generate loop, a window `(N - 1) * W`). -/
 theorem natCast_sub_one {n : Nat} (h : 1 ≤ n) : (n : Int) - 1 = ((n - 1 : Nat) : Int) := by omega
 
+/-- `↑a - ↑b` of `b ≤ a` as a cast (a window `(j * N + j - 1) * W`, the casts pulled out of `j * N + j` and `1`). -/
+theorem natCast_sub_cast {a b : Nat} (h : b ≤ a) : (a : Int) - (b : Int) = ((a - b : Nat) : Int) := by omega
+
+/-- A factor at least `1` bounds the product from below (`sv_prod`'s facts). -/
+theorem int_le_mul_of_one_le_right {a b : Int} (ha : 0 ≤ a) (hb : 1 ≤ b) : a ≤ a * b := by
+  have := Int.mul_le_mul_of_nonneg_left hb ha
+  simpa using this
+
+/-- The same, the factor on the left. -/
+theorem int_le_mul_of_one_le_left {a b : Int} (hb : 0 ≤ b) (ha : 1 ≤ a) : b ≤ a * b := by
+  have := Int.mul_le_mul_of_nonneg_right ha hb
+  simpa using this
+
+/-- A factor at least `1` bounds the product of a nonpositive one from above (a window before row 0,
+`(↑j - ↑N) * ↑W`). -/
+theorem int_mul_le_of_nonpos_right {a b : Int} (ha : a ≤ 0) (hb : 1 ≤ b) : a * b ≤ a := by
+  have := Int.mul_le_mul_of_nonpos_left ha hb
+  simpa using this
+
+/-- The same, the factor on the left. -/
+theorem int_mul_le_of_nonpos_left {a b : Int} (hb : b ≤ 0) (ha : 1 ≤ a) : a * b ≤ b := by
+  have := Int.mul_le_mul_of_nonpos_right ha hb
+  simpa using this
+
 /-- `↑n + 1` as a cast (a window `(k + 1) * W`). -/
 theorem natCast_add_one' (n : Nat) : (n : Int) + 1 = ((n + 1 : Nat) : Int) := by omega
 
@@ -815,6 +945,15 @@ macro_rules
       | (with_reducible apply Int.add_pos_of_pos_of_nonneg) <;> sv_pos_core
       | (with_reducible apply SvGolf.Cycle.one_le_of_pos) <;> sv_pos_core)
 
+/-- `sv_pos_core`, and a negated positive (`-(↑N * ↑W) < 0`) and a positive cast (`0 < ↑(N * W)`) (`sv_disch_ext`'s,
+`sv_prod`'s). -/
+syntax "sv_pos_ext_core" : tactic
+macro_rules
+  | `(tactic| sv_pos_ext_core) => `(tactic| first
+      | sv_pos_core
+      | (with_reducible apply Int.neg_neg_of_pos) <;> sv_pos_ext_core
+      | (with_reducible apply Int.natCast_pos.mpr) <;> sv_pos_ext_core)
+
 /-- Positivity of the parameters' products and the non-negativity of cast terms (no `Mathlib`). -/
 elab "sv_pos" : tactic => do
   Lean.Elab.Tactic.withoutRecover <| Lean.Elab.Tactic.evalTactic (← `(tactic| sv_pos_core))
@@ -835,6 +974,18 @@ partial def natPoly (e : Lean.Expr) : MetaM (List (Nat × List Lean.Expr)) := do
       | .lit (.natVal k) => return [(k, [])]
       | _ => return [(1, [e])]
   | _ => return [(1, [e])]
+
+/-- `natPoly`, and for every difference `a - b` also the monomials of `a` and of `b` (the left side's atoms to bump:
+`(j*N + j - 1)*W`, read at its bounds monomial by monomial once `sv_window`'s normalization distributes it). -/
+partial def natPolySub (e : Lean.Expr) : MetaM (List (Nat × List Lean.Expr)) := do
+  match_expr e with
+  | HAdd.hAdd _ _ _ _ a b => return (← natPolySub a) ++ (← natPolySub b)
+  | HMul.hMul _ _ _ _ a b =>
+      let pa ← natPolySub a
+      let pb ← natPolySub b
+      return pa.flatMap fun (ca, xa) => pb.map fun (cb, xb) => (ca * cb, xa ++ xb)
+  | HSub.hSub _ _ _ _ a b => return (1, [e]) :: ((← natPolySub a) ++ (← natPolySub b))
+  | _ => natPoly e
 
 /-- The product of `xs` (`1` for none). -/
 def natProd (xs : List Lean.Expr) : MetaM Lean.Expr :=
@@ -860,7 +1011,7 @@ products of parameters and genvars. Each genvar (or other atom, `N - 1` included
 left side is replaced by its bounds (`a + c ≤ P`, `c` the largest of 2, 1 and 0 that `omega` proves, for every
 variable `P` and every right side `P` of a hypothesis `a < P` or `a ≤ P`), and each parameter factor of a monomial of the right side is dropped (`X ≤ P * X` from
 `1 ≤ P`), each step a `Nat.mul_le_mul_right` fact; then `omega` closes the linear combination. -/
-elab "sv_window" : tactic => withMainContext do
+def svWindow (ext : Bool) : TacticM Unit := withMainContext do
   let g ← getMainGoal
   let ty ← instantiateMVars (← g.getType)
   let (L, R, strict) ← match_expr ty with
@@ -900,35 +1051,54 @@ elab "sv_window" : tactic => withMainContext do
     | HSub.hSub _ _ _ _ x y => [t, x, y]
     | _ => [t]
   let hypBounds := ((bounds.map (·.2)).toList.flatMap subParts).eraseDups.toArray
-  for (_, atoms) in ← natPoly L do
+  -- (each bound `a + c ≤ P` is decided once, for every monomial it bumps)
+  let mut bumps : Array ((Lean.Expr × Lean.Expr) × Option Lean.Expr) := #[]
+  for (_, atoms) in ← (if ext then natPolySub L else natPoly L) do
     for a in atoms.eraseDups do
       for P in vars ++ hypBounds do
         if P == a then continue
-        let mut found := false
-        for c in [2, 1, 0] do
-          if found then break
-          let hbTy ← mkAppM ``LE.le #[← mkAppM ``HAdd.hAdd #[a, mkNatLit c], P]
-          if let some hb ← omegaProof? hbTy then
-            let X ← natProd (removeOne a atoms)
-            facts := facts.push (← mkAppM ``Nat.mul_le_mul_right #[X, hb])
-            found := true
-  -- insertion: drop a parameter factor of a monomial of `R`, twice
+        let hb? ← match bumps.find? (·.1 == (a, P)) with
+          | some (_, r) => pure r
+          | none => do
+            let mut r : Option Lean.Expr := none
+            for c in [2, 1, 0] do
+              if r.isSome then break
+              let hbTy ← mkAppM ``LE.le #[← mkAppM ``HAdd.hAdd #[a, mkNatLit c], P]
+              r ← omegaProof? hbTy
+            bumps := bumps.push ((a, P), r)
+            pure r
+        if let some hb := hb? then
+          let X ← natProd (removeOne a atoms)
+          facts := facts.push (← mkAppM ``Nat.mul_le_mul_right #[X, hb])
+  -- insertion: drop a parameter factor of a monomial of `R`, twice (`ext`: or once fewer than its most factors, the
+  -- window `(i*N + j)*N*W + W ≤ N*N*N*W` of a three-genvar family needs `W ≤ N*W`, three drops from `N*N*N*W`)
   let mut frontier : List (List Lean.Expr) := (← natPoly R).map (·.2)
-  for _ in [0:2] do
+  let rounds := if ext then max 2 ((frontier.map List.length).foldl max 0 - 1) else 2
+  let mut ones : Array (Lean.Expr × Option Lean.Expr) := #[]
+  for _ in [0:rounds] do
     let mut next : List (List Lean.Expr) := []
     for atoms in frontier do
       for P in atoms.eraseDups do
-        let h1Ty ← mkAppM ``LE.le #[one, P]
-        if let some h1 ← omegaProof? h1Ty then
+        let h1? ← match ones.find? (·.1 == P) with
+          | some (_, r) => pure r
+          | none => do
+            let r ← omegaProof? (← mkAppM ``LE.le #[one, P])
+            ones := ones.push (P, r)
+            pure r
+        if let some h1 := h1? then
           let rest := removeOne P atoms
           let X ← natProd rest
           facts := facts.push (← mkAppM ``Nat.mul_le_mul_right #[X, h1])
           next := rest :: next
     frontier := next
-  -- add the facts, normalize products, `omega`
+  -- add the facts (each statement once), normalize products, `omega`
   let mut g := g
+  let mut seenTys : Array Lean.Expr := #[]
   for f in facts do
-    let (_, g') ← (← g.assert `hw (← inferType f) f).intro1P
+    let ty ← inferType f
+    if seenTys.contains ty then continue
+    seenTys := seenTys.push ty
+    let (_, g') ← (← g.assert `hw ty f).intro1P
     g := g'
   replaceMainGoal [g]
   -- (`Nat.mul_two`: a bump by 2 leaves the numeral inside a product, `N * (W * 2)`, which `omega` reads as an
@@ -940,6 +1110,118 @@ elab "sv_window" : tactic => withMainContext do
   withoutRecover <| evalTactic (← `(tactic| (simp only [Nat.mul_add, Nat.add_mul, Nat.sub_mul, Nat.mul_sub,
     Nat.mul_assoc, Nat.mul_comm, Nat.mul_left_comm, Nat.one_mul, Nat.mul_one, Nat.mul_two, Nat.two_mul] at *) <;>
     (try simp only [SvGolf.Cycle.mul_ofNat_comm, SvGolf.Cycle.mul_ofNat_left] at *) <;> omega))
+
+/-- `sv_window` (`svWindow`). -/
+elab "sv_window" : tactic => svWindow false
+
+/-- `sv_window`, also reading the parts of a difference on the left (`(j*N + j - 1)*W`: the monomials of `j*N + j`
+bumped) and dropping a factor once fewer than the right side's most factors (`sv_disch_ext`'s). -/
+elab "sv_window_ext" : tactic => svWindow true
+
+/-- Prove `ty` by `tac` (error recovery off), or `none`. -/
+def tacProof? (ty : Lean.Expr) (tac : TSyntax ``Lean.Parser.Tactic.tacticSeq) : TacticM (Option Lean.Expr) := do
+  let mv ← mkFreshExprMVar ty
+  try
+    let gs ← Tactic.run mv.mvarId! (Tactic.withoutRecover (Tactic.evalTactic tac))
+    if gs.isEmpty then return some (← instantiateMVars mv) else return none
+  catch _ => return none
+
+/-- `sv_prod`: linear arithmetic over the products of the goal (`Int`, a window read at an offset such as
+`-(↑N * ↑W)` or `(↑j - ↑N) * ↑W`, compared with `max`, `min`, `natAbs`): for every product `x * y` the facts its
+factors' signs give (`x ≤ x * y` from `0 ≤ x` and `1 ≤ y`, `x * y ≤ x` from `x ≤ 0` and `1 ≤ y`, and the same with
+the factors swapped; each sign by `omega` or `sv_pos`), then `omega`, which reads each product as an atom. -/
+elab "sv_prod" : tactic => withMainContext do
+  let g ← getMainGoal
+  let ty ← instantiateMVars (← g.getType)
+  let isIntMul (t : Lean.Expr) : Bool := t.isAppOfArity ``HMul.hMul 6 && (t.getArg! 0).isConstOf ``Int &&
+    (t.getArg! 1).isConstOf ``Int && (t.getArg! 2).isConstOf ``Int
+  let disch ← `(Lean.Parser.Tactic.tacticSeq| first | omega | sv_pos_ext_core)
+  -- the numerals of the hypotheses, as candidate bounds: `k - 1` above and `-(k - 1)` below, and `0`, `±1`
+  let nums : Array Nat := (← getLCtx).foldl (init := #[]) fun acc d =>
+    if d.isImplementationDetail then acc else
+      let found := Id.run do
+        let mut out : Array Nat := #[]
+        let mut todo : Array Lean.Expr := #[d.type]
+        while !todo.isEmpty do
+          let t := todo.back!
+          todo := todo.pop
+          match t.nat? <|> (t.int?.bind fun i => if 0 ≤ i then some i.toNat else none) with
+          | some k => if 2 ≤ k && !out.contains k then out := out.push k
+          | none =>
+            match t with
+            | .app f a => todo := (todo.push a).push f
+            | _ => pure ()
+        return out
+      found.foldl (fun a k => if a.contains k then a else a.push k) acc
+  let sorted := nums.qsort (· < ·)
+  let highs : Array Int := #[-1, 0] ++ sorted.map fun k => ((k - 1 : Nat) : Int)
+  let lows : Array Int := #[1, 0] ++ sorted.map fun k => -((k - 1 : Nat) : Int)
+  -- every statement proved (or not) once
+  let cache ← IO.mkRef (#[] : Array (Lean.Expr × Option Lean.Expr))
+  let omegaT ← `(Lean.Parser.Tactic.tacticSeq| omega)
+  let prove? (ty : Lean.Expr) (tac : TSyntax ``Lean.Parser.Tactic.tacticSeq) : TacticM (Option Lean.Expr) := do
+    if let some (_, r) := (← cache.get).find? (·.1 == ty) then return r
+    let r ← tacProof? ty tac
+    cache.modify (·.push (ty, r))
+    return r
+  -- the first candidate `k` for which `mk k` is proved
+  let firstBound (mk : Int → MetaM Lean.Expr) (cands : Array Int) : TacticM (Option Lean.Expr) := do
+    for k in cands do
+      if let some h ← prove? (← mk k) omegaT then return some h
+    return none
+  let mut facts : Array Lean.Expr := #[]
+  let prods : Array Lean.Expr := Id.run do
+    let mut acc : Array Lean.Expr := #[]
+    let mut todo : Array Lean.Expr := #[ty]
+    while !todo.isEmpty do
+      let t := todo.back!
+      todo := todo.pop
+      if isIntMul t && !acc.contains t then acc := acc.push t
+      match t with
+      | .app f a => todo := (todo.push a).push f
+      | .mdata _ b | .proj _ _ b => todo := todo.push b
+      | _ => pure ()
+    return acc
+  let zero := toExpr (0 : Int)
+  let one := toExpr (1 : Int)
+  for p in prods do
+    let x := p.getArg! 4
+    let y := p.getArg! 5
+    let x0 ← prove? (← mkAppM ``LE.le #[zero, x]) disch
+    let y0 ← prove? (← mkAppM ``LE.le #[zero, y]) disch
+    let x1 ← prove? (← mkAppM ``LE.le #[one, x]) disch
+    let y1 ← prove? (← mkAppM ``LE.le #[one, y]) disch
+    if let (some hx, some hy) := (x0, y1) then
+      facts := facts.push (← mkAppM ``SvGolf.Cycle.int_le_mul_of_one_le_right #[hx, hy])
+    if let (some hy, some hx) := (y0, x1) then
+      facts := facts.push (← mkAppM ``SvGolf.Cycle.int_le_mul_of_one_le_left #[hy, hx])
+    -- each factor between numeric bounds (the hypotheses' numerals, `N < 32`: `-31 ≤ ↑j - ↑N`), times the other's
+    -- nonnegative value: `-31 * ↑W ≤ (↑j - ↑N) * ↑W`, linear in `↑W` (the library's far-outside test on a window
+    -- before row 0)
+    if let some hy := y0 then
+      if let some hlo ← firstBound (fun k => do mkAppM ``LE.le #[toExpr k, x]) lows then
+        facts := facts.push (← mkAppM ``Int.mul_le_mul_of_nonneg_right #[hlo, hy])
+      if let some hhi ← firstBound (fun k => do mkAppM ``LE.le #[x, toExpr k]) highs then
+        facts := facts.push (← mkAppM ``Int.mul_le_mul_of_nonneg_right #[hhi, hy])
+    if let some hx := x0 then
+      if let some hlo ← firstBound (fun k => do mkAppM ``LE.le #[toExpr k, y]) lows then
+        facts := facts.push (← mkAppM ``Int.mul_le_mul_of_nonneg_left #[hlo, hx])
+      if let some hhi ← firstBound (fun k => do mkAppM ``LE.le #[y, toExpr k]) highs then
+        facts := facts.push (← mkAppM ``Int.mul_le_mul_of_nonneg_left #[hhi, hx])
+    -- a nonpositive factor (an offset before row 0): the product is at most it
+    if let some hy := y1 then
+      if let some hx ← prove? (← mkAppM ``LE.le #[x, zero]) disch then
+        facts := facts.push (← mkAppM ``SvGolf.Cycle.int_mul_le_of_nonpos_right #[hx, hy])
+    if let some hx := x1 then
+      if let some hy ← prove? (← mkAppM ``LE.le #[y, zero]) disch then
+        facts := facts.push (← mkAppM ``SvGolf.Cycle.int_mul_le_of_nonpos_left #[hy, hx])
+  if facts.isEmpty then throwError "sv_prod: no product with known signs"
+  let mut g := g
+  for f in facts do
+    let (_, g') ← (← g.assert `hp (← inferType f) f).intro1P
+    g := g'
+  replaceMainGoal [g]
+  withoutRecover <| evalTactic (← `(tactic| omega))
 
 end window
 
@@ -969,6 +1251,58 @@ positivity, a conjunction of these, or a window once the casts are pulled out of
 (`sv_window`). Error recovery is off: a branch that fails is never admitted. -/
 elab "sv_disch" : tactic => do
   Lean.Elab.Tactic.withoutRecover <| Lean.Elab.Tactic.evalTactic (← `(tactic| sv_disch_core))
+
+/-- `sv_disch_ext`'s steps: `sv_disch`'s, each recursing into these, then the shapes `sv_disch` leaves. -/
+syntax "sv_disch_ext_core" : tactic
+macro_rules
+  | `(tactic| sv_disch_ext_core) => `(tactic| first
+      | sv_disch_core
+      | sv_pos_ext_core
+      | (refine ⟨?_, ?_⟩ <;> sv_disch_ext_core)
+      | (with_reducible apply not_and_of_not_left) <;> sv_disch_ext_core
+      | (with_reducible apply not_and_of_not_right) <;> sv_disch_ext_core
+      -- a negated disjunction, each side (the library's far-outside test, `lo ≤ -2^30 ∨ 2^30 ≤ hi`, refuted)
+      | (refine not_or.mpr ⟨?_, ?_⟩ <;> sv_disch_ext_core)
+      -- `sv_disch`'s window, the difference's parts bumped too (`sv_window_ext`)
+      | ((try simp (disch := sv_pos_core) only [SvGolf.Cycle.natCast_sub_one,
+            SvGolf.Cycle.natAbs_cast_sub_one_add_one, SvGolf.Cycle.natAbs_sub_one_add_one', Int.natAbs_mul,
+            Int.natAbs_natCast, Int.natCast_add, Int.natCast_mul])
+         (try simp only [Int.sub_one_lt_iff])
+         (try simp only [← Int.natCast_one, SvGolf.Cycle.int_ofNat_eq_cast, ← Int.natCast_mul, ← Int.natCast_add,
+            Int.ofNat_le, Int.ofNat_lt])
+         sv_window_ext)
+      -- a difference inside a product, once the casts are pulled out (`(↑j * ↑N + ↑j - 1) * ↑W`, the window of row
+      -- `j - 1`, is `(↑(j * N + j) - ↑1) * ↑W`): `↑(a - b)` where `b ≤ a` (`omega`, or `sv_window` for a product),
+      -- then as above
+      | ((try simp (disch := sv_pos_core) only [SvGolf.Cycle.natCast_sub_one,
+            SvGolf.Cycle.natAbs_cast_sub_one_add_one, SvGolf.Cycle.natAbs_sub_one_add_one', Int.natAbs_mul,
+            Int.natAbs_natCast, Int.natCast_add, Int.natCast_mul])
+         (try simp only [Int.sub_one_lt_iff])
+         (try simp only [← Int.natCast_one, SvGolf.Cycle.int_ofNat_eq_cast, ← Int.natCast_mul, ← Int.natCast_add])
+         (simp (disch := first | omega | sv_window) only [SvGolf.Cycle.natCast_sub_cast])
+         (try simp only [← Int.natCast_mul, ← Int.natCast_add, Int.ofNat_le, Int.ofNat_lt, Int.natCast_nonneg])
+         first | omega | sv_window_ext)
+      -- a negated comparison as the comparison it is: `¬ N * N * W < W` (a width test, refuted) is `W ≤ N * N * W`
+      | ((simp only [Nat.not_lt, Nat.not_le, Int.not_lt, Int.not_le, Int.neg_lt_neg_iff, Int.neg_le_neg_iff]) <;>
+          sv_disch_ext_core)
+      -- a negated product as the negation of the product (`-↑N * ↑W`: a window at offset `-N*W`, the row before row 0,
+      -- read in the case `i = 0` of a split), whose sign `sv_pos` reads
+      | ((simp only [Int.neg_mul, Int.mul_neg]) <;> sv_disch_ext_core)
+      -- products associated to the right: `2 * ↑N * ↑W` is `2 * (↑N * ↑W)`, linear in the atom `↑N * ↑W` (a
+      -- concatenation's width against its context's, `max (2 * ↑N * ↑W).toNat … = …`)
+      | ((simp only [Int.mul_assoc, Nat.mul_assoc]) <;> omega)
+      -- linear arithmetic over the products of the goal, with the bounds their factors give
+      | sv_prod)
+
+/-- **The side conditions `sv_disch` decides neither way** (`proveCond` tries it on a condition and on its
+negation first, with the player's window tactic, and this only when all of them fail): `sv_disch`'s steps
+recursing into these, and after them a negated disjunction, a window with a difference inside a product
+(`(↑j * ↑N + ↑j - 1) * ↑W`, row `j - 1`) or with more factors (`sv_window_ext`), a negated comparison (a width test
+refuted, `¬ N * N * W < W`), a negated product, products associated to the right, and linear arithmetic over
+products with the bounds their factors give (`sv_prod`: the offsets of a window read before row 0, in the case
+`i = 0` of a split). A condition `sv_disch` decides is decided as before. Error recovery is off. -/
+elab "sv_disch_ext" : tactic => do
+  Lean.Elab.Tactic.withoutRecover <| Lean.Elab.Tactic.evalTactic (← `(tactic| sv_disch_ext_core))
 
 /-! ## 3. The generator -/
 
@@ -1385,9 +1719,11 @@ def instConv (c : Ctx) (extra : Array Name) : TermElabM (TSyntax ``Lean.Parser.T
         PDim.width, ctxOpWidth2, rigidMax2, PExpr.constLeaf, PExpr.negGenvarWidened, LVec.width,
         divOperandWidth2, instDivOperand2, instDivParts2, fitDivOperand2, IEnv.withDecls, $ex,*, *])
 
-/-- Prove a side condition `c` of an instantiation with `sv_disch` (then the player's window tactic). -/
-def proveCond (c : Ctx) (cond : Lean.Expr) : TermElabM (Option Lean.Expr) := withStage do
-  let disch : TSyntax ``Lean.Parser.Tactic.tacticSeq ← match c.window? with
+/-- Prove a side condition `c` of an instantiation with `sv_disch` (then the player's window tactic); with `ext`,
+with `sv_disch_ext`. -/
+def proveCond (c : Ctx) (cond : Lean.Expr) (ext : Bool := false) : TermElabM (Option Lean.Expr) := withStage do
+  let disch : TSyntax ``Lean.Parser.Tactic.tacticSeq ← if ext then `(Lean.Parser.Tactic.tacticSeq| sv_disch_ext)
+    else match c.window? with
     | some w => `(Lean.Parser.Tactic.tacticSeq| first | sv_disch | ($w))
     | none => `(Lean.Parser.Tactic.tacticSeq| sv_disch)
   let mv ← mkFreshExprSyntheticOpaqueMVar cond
@@ -1399,6 +1735,20 @@ def proveCond (c : Ctx) (cond : Lean.Expr) : TermElabM (Option Lean.Expr) := wit
       return some pf
     else return none
   catch _ => return none
+
+/-- Decide a side condition: `some (true, proof)` or `some (false, proof of its negation)`, by `sv_disch` and the
+player's window tactic on the condition, then on its negation, as always; with `ext`, by `sv_disch_ext` (only on
+the conditions `sv_disch` decides neither way: a condition `sv_disch` decides is decided as it always was, at the
+same cost). -/
+def decideCond (c : Ctx) (cond : Lean.Expr) (ext : Bool) : TermElabM (Option (Bool × Lean.Expr)) := do
+  if let some pf ← proveCond c cond ext then return some (true, pf)
+  if let some pf ← proveCond c (mkNot cond) ext then return some (false, pf)
+  return none
+
+/-- `decideCond` without, then with, `sv_disch_ext`. -/
+def decideCond2 (c : Ctx) (cond : Lean.Expr) : TermElabM (Option (Bool × Lean.Expr)) := do
+  if let some r ← decideCond c cond false then return some r
+  decideCond c cond true
 
 /-- Run `k` with the facts `facts` (types) as local hypotheses. -/
 partial def withFacts {α : Type} (facts : List Lean.Expr) (k : Array Lean.Expr → TermElabM α) : TermElabM α :=
@@ -1560,7 +1910,8 @@ a decided condition that mentions only the parameters joins `c.known`, the facts
 the command starts with. A condition that is neither proved nor refuted while another of its round is decided
 waits for the next round, where the decided one may have removed it. The private helpers of the instantiation
 (`intLit2`, …) are unfolded at the end. -/
-def instNorm (c : Ctx) (what : String) (lhs : Lean.Expr) (extra : Array Name) : TermElabM (Lean.Expr × Lean.Expr) := do
+def instNormE (c : Ctx) (what : String) (lhs : Lean.Expr) (extra : Array Name) (fromNormal : Bool := false) :
+    TermElabM (Except (Lean.Expr × Lean.Expr × Lean.Expr) (Lean.Expr × Lean.Expr)) := do
   verbose m!"sv_mirror: instantiating {what}"
   let t0 ← IO.monoMsNow
   let mut tCond := 0
@@ -1595,7 +1946,7 @@ def instNorm (c : Ctx) (what : String) (lhs : Lean.Expr) (extra : Array Name) : 
         | some (r, pAbs) => pure (r, mkAppN pAbs (hs.extract 0 curK'))
       let some (r0, p0) ← (do match ← step main start with
           | some x => pure (some x)
-          | none => if cur'.isNone then pure none else pure (some (start, ← mkEqRefl start)))
+          | none => if cur'.isNone && !fromNormal then pure none else pure (some (start, ← mkEqRefl start)))
         | return NormRound.stuck start m!"the instantiation `simp` made no progress"
       let mut r := r0
       let mut p ← mkEqTrans pStart p0
@@ -1628,7 +1979,9 @@ def instNorm (c : Ctx) (what : String) (lhs : Lean.Expr) (extra : Array Name) : 
           (← `(Lean.Parser.Tactic.tacticSeq| simp (config := { decide := true }) [Stmt2.combAdmits,
             Stmt2.combViol, Stmt2.listCombViol, Stmt2.mayW, Stmt2.listMayW, Stmt2.mustW, Lhs2.mayW, Lhs2.mustW,
             Lhs2.rdW, Expr2.rdW, CombGuard.readsViol, CombGuard.whole, CombGuard.BWin.inter, CombGuard.BWin.sub,
-            CombGuard.BWin.subAll, List.lookup])) (detail := false)
+            CombGuard.BWin.subAll, CombGuard.sliceRd, CombGuard.interL, Expr2.listRdW, Lhs2.listRdW, Lhs2.listMayW,
+            Stmt2.optMayW, Stmt2.optCombViol, CaseItem2.mayW, CaseItem2.listMayW, Stmt2.optMustW, Stmt2.listMustW,
+            CaseItem2.mustW, CaseItem2.listMustW, CaseItem2.listCombViol, List.lookup, *])) (detail := false)
         let eqPf ← mkAppM ``combGuardProc_of_admits #[admPf]
         let (r2, p2) ← convNorm r (← `(Lean.Parser.Tactic.Conv.convSeq|
           simp only [$(← exprToSyntax eqPf):term]))
@@ -1667,7 +2020,7 @@ def instNorm (c : Ctx) (what : String) (lhs : Lean.Expr) (extra : Array Name) : 
     | .done r pf =>
         verbose m!"sv_mirror: {what} ({rounds} round(s), {(← IO.monoMsNow) - t0} ms, of which {tCond} ms \
           deciding {facts.size - (← c.known.get).size} local condition(s)):{indentExpr r}"
-        return (r, mkAppN pf (facts.map (·.2)))
+        return .ok (r, mkAppN pf (facts.map (·.2)))
     | .stuck r why =>
         throwError "sv_mirror: cannot instantiate {what}: {why}\nIf it is a window of a register family, \
           give a tactic that proves it with `sv_mirror X (window := by …) := …` (run on every side condition left, \
@@ -1678,40 +2031,58 @@ def instNorm (c : Ctx) (what : String) (lhs : Lean.Expr) (extra : Array Name) : 
         curK := facts.size
         let tc0 ← IO.monoMsNow
         let mut added := 0
-        let mut undecided : Option Lean.Expr := none
+        let mut undecided : Array Lean.Expr := #[]
         let mut seen : Option Lean.Expr := none
-        for cond in conds do
-          let ncond := mkNot cond
-          let scond := match cond.eq? with
-            | some (ty, a, b) => mkApp3 cond.getAppFn ty b a
-            | none => cond
-          if facts.any (fun f => f.1 == cond || f.1 == ncond || f.1 == scond) then
-            seen := seen <|> some cond
-            continue
-          if let some pf ← proveCond c cond then
-            verbose m!"sv_mirror: {what}: decided{indentExpr cond}"
-            let (cond', pf') ← orientFact cond pf
-            facts := facts.push (cond', pf')
-            if global cond && global (← instantiateMVars pf) then c.known.modify (·.push (cond', pf'))
-            added := added + 1
-          else if let some pf ← proveCond c ncond then
-            verbose m!"sv_mirror: {what}: refuted{indentExpr cond}"
-            facts := facts.push (ncond, pf)
-            if global ncond && global (← instantiateMVars pf) then c.known.modify (·.push (ncond, pf))
-            added := added + 1
-          else
-            undecided := undecided <|> some cond
+        -- `sv_disch` (and the window tactic) on every condition of the round; `sv_disch_ext` only when that decides
+        -- none of them (a condition left undecided while another is decided waits for the next round, as before)
+        for ext in [false, true] do
+          if ext && (added > 0 || undecided.isEmpty) then break
+          let todo := if ext then undecided else conds
+          undecided := #[]
+          for cond in todo do
+            let ncond := mkNot cond
+            let scond := match cond.eq? with
+              | some (ty, a, b) => mkApp3 cond.getAppFn ty b a
+              | none => cond
+            if facts.any (fun f => f.1 == cond || f.1 == ncond || f.1 == scond) then
+              seen := seen <|> some cond
+              continue
+            match ← decideCond c cond ext with
+            | some (true, pf) =>
+              verbose m!"sv_mirror: {what}: decided{indentExpr cond}"
+              let (cond', pf') ← orientFact cond pf
+              facts := facts.push (cond', pf')
+              if global cond && global (← instantiateMVars pf) then c.known.modify (·.push (cond', pf'))
+              added := added + 1
+            | some (false, pf) =>
+              verbose m!"sv_mirror: {what}: refuted{indentExpr cond}"
+              facts := facts.push (ncond, pf)
+              if global ncond && global (← instantiateMVars pf) then c.known.modify (·.push (ncond, pf))
+              added := added + 1
+            | none =>
+              undecided := undecided.push cond
         tCond := tCond + ((← IO.monoMsNow) - tc0)
         if added == 0 then
-          if let some cond := undecided then
-            throwError "sv_mirror: cannot instantiate {what}: the condition{indentExpr cond}\nis neither \
-              proved nor refuted by `sv_disch`. If it is a window of a register family inside its vector, give \
-              a tactic that proves it with `sv_mirror X (window := by …) := …` (it runs on the condition, with the \
-              genvars and their bounds in scope)."
+          if let some cond := undecided[0]? then
+            -- the condition, and the normal form reached with it (`lhs = r`): a case split continues from there
+            return .error (cond, r, mkAppN pAbs (facts.map (·.2)))
           if let some cond := seen then
             throwError "sv_mirror: cannot instantiate {what}: the condition{indentExpr cond}\nis decided but \
               `simp` does not use it"
   throwError "sv_mirror: cannot instantiate {what}: too many conditions"
+
+/-- The refusal of a condition neither proved nor refuted. -/
+def undecidedMsg (what : String) (cond : Lean.Expr) : MessageData :=
+  m!"sv_mirror: cannot instantiate {what}: the condition{indentExpr cond}\nis neither \
+    proved nor refuted by `sv_disch`. If it is a window of a register family inside its vector, give \
+    a tactic that proves it with `sv_mirror X (window := by …) := …` (it runs on the condition, with the \
+    genvars and their bounds in scope)."
+
+/-- `instNormE`, a condition neither proved nor refuted stopping the command with it printed. -/
+def instNorm (c : Ctx) (what : String) (lhs : Lean.Expr) (extra : Array Name) : TermElabM (Lean.Expr × Lean.Expr) := do
+  match ← instNormE c what lhs extra with
+  | .ok r => return r
+  | .error (cond, _, _) => throwError (undecidedMsg what cond)
 
 /-- The `Nat` form of an `Int` loop bound `b` (`↑x`, sums, differences, products, quotients, numerals). A candidate
 only: the expansion proves `evalInt … = .ok ↑M` for it (`he`), so a difference or quotient that is not the `Nat` one
@@ -1759,41 +2130,177 @@ def freshName (c : Ctx) (base : Name) : TermElabM Name := do
   c.taken.set (taken ++ n :: derivedNames n)
   return n
 
+/-- A genvar in scope: its free variable `v`, its start `lo` and its bound `hi` (`lo ≤ v < hi`, `Nat` expressions
+of the parameters and the outer genvars). -/
+structure GenVar where
+  v : Lean.Expr
+  lo : Lean.Expr
+  hi : Lean.Expr
+
+/-- The case splits tried for a condition about the genvar `g`, each with the fact its other case gives: its first
+value (`v = lo`; otherwise `lo + 1 ≤ v`), then its last (`v + 1 = hi`; otherwise `v + 2 ≤ hi`). -/
+def splitCands (g : GenVar) : MetaM (Array (Lean.Expr × Lean.Expr)) := do
+  let first ← mkEq g.v g.lo
+  let restFirst ← if g.lo.nat? == some 0 then mkAppM ``LE.le #[mkNatLit 1, g.v]
+    else mkAppM ``LE.le #[← mkAppM ``HAdd.hAdd #[g.lo, mkNatLit 1], g.v]
+  let last ← mkEq (← mkAppM ``HAdd.hAdd #[g.v, mkNatLit 1]) g.hi
+  let restLast ← mkAppM ``LE.le #[← mkAppM ``HAdd.hAdd #[g.v, mkNatLit 2], g.hi]
+  return #[(first, restFirst), (last, restLast)]
+
+/-- **`instNorm` with a case split at a genvar's first or last value.** A condition neither proved nor refuted
+that mentions a genvar is often a window that leaves its vector at one end of the loop only (`b[(j-1)*W +: W]` in
+the `else` of an `if (j == 0)`, read at `j = 0` too: the instantiation reads it there, as `x`); no tactic proves
+it, since it is false there. When the condition is decided (proved or refuted) under `v ≠ lo` (or `v + 1 ≠ hi`),
+the instantiation is normalized in each case, with the case as a hypothesis, and is `if v = lo then … else …`
+(`eq_ite_of_cases`); a case may split again, `depth` times in all. Otherwise the condition stops the command, as
+`instNorm` does. -/
+partial def instNormSplit (c : Ctx) (what : String) (lhs : Lean.Expr) (extra : Array Name) (gens : Array GenVar)
+    (depth : Nat := 3) (cases : Array Lean.Expr := #[]) : TermElabM (Lean.Expr × Lean.Expr) := do
+  -- (a case continues from a normal form, which `simp` may leave unchanged)
+  match ← instNormE c what lhs extra (fromNormal := !cases.isEmpty) with
+  | .ok r => return r
+  | .error (cond, r0, p0) =>
+    let msg := if cases.isEmpty then undecidedMsg what cond else
+      let caseE := cases[1:].foldl (fun acc e => mkAnd acc e) cases[0]!
+      undecidedMsg what cond ++ m!"\nThat is in the case{indentExpr caseE}\nof the process: `sv_mirror` splits \
+        a process at a genvar's first or last value when a condition is decided in the other case."
+    if depth == 0 then throwError msg
+    for g in gens.reverse do
+      unless cond.containsFVar g.v.fvarId! do continue
+      for (Q, rest) in ← splitCands g do
+        -- the other case's fact, and the condition decided under it
+        let ok ← withLocalDeclD `hne (mkNot Q) fun _ => do
+          let some _ ← (try some <$> proveBy "sv_mirror: a case" rest (← `(Lean.Parser.Tactic.tacticSeq| omega))
+              catch _ => pure none) | return false
+          withLocalDeclD `hrest rest fun _ => do
+            return (← decideCond2 c cond).isSome
+        unless ok do continue
+        verbose m!"sv_mirror: {what}: split on{indentExpr Q}\nfor the condition{indentExpr cond}"
+        let inst ← synthInstance (← mkAppM ``Decidable #[Q])
+        -- each case continues from the normal form reached (`p0 : lhs = r0`)
+        let (r1, f1) ← withLocalDeclD `hcase Q fun h => do
+          let (r, p) ← instNormSplit c what r0 extra gens (depth - 1) (cases.push Q)
+          if r.containsFVar h.fvarId! then
+            throwError "sv_mirror: internal error: the case's normal form mentions its hypothesis"
+          return (r, ← mkLambdaFVars #[h] (← mkEqTrans p0 p))
+        let (r2, f2) ← withLocalDeclD `hcase (mkNot Q) fun h => do
+          let hr ← proveBy "sv_mirror: a case" rest (← `(Lean.Parser.Tactic.tacticSeq| omega))
+          withLocalDeclD `hrest rest fun hrv => do
+            let (r, p) ← instNormSplit c what r0 extra gens (depth - 1) (cases.push (mkNot Q))
+            if r.containsFVar h.fvarId! || r.containsFVar hrv.fvarId! then
+              throwError "sv_mirror: internal error: the case's normal form mentions its hypothesis"
+            return (r, ← mkLambdaFVars #[h] (mkApp (← mkLambdaFVars #[hrv] (← mkEqTrans p0 p)) hr))
+        let pf ← mkAppOptM ``SvGolf.Cycle.eq_ite_of_cases #[none, some Q, some inst, some lhs, some r1, some r2,
+          some f1, some f2]
+        if r1 == r2 then
+          return (r1, ← mkEqTrans pf (← mkAppOptM ``ite_self #[none, some Q, some inst, some r1]))
+        return (← mkAppOptM ``ite #[none, some Q, some inst, some r1, some r2], pf)
+    throwError msg
+
+/-- The names of the constant evaluator's private helpers (`constEvalHelpers`). -/
+def constEvalHelperNames : CoreM (Array Name) := do
+  let env ← getEnv
+  let names : List Name := [`LeanModels.Sv.b2i, `LeanModels.Sv.constCompare, `LeanModels.Sv.constArith,
+    `LeanModels.Sv.constShift, `LeanModels.Sv.SymBinOp.signedOrder, `LeanModels.Sv.SymBinOp.unsignedOrder]
+  return (names.map (mkPrivateNameCore `LeanModels.Sv.Param)).filter env.contains |>.toArray
+
+/-- Run a `conv` sequence; `(e, rfl)` when it fails (no progress). -/
+def convNormOrSelf (e : Lean.Expr) (conv : TSyntax ``Lean.Parser.Tactic.Conv.convSeq) :
+    TermElabM (Lean.Expr × Lean.Expr) := do
+  try convNorm e conv catch _ => return (e, ← mkEqRefl e)
+
+/-- Every `LVec.toNat?` of a literal whose bits are all known (a sized literal in a constant expression), as
+`some v`: the literal is `LVec.ofBitVec (v#w)` (by `decide`, as `foldLits` folds one), whose value `simp` reads
+(`LVec.toNat?_ofBitVec`). -/
+def foldToNatLits (r : Lean.Expr) : TermElabM (Option (Lean.Expr × Lean.Expr)) := do
+  let ts := subtermsAll r fun t => t.isAppOfArity ``LVec.toNat? 1 && (bitLit? t.appArg!).isSome
+  if ts.isEmpty then return none
+  let mut eqs : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
+  for t in ts do
+    let some (w, v) := bitLit? t.appArg! | continue
+    let folded ← mkAppOptM ``LVec.ofBitVec
+      #[some (mkNatLit w), some (← mkAppM ``BitVec.ofNat #[mkNatLit w, mkNatLit v])]
+    let hfold ← proveBy "sv_mirror: a literal" (← mkEq t.appArg! folded) (← `(Lean.Parser.Tactic.tacticSeq| decide))
+    let ty ← mkEq t (← mkAppOptM ``Option.some #[some (Lean.mkConst ``Nat), some (mkNatLit v)])
+    let pf ← proveBy "sv_mirror: a literal's value" ty (← `(Lean.Parser.Tactic.tacticSeq|
+      rw [$(← exprToSyntax hfold):term]; simp))
+    eqs := eqs.push (← `(Lean.Parser.Tactic.simpLemma| $(← exprToSyntax pf):term))
+  some <$> convNorm r (← `(Lean.Parser.Tactic.Conv.convSeq| simp only [$eqs,*]))
+
+/-- **The value of a generate `if`'s condition** (`evalGenGuard`: the constant evaluator `ctype`/`evalAt` at the
+condition's own width, IEEE 1800-2023 §27.5): the instantiation set with the guard's definitions, then the 32-bit
+readings of the parameters and genvars placed by their ranges (`sv_range`), then the instantiation set again. -/
+def guardNorm (c : Ctx) (lhs : Lean.Expr) : TermElabM (Lean.Expr × Lean.Expr) := do
+  let names := #[c.X ++ `env, c.X ++ `decls, c.X ++ `elems, ``evalGenGuard, ``evalGenGuard32, ``guard32,
+    ``guardLookup, ``SvGolf.Cycle.convertConst32_natCast, ``SvGolf.Cycle.convertConst_one_ite,
+    ``SvGolf.Cycle.ite_one_zero_bne, ``SvGolf.Cycle.natCast_lt_zero_eq, ``SvGolf.Cycle.natCast_emod_pow32,
+    ``SvGolf.Cycle.natCast_emod_4294967296, ``SvGolf.Cycle.natCast_mod_pow32, ``SvGolf.Cycle.natCast_mod_4294967296,
+    ``SvGolf.Cycle.canonInt32_natCast, ``SvGolf.Cycle.canonInt32_natCast', ``SvGolf.Cycle.convertConst32u_natCast] ++
+    (← constEvalHelperNames)
+  let main ← instConv c names
+  let ranges ← `(Lean.Parser.Tactic.Conv.convSeq|
+    simp (disch := sv_range) only [SvGolf.Cycle.canonInt32_of_range', SvGolf.Cycle.convertConst32_of_range',
+      SvGolf.Cycle.canonInt32u_of_range', SvGolf.Cycle.convertConst32u_of_range',
+      SvGolf.Cycle.convertConst32_natCast, SvGolf.Cycle.convertConst32u_natCast, SvGolf.Cycle.canonInt32_natCast,
+      SvGolf.Cycle.natCast_emod_pow32, SvGolf.Cycle.natCast_emod_4294967296, SvGolf.Cycle.natCast_mod_pow32,
+      SvGolf.Cycle.natCast_mod_4294967296])
+  let mut r := lhs
+  let mut p ← mkEqRefl lhs
+  -- the main pass, the literals' values (a sized literal `32'd2` reads `LVec.toNat?` of its bits), the 32-bit
+  -- readings placed by their ranges; again while it changes
+  for _ in [0:4] do
+    let r0 := r
+    let (r1, p1) ← convNormOrSelf r main
+    let (r2, p2) ← match ← foldToNatLits r1 with
+      | some x => pure x
+      | none => pure (r1, ← mkEqRefl r1)
+    let (r3, p3) ← convNormOrSelf r2 ranges
+    p ← mkEqTrans p (← mkEqTrans p1 (← mkEqTrans p2 p3))
+    r := r3
+    if r == r0 || (okPayload? r).isSome && !(r.find? fun t => t.isAppOf ``canonInt || t.isAppOf ``convertConst ||
+        t.isAppOf ``LVec.toNat?).isSome then break
+  return (r, p)
+
+/-- The cases of a process split at a genvar's first or last value (`instNormSplit`): the leaves of its `if`s. -/
+partial def splitLeaves (e : Lean.Expr) : Array Lean.Expr :=
+  if e.isAppOfArity ``ite 5 then splitLeaves (e.getArg! 3) ++ splitLeaves (e.getArg! 4) else #[e]
+
 mutual
-/-- Walk a list of generate items in the environment `env` (genvars `gvs`, bounds `ghs` in scope). -/
-partial def walkItems (c : Ctx) (env elems fuel : Lean.Expr) (gvs ghs : Array Lean.Expr) (label : Option String)
-    (items : Array Lean.Expr) : TermElabM Walked := do
+/-- Walk a list of generate items in the environment `env` (genvars `gvs`, with their starts and bounds `gks`;
+the hypotheses `ghs` in scope: the genvars' bounds, the cases of the generate `if`s around). -/
+partial def walkItems (c : Ctx) (env elems fuel : Lean.Expr) (gvs ghs : Array Lean.Expr) (gks : Array GenVar)
+    (label : Option String) (items : Array Lean.Expr) : TermElabM Walked := do
   if items.isEmpty then
     return { procs := ← mkAppOptM ``List.nil #[some (Lean.mkConst ``Process2)],
              proof := ← mkAppOptM ``expandList2_nil #[some env, some elems, some fuel] }
-  let w ← walkItem c env elems fuel gvs ghs label items[0]!
+  let w ← walkItem c env elems fuel gvs ghs gks label items[0]!
   if items.size == 1 then
     return { procs := w.procs, proof := ← mkAppM ``expandList2_singleton_ok #[w.proof] }
-  let rest ← walkItems c env elems fuel gvs ghs label items[1:].toArray
+  let rest ← walkItems c env elems fuel gvs ghs gks label items[1:].toArray
   return { procs := ← mkAppM ``HAppend.hAppend #[w.procs, rest.procs],
            proof := ← mkAppM ``expandList2_cons_ok #[w.proof, rest.proof] }
 
 /-- Walk one generate item. -/
-partial def walkItem (c : Ctx) (env elems fuel : Lean.Expr) (gvs ghs : Array Lean.Expr) (label : Option String)
-    (it : Lean.Expr) : TermElabM Walked := do
+partial def walkItem (c : Ctx) (env elems fuel : Lean.Expr) (gvs ghs : Array Lean.Expr) (gks : Array GenVar)
+    (label : Option String) (it : Lean.Expr) : TermElabM Walked := do
   let (k, as) ← ctorOf it
   if k == ``GenItem.process then
     let p := as[0]!
     let (pk, _) ← ctorOf p
-    unless pk == ``PProcess.alwaysFF do
-      let why := if pk == ``PProcess.alwaysComb || pk == ``PProcess.assign || pk == ``PProcess.assignL then
-          m!": a family of comb processes is not covered (their settle in every schedule order needs the \
-            commutation of their runs over a permutation, `combPass2` of a family, which is not proved yet)"
-        else m!""
-      throwError "sv_mirror: refused: {← processKindRefusal p} inside generate block \
-        `{label.getD "(unnamed)"}`{why}"
+    -- an `always_ff`, or a comb process (an `always_comb`, a continuous assignment): the mirror covers both; the
+    -- clock step of a family of comb processes is `sv_cycle`'s question (it refuses one, by name)
+    let comb := pk == ``PProcess.alwaysComb || pk == ``PProcess.assign || pk == ``PProcess.assignL
+    unless pk == ``PProcess.alwaysFF || comb do
+      throwError "sv_mirror: refused: {← processKindRefusal p} inside generate block `{label.getD "(unnamed)"}`"
     let what := s!"the process of generate block `{label.getD "(unnamed)"}`"
     let base ← freshName c (labelName (label.getD "gen"))
     let lhs ← mkAppM ``instProcess2 #[env, elems, p]
-    let (rhs, pf) ← instNorm c what lhs #[c.X ++ `env, c.X ++ `decls, c.X ++ `elems]
+    let (rhs, pf) ← instNormSplit c what lhs #[c.X ++ `env, c.X ++ `decls, c.X ++ `elems] gks
     if rhs.hasAnyFVar (fun fv => c.hyps.any (·.fvarId! == fv) || ghs.any (·.fvarId! == fv)) then
       throwError "sv_mirror: internal error: the instantiated process depends on a hypothesis"
-    c.noteClock what (← scanFF what c.inputs rhs)
+    for leafP in splitLeaves rhs do
+      if comb then scanComb what c.inputs leafP
+      else c.noteClock what (← scanFF what c.inputs leafP)
     addDefn (c.X ++ base) (c.params ++ gvs) rhs
       s!"The process of generate block `{label.getD "(unnamed)"}` at genvars {gvs.size}, instantiated (`sv_mirror`)."
     let leaf := c.app base gvs
@@ -1818,8 +2325,6 @@ partial def walkItem (c : Ctx) (env elems fuel : Lean.Expr) (gvs ghs : Array Lea
         let v ← whnf iargs[0]!
         isDefEq v (toExpr (0 : Int))
       else pure false)
-    unless initZero do
-      throwError "sv_mirror: refused: generate loop `{lbl?.getD g}` does not start at 0 (only `for (g = 0; g < e; g++)` is covered)"
     let (ck, cargs) ← ctorOf as[3]!
     let (sk, sargs) ← ctorOf as[4]!
     let okCond ← (do
@@ -1835,8 +2340,34 @@ partial def walkItem (c : Ctx) (env elems fuel : Lean.Expr) (gvs ghs : Array Lea
         pure (opk == ``SymUnaryOp.inc && ak == ``PExpr.genvarRef && strLit? (← whnf aargs[0]!) == some g)
       else pure false)
     unless okCond && okStep do
-      throwError "sv_mirror: refused: generate loop `{lbl?.getD g}` is not `for ({g} = 0; {g} < e; {g}++)` (a descending, stepped or `<=` loop is not covered)"
+      throwError "sv_mirror: refused: generate loop `{lbl?.getD g}` is not `for ({g} = s; {g} < e; {g}++)` (a descending, stepped or `<=` loop is not covered)"
     let bound := cargs[2]!
+    let simpIds : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+      #[c.X ++ `env, c.X ++ `decls, c.X ++ `elems].mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):ident)
+    -- the start: `0` (the family over `List.range M`), or a constant `S` (the family over `List.range' S (M - S)`),
+    -- `hi : evalInt env init = .ok ↑S`
+    let start? : Option (Lean.Expr × Lean.Expr) ← if initZero then pure none else do
+      let lhsI ← mkAppM ``evalInt #[env, as[2]!]
+      let (rhsI, _) ← instNorm c s!"the start of generate loop `{lbl?.getD g}`" lhsI
+        #[c.X ++ `env, c.X ++ `decls, c.X ++ `elems]
+      let some sI := okPayload? rhsI
+        | throwError "sv_mirror: refused: the start of generate loop `{lbl?.getD g}` does not evaluate:{indentExpr rhsI}"
+      if sI.hasAnyFVar (fun fv => !(c.params ++ gvs).any (·.fvarId! == fv)) then
+        throwError "sv_mirror: refused: the start of generate loop `{lbl?.getD g}` is not an expression of the \
+          parameters and the outer genvars:{indentExpr sI}"
+      let some S ← natOfInt? sI
+        | throwError "sv_mirror: refused: the start of generate loop `{lbl?.getD g}` is not a `Nat` expression of the parameters:{indentExpr sI}"
+      let Sint ← mkAppOptM ``Nat.cast #[some (Lean.mkConst ``Int), none, some S]
+      let ty ← mkEq lhsI (← mkAppOptM ``Except.ok #[some (Lean.mkConst ``String), some (Lean.mkConst ``Int), some Sint])
+      let hi ← proveBy s!"sv_mirror: refused: the start of generate loop `{lbl?.getD g}` is not proved to be the \
+          `Nat` `{← ppExpr S}` under the hypotheses (a start such as `N - 1` needs a hypothesis that keeps it \
+          non-negative, e.g. `1 ≤ N`)" ty
+        (← `(Lean.Parser.Tactic.tacticSeq| first
+              | (simp [evalInt, IEnv.bindVal, IEnv.withDecls, List.lookup, Gen2.except_ok_bind, $simpIds,*]; done)
+              | (simp [evalInt, IEnv.bindVal, IEnv.withDecls, List.lookup, Gen2.except_ok_bind, $simpIds,*]
+                 <;> (try simp (disch := omega) only [Int.tdiv_eq_ediv_of_nonneg]) <;> push_cast <;> omega)))
+        (detail := false)
+      pure (some (S, ← mkExpectedTypeHint hi ty))
     -- the bound, evaluated
     let (Mi, _) ← withLocalDeclD `i (Lean.mkConst ``Int) fun i => do
       let lhs ← mkAppM ``evalInt #[← mkAppM ``IEnv.bindVal #[env, mkStrLit g, i], bound]
@@ -1851,8 +2382,6 @@ partial def walkItem (c : Ctx) (env elems fuel : Lean.Expr) (gvs ghs : Array Lea
       | throwError "sv_mirror: refused: the bound of generate loop `{lbl?.getD g}` is not a `Nat` expression of the parameters:{indentExpr Mi}"
     let envBind (i : Lean.Expr) : MetaM Lean.Expr := do mkAppM ``IEnv.bindVal #[env, mkStrLit g, i]
     -- `hei : ∀ i : Int, bound.isInt (env.bindVal g i) = true`, `he : ∀ i, evalInt … = .ok ↑M`
-    let simpIds : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
-      #[c.X ++ `env, c.X ++ `decls, c.X ++ `elems].mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):ident)
     let hei ← withLocalDeclD `i (Lean.mkConst ``Int) fun i => do
       let ty ← mkEq (← mkAppM ``PExpr.isInt #[← envBind i, bound]) (Lean.mkConst ``Bool.true)
       let pr ← proveBy s!"sv_mirror: the bound of generate loop `{lbl?.getD g}` is an integer" ty
@@ -1891,20 +2420,93 @@ partial def walkItem (c : Ctx) (env elems fuel : Lean.Expr) (gvs ghs : Array Lea
     withLocalDeclD (Name.mkSimple ("h" ++ g)) (← mkAppM ``LT.lt #[v, M]) fun hv => do
       let vI ← mkAppOptM ``Nat.cast #[some (Lean.mkConst ``Int), none, some v]
       let env' ← envBind vI
-      let wb ← walkItems c env' elems fuel (gvs.push v) (ghs.push hv) (lbl? <|> label) body
-      let f ← mkLambdaFVars #[v] wb.procs
-      let hf ← mkLambdaFVars #[v, hv] wb.proof
-      let pr ← mkAppOptM ``SvGolf.GenItem.expand2_range_flatMap
-        #[none, none, none, some as[0]!, none, none, some as[5]!, none, none, none, some hei, some he, some hF, some hf]
-      -- the processes, as the lemma states them
-      let procs ← mkAppM ``List.flatMap #[f, ← mkAppM ``List.range #[M]]
-      return { procs, proof := pr }
+      match start? with
+      | none =>
+        let wb ← walkItems c env' elems fuel (gvs.push v) (ghs.push hv) (gks.push { v, lo := mkNatLit 0, hi := M })
+          (lbl? <|> label) body
+        let f ← mkLambdaFVars #[v] wb.procs
+        let hf ← mkLambdaFVars #[v, hv] wb.proof
+        let pr ← mkAppOptM ``SvGolf.GenItem.expand2_range_flatMap
+          #[none, none, none, some as[0]!, none, none, some as[5]!, none, none, none, some hei, some he, some hF, some hf]
+        -- the processes, as the lemma states them
+        let procs ← mkAppM ``List.flatMap #[f, ← mkAppM ``List.range #[M]]
+        return { procs, proof := pr }
+      | some (S, hi) =>
+        withLocalDeclD (Name.mkSimple ("h" ++ g ++ "0")) (← mkAppM ``LE.le #[S, v]) fun hlo => do
+        let wb ← walkItems c env' elems fuel (gvs.push v) ((ghs.push hlo).push hv) (gks.push { v, lo := S, hi := M })
+          (lbl? <|> label) body
+        let f ← mkLambdaFVars #[v] wb.procs
+        let hf ← mkLambdaFVars #[v, hlo, hv] wb.proof
+        let pr ← mkAppOptM ``SvGolf.Cycle.GenItem.expand2_rangeFrom_flatMap
+          #[none, none, none, some as[0]!, none, none, none, some as[5]!, none, none, none, none,
+            some hi, some hei, some he, some hF, some hf]
+        let procs ← mkAppM ``List.flatMap #[f, ← mkAppM ``List.range' #[S, ← mkAppM ``HSub.hSub #[M, S], mkNatLit 1]]
+        return { procs, proof := pr }
   else if k == ``GenItem.genIf then
-    throwError "sv_mirror: refused: a generate `if` (only generate `for` loops over processes are covered)"
+    let where_ : String := match label with
+      | some l => s!"a generate `if` in generate block `{l}`"
+      | none => "a generate `if` of the module"
+    let some thenB := listLitSyn? (← whnf as[1]!) <|> (← listLit? as[1]!)
+      | throwError "sv_mirror: internal error: a generate `if` branch is not a list literal"
+    let some elseB := listLitSyn? (← whnf as[2]!) <|> (← listLit? as[2]!)
+      | throwError "sv_mirror: internal error: a generate `if` branch is not a list literal"
+    -- the condition's value `v`, and the condition `P`: `v ≠ 0`, normalized
+    let lhsG ← mkAppM ``evalGenGuard #[env, as[0]!]
+    let (rG, pG) ← guardNorm c lhsG
+    let pG ← mkExpectedTypeHint pG (← mkEq lhsG rG)
+    let some gv := okPayload? rG
+      | throwError "sv_mirror: refused: the condition of {where_} does not evaluate at symbolic parameters:\
+          {indentExpr rG}"
+    if gv.hasAnyFVar (fun fv => !(c.params ++ c.hyps ++ gvs ++ ghs).any (·.fvarId! == fv)) then
+      throwError "sv_mirror: internal error: the condition of {where_} mentions a variable out of scope"
+    let vne ← mkAppM ``Ne #[gv, toExpr (0 : Int)]
+    -- (the comparisons of casts as comparisons of the `Nat`s: `N = 1`, `k = 0`)
+    let (P, pP) ← convNormOrSelf vne (← `(Lean.Parser.Tactic.Conv.convSeq|
+      try simp
+      try simp only [SvGolf.Cycle.int_ofNat_eq_cast, Int.natCast_inj, Int.ofNat_lt, Int.ofNat_le, ← Int.natCast_add,
+        ← Int.natCast_mul]))
+    let pP ← mkExpectedTypeHint pP (← mkEq vne P)
+    if (P.find? fun t => t.isAppOf ``evalGenGuard || t.isAppOf ``evalAt || t.isAppOf ``ctype).isSome then
+      throwError "sv_mirror: refused: the condition of {where_} does not evaluate at symbolic parameters:\
+        {indentExpr P}"
+    verbose m!"sv_mirror: the condition of {where_}:{indentExpr P}"
+    let dec ← decideCond2 c P
+    if let some (true, pf) := dec then
+      -- decided: the `then` items
+      let wt ← walkItems c env elems fuel gvs ghs gks label thenB
+      let hv ← mkAppM ``SvGolf.Cycle.guard_ne_of #[pP, pf]
+      let proof ← mkAppOptM ``SvGolf.Cycle.GenItem.expand2_genIf_pos
+        #[none, none, none, none, none, some as[2]!, none, none, some pG, some hv, some wt.proof]
+      return { procs := wt.procs, proof }
+    else if let some (false, pf) := dec then
+      -- decided: the `else` items
+      let we ← walkItems c env elems fuel gvs ghs gks label elseB
+      let hv ← mkAppM ``SvGolf.Cycle.guard_eq_of #[pP, pf]
+      let proof ← mkAppOptM ``SvGolf.Cycle.GenItem.expand2_genIf_neg
+        #[none, none, none, none, some as[1]!, none, none, none, some pG, some hv, some we.proof]
+      return { procs := we.procs, proof }
+    else
+      -- undecided: both branches, each under its case, as an `if` in the family
+      let some inst ← (try some <$> synthInstance (← mkAppM ``Decidable #[P]) catch _ => pure none)
+        | throwError "sv_mirror: refused: the condition of {where_} is not decidable:{indentExpr P}"
+      let base := label.getD "gen"
+      let (pt, ft) ← withLocalDeclD `hif P fun h => do
+        let w ← walkItems c env elems fuel gvs (ghs.push h) gks (some (base ++ "_then")) thenB
+        return (w.procs, ← mkLambdaFVars #[h] w.proof)
+      let (pe, fe) ← withLocalDeclD `hif (mkNot P) fun h => do
+        let w ← walkItems c env elems fuel gvs (ghs.push h) gks (some (base ++ "_else")) elseB
+        return (w.procs, ← mkLambdaFVars #[h] w.proof)
+      let procs ← mkAppOptM ``ite #[none, some P, some inst, some pt, some pe]
+      let proof ← mkAppOptM ``SvGolf.Cycle.GenItem.expand2_genIf_ite
+        #[none, none, none, none, none, none, none, some P, some inst, none, none, some pG, some pP, some ft, some fe]
+      return { procs, proof }
   else if k == ``GenItem.inst then
     throwError "sv_mirror: refused: a module instance (hierarchy is not covered)"
   else if k == ``GenItem.unsupported then
     throwError "sv_mirror: refused: an out-of-tier generate item `{← whnf as[0]!}`"
+  else if k == ``GenItem.decl then
+    throwError "sv_mirror: refused: a declaration inside a generate block (the generate-local declaration is \
+      outside the scalar route the mirror instantiates)"
   else
     throwError "sv_mirror: internal error: an unknown generate item {it}"
 end
@@ -1987,17 +2589,12 @@ syntax (name := svMirror) "sv_mirror " ident (svWindowOpt)? " := " ident (ppSpac
         throwError "sv_mirror: refused: the design has out-of-tier members ({others.size}): {← whnf others[0]!}"
       let some sprocs ← listLit? (← mkAppM ``PDesign.processes #[pdE])
         | throwError "sv_mirror: internal error: `processes` is not a list literal"
-      let mut nComb := 0
+      -- `always_ff` and comb processes (`always_comb`, continuous assignments, any number: the clock step of
+      -- several is `sv_cycle`'s question, which refuses it by name)
       for p in sprocs do
         let (pk, _) ← ctorOf p
-        if pk == ``PProcess.alwaysComb || pk == ``PProcess.assign || pk == ``PProcess.assignL then
-          nComb := nComb + 1
-          if nComb > 1 then
-            throwError "sv_mirror: refused: a second comb process ({← processKindRefusal p}): one `always_comb` \
-              or `assign` beside the `always_ff` processes is covered; several need the settle in every schedule \
-              order of runs that read each other's outputs (a lemma that every order of `combPass2` reaches the \
-              same fixpoint, from an acyclic order of the comb processes), which is not proved yet"
-        else unless pk == ``PProcess.alwaysFF do
+        unless pk == ``PProcess.alwaysFF || pk == ``PProcess.alwaysComb || pk == ``PProcess.assign ||
+            pk == ``PProcess.assignL do
           throwError "sv_mirror: refused: {← processKindRefusal p}"
       mark "1. the parameter environment"
       -- 1. the parameter environment
@@ -2108,7 +2705,7 @@ syntax (name := svMirror) "sv_mirror " ident (svWindowOpt)? " := " ident (ppSpac
       let fuel ← mkAppM ``PDesign.surfaceFuel #[args]
       let some gens ← listLit? (← mkAppM ``PDesign.generates #[pdE])
         | throwError "sv_mirror: internal error: `generates` is not a list literal"
-      let w ← walkItems c envD (c.app `elems) fuel #[] #[] none gens
+      let w ← walkItems c envD (c.app `elems) fuel #[] #[] #[] none gens
       -- tidy the family: `flatMap (fun j => [p j])` is `map p`
       let (famR, pfFam) ← convNorm w.procs (← `(Lean.Parser.Tactic.Conv.convSeq|
         try simp only [← List.map_eq_flatMap, List.append_nil]))
@@ -2203,6 +2800,42 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
       let lem (n : Name) : TermElabM (TSyntax ``Lean.Parser.Tactic.simpLemma) :=
         `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):ident)
       let fieldLs ← designFieldLemmas pdC
+      -- the processes: refusals (they depend on the mirror only, so they come before the disjointness is read)
+      let procsV ← instantiateValueLevelParams (← getConstInfo (X ++ `procs)) []
+      let procsB := procsV.beta ps
+      let leaves := mirrorLeaves X procsB
+      let leafSimps ← leaves.mapM lem
+      let (heads, famTail) := consChain procsB
+      -- a generate `if` the hypotheses do not decide (`sv_mirror` keeps it as an `if` in the process list)
+      if (procsB.find? fun t => t.isAppOfArity ``ite 5 || t.isAppOfArity ``dite 5).isSome then
+        throwError "sv_cycle: refused: the process list of `{X}` branches on the condition of a generate `if` \
+          (`if … then … else …`, the condition not decided by the hypotheses): the clock step of a process list \
+          that branches is not covered; for a condition of the parameters alone, give the case as a hypothesis of \
+          `sv_mirror` (one mirror per case)"
+      let staticLeaves := heads.filterMap (·.getAppFn.constName?)
+      for leaf in leaves do
+        let some v := (← getConstInfo leaf).value? | continue
+        let body ← lambdaTelescope v fun _ b => pure b
+        -- a process split at a genvar's first or last value (`sv_mirror`'s `instNormSplit`)
+        if body.isAppOfArity ``ite 5 then
+          throwError "sv_cycle: refused: the process `{Lean.mkConst leaf}` is split at the first or last value of \
+            its genvar (`if … then … else …`: its instantiation differs there, a window that leaves its vector at one \
+            end of the loop): the run of a split process is not covered"
+        -- a comb process in a generate loop
+        if !staticLeaves.contains leaf && (← isCombTerm body) then
+          throwError "sv_cycle: refused: a comb process inside a generate loop (`{Lean.mkConst leaf}`): a family of \
+            comb processes is not covered (their settle in every schedule order needs the commutation of their runs \
+            over a permutation, `combPass2` of a family, which is not proved yet)"
+      -- the comb process, if any: one static `always_comb` or `assign`
+      let mut comb? : Option Nat := none
+      for i in [:heads.size] do
+        if ← isCombTerm heads[i]! then
+          if comb?.isSome then
+            throwError "sv_cycle: refused: a second comb process (`{heads[i]!.getAppFn}`): one `always_comb` or \
+              `assign` beside the `always_ff` processes is covered; several need the settle in every schedule order \
+              of runs that read each other's outputs (a lemma that every order of `combPass2` reaches the same \
+              fixpoint, from an acyclic order of the comb processes), which is not proved yet"
+          comb? := some i
       -- the disjointness, elaborated without error recovery (an ill-typed term stops the command here, before
       -- any theorem is added)
       let procsE := app `procs
@@ -2215,16 +2848,6 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
       if hE.hasSorry then
         throwError "sv_cycle: the disjointness term contains `sorry` (a lemma of yours may be unfinished while you \
           work; the command's argument may not)"
-      -- the processes: refusals
-      let procsV ← instantiateValueLevelParams (← getConstInfo (X ++ `procs)) []
-      let procsB := procsV.beta ps
-      let leaves := mirrorLeaves X procsB
-      let leafSimps ← leaves.mapM lem
-      -- the comb process, if any: one static `always_comb` or `assign` (`sv_mirror` refuses more)
-      let (heads, famTail) := consChain procsB
-      let mut comb? : Option Nat := none
-      for i in [:heads.size] do
-        if ← isCombTerm heads[i]! then comb? := some i
       let mixed := comb?.isSome
       -- the names this command defines must be free
       let env ← getEnv
