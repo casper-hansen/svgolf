@@ -3863,7 +3863,9 @@ class Asap7PnrTest(Tmp):
     def test_the_cli_checks_and_ranks_the_routed_course(self):
         rc, out, err = quiet(lb.main, ["asap7pnr"])
         self.assertEqual(rc, 0, out + err)
-        bound = int(re.search(r"^total: (\d+) bound$", out, re.M).group(1))      # every design routed (2026-11-13)
+        # every design routed on 2026-11-13; a record added since is pending until its run (a matmul record, 11-19)
+        m = re.search(r"^total: (\d+) bound(?:, (\d+) pending)?$", out, re.M)
+        bound, waiting = int(m.group(1)), int(m.group(2) or 0)
         # a design not routed yet (a copy of the tables, sorter's first entry removed): a note, not a failure
         tdir = os.path.join(self.tmp, "asap7pnr")
         shutil.copytree(lb.ASAP7PNR_DIR, tdir)
@@ -3876,7 +3878,7 @@ class Asap7PnrTest(Tmp):
         self.assertEqual(rc, 0, out + err)
         self.assertIn("[ok] sorter: 2 designs: 1 bound, 1 pending", out)
         self.assertIn(f"{', '.join(gone['of'])}: {lb.PNR_PENDING}", out)
-        self.assertRegex(out, rf"(?m)^total: {bound - 1} bound, 1 pending$")
+        self.assertRegex(out, rf"(?m)^total: {bound - 1} bound, {waiting + 1} pending$")
         rc, out, err = quiet(lb.main, ["board", "--task", "sorter", "--pdk", "asap7pnr", "--format", "json"])
         self.assertEqual(rc, 0, err)
         board = json.loads(out)
@@ -4138,8 +4140,9 @@ class CommittedAsap7PnrTest(unittest.TestCase):
                 bound = {r["record_hash"] for r in mine
                          if lb.asap7pnr_status(pnr, a7, r["files"]["sv"]["sha256"], task=task, pins=pins)[0] == "bound"}
                 self.assertEqual({r["record_hash"] for r in board["ranking"]}, bound)
-        # 2026-11-13, campaign 3: every design the tasks show is routed (52 since the 13 matmul architecture records)
-        self.assertEqual(totals, {"bound": 52})
+        # 2026-11-13, campaign 3: every design the tasks show is routed (52 since the 13 matmul architecture records);
+        # 2026-11-19: clockwork-otter's matmul record 42ff497ef3bb waits for its run (its request is stored, pending)
+        self.assertEqual(totals, {"bound": 52, "pending": 1})
 
 
 def git(cwd, *args):
