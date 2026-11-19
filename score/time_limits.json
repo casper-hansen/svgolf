@@ -121,11 +121,11 @@
     "matmul": {
       "references": {
         "matmul_g1": {
-          "cpu_s": [15.68, 15.44, 15.4],
-          "wall_s": [22.89, 20.27, 20.92]
+          "cpu_s": [15.71, 15.96, 16.05],
+          "wall_s": [25.29, 27.52, 25.38]
         }
       },
-      "why": "Three cold runs per reference at the round's tip, 2026-11-16 (the environment above): sweep 1 the round's check of every reference at the tip, sweeps 2 and 3 after it."
+      "why": "Three cold runs of the reference on 2026-11-19, after its `solution` changed with matmul's range of 2026-11-19 (the destructuring of the range; the rest of the proof as measured on 2026-11-16, when the runs were 15.68, 15.44 and 15.4 CPU s): sweep 1 the round's check of it, sweeps 2 and 3 after it, on the machine and with the build the environment above describes, up to four check.py processes at once."
     },
     "sorter": {
       "references": {

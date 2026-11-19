@@ -95,6 +95,33 @@ defined values (a Yosys or ls-sv bug), which only the sampled post-synthesis che
 
 ## Changes to the trusted statement since the review (to review)
 
+* **2026-11-19: the range is `1 ≤ N ≤ 256`, `1 ≤ W ≤ 127`, `1 ≤ AccW ≤ 64`** (decided 2026-11-19: up to the
+  largest realistic matrix-multiply circuits, 256×256 matrices with entries of up to 127 bits and accumulators of
+  up to 64 bits). `inRange` was `1 ≤ N ∧ N < 2^5 ∧ 1 ≤ W ∧ W < 2^10 ∧ 1 ≤ AccW ∧ AccW < 2^12`; it is
+  `1 ≤ N ∧ N ≤ 256 ∧ 1 ≤ W ∧ W ≤ 127 ∧ 1 ≤ AccW ∧ AccW ≤ 64` (the `≤` form reads as the decision and gives a
+  proof the three bounds as hypotheses it can use directly; every conjunct is a decidable comparison of naturals).
+  **Neither range contains the other**: `N` grew from at most 31 to 256, while `W` shrank from at most 1023 to 127
+  and `AccW` from at most 4095 to 64. So, unlike the change of 2026-11-16, this is not a restriction: the statement
+  now says something about points it did not cover before (every `N` from 32 to 256), and no longer says anything
+  at the points it drops (`W ≥ 128` or `AccW ≥ 65`). A design that met the former statement does not meet this one
+  by that alone; every board record's proof was checked again under it. At each point in both ranges the
+  statement says what it said (`task`'s ports, `product`, `Statement` and the golden vectors are unchanged).
+  The `int` arithmetic: measured on every matmul design of the board (19 records) and the reference, from slang's
+  syntax tree, every constant expression node (every operator's own value, so every intermediate) whose operands
+  are parameters, localparams and genvars, bounded by interval arithmetic over the whole new range with the
+  genvars over their loops' ranges (a sound bound, not a sample): the largest value any of them reaches is
+  2,143,289,344 (the multiplier cube's `N·N·(2N-1)·AccW` at `N = 256, AccW = 64`), then 2,130,706,432 (the two
+  core meshes' `N·N·N·W` at `N = 256, W = 127`), below `2^31` = 2,147,483,648 by 0.2 % and 0.8 %; every other
+  design stays at or below 16,646,144. The port widths are at most 8,323,072 (`N·N·W`) and 4,194,304 (`N·N·AccW`). Every
+  generate loop of those designs stays below a tenth of the loader's iteration budget at every point. The probe,
+  scoring and post-synthesis points, and every size the board measures (`N` up to 16, `W` up to 16, `AccW` = 32),
+  are inside. The sanity checks of the range's ends (the corner `(256, 127, 64)` in, one past it in each parameter
+  out) and of the two ranges' difference replace the one of 2026-11-16.
+  Observation, not part of the statement: slang refuses a packed type wider than `2^24 - 1` bits (measured with
+  pyslang 11), which every port width stays below, but the cube's and the two meshes' internal vectors exceed it
+  at large points of the range (the cube from `N = 65` at `AccW = 32`, the meshes from `N = 128` at `W = 8`):
+  there no slang-based tool elaborates those three designs, while the statement covers them.
+
 * **2026-11-16: the range is capped, `1 ≤ N < 2^5`, `1 ≤ W < 2^10`, `1 ≤ AccW < 2^12`** (decided 2026-11-16: "Yes,
   please cap N at a reasonable size. Just like the other tasks."). `inRange` was `1 ≤ N ∧ 1 ≤ W ∧ 1 ≤ AccW ∧
   N·N·W < 2^31 ∧ N·N·AccW < 2^31 ∧ W < 2^20 ∧ AccW < 2^20`; it is
@@ -199,8 +226,8 @@ at a later cycle cannot void an earlier claim.
 - Parameter range (C10, added 11/04): `N·N·W < 2^31 ∧ N·N·AccW < 2^31` keeps every width and index
   expression in the 32-bit `int` range, where a real elaboration and ls-sv's unbounded constant tier
   agree. Above it, a design's ports and part-select bases wrap in every simulator but not in the model.
-  (Since 2026-11-14 also `W, AccW < 2^20`, and since 2026-11-16 the range is `1 ≤ N < 2^5`, `1 ≤ W < 2^10`,
-  `1 ≤ AccW < 2^12`: "Changes" above.)
+  (Since 2026-11-14 also `W, AccW < 2^20`; from 2026-11-16 the range was `1 ≤ N < 2^5`, `1 ≤ W < 2^10`,
+  `1 ≤ AccW < 2^12`, and since 2026-11-19 it is `1 ≤ N ≤ 256`, `1 ≤ W ≤ 127`, `1 ≤ AccW ≤ 64`: "Changes" above.)
 - The latency count. By the contract's reading (CONTRACT.md, point 4), the reference
   `reference/matmul_g1.sv` shows `done` exactly `N` snapshots after the start edge (MEASURED in
   iverilog at five points, README.md "The reference"). An earlier plan's `lat N = N + 1` is a valid bound

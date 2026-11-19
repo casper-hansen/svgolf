@@ -2534,8 +2534,9 @@ as changed when its text differs, a name added to a `simp` list included; lines 
 it adds. The names are the references'; a row "on the row above" (or "against the four-step proof") is measured
 against that proof. The variants' proofs are records' proofs as submitted: `61bf6f8d17f7` (the sorter's cell rule),
 `1ffe71156e90` (the k loop), `abdd0afdf025` (two steps), `9fdf50f9ae02` (the accumulators free-running) and
-`263ce18b31ab` (the product register); re-made on 2026-11-16 with the maintainers' ports of those proofs, they are now
-`3b1ec4b16d7a`, `0ac973a13a52`, `f0b6b743679d`, `688b1fea9d3d` and `bade2c48d3c0`. The variant of the row "the operand
+`263ce18b31ab` (the product register); re-made on 2026-11-16 with the maintainers' ports of those proofs (the four
+matmul ones again on 2026-11-19, under matmul's new range), they are now
+`3b1ec4b16d7a`, `65342538360f`, `9cfd97744f0b`, `5a32b965845e` and `e2af800fb366`. The variant of the row "the operand
 registers and `k` free-running" is not on the board; against the reference, `9fdf50f9ae02` (that row's change and the
 next row's together) changes 13 of the 86
 declarations and adds 5, in 242 lines.
@@ -2618,8 +2619,8 @@ Every `int` parameter takes a range hypothesis below `2^31` (`hN32`, `hW32`, `hA
 instantiates a design with exact 32-bit `int` arithmetic (IEEE 1800-2023 §6.11), so a parameter is its own value only
 in that range, and an `int` localparam computed from the parameters must stay in it too (`omega` places it, from the
 hypotheses). Without them `sv_mirror` refuses, printing the first value it reads at its 32-bit reading
-(`canonInt 32 true …`). The task statements bound their parameters (matmul's `N < 2 ^ 5`, `W < 2 ^ 10`,
-`AccW < 2 ^ 12`, the sorter's `N * W < 2 ^ 31`, ...), and `solution` derives the hypotheses from them (`omega`, or
+(`canonInt 32 true …`). The task statements bound their parameters (matmul's `N ≤ 256`, `W ≤ 127`,
+`AccW ≤ 64`, the sorter's `N * W < 2 ^ 31`, ...), and `solution` derives the hypotheses from them (`omega`, or
 `Nat.lt_of_le_of_lt (Nat.mul_le_mul …) (by decide)` for a product).
 
 `sv_mirror` defines `mm.p0` (the module's first process), `mm.g_col N W AccW i j` (the process of generate
@@ -2701,7 +2702,7 @@ arbiter's reference keeps its own `rrD` and `rrNext` and relates them once (`rr_
 two `by_cases`).
 
 A `localparam` chosen by a comparison of the parameters (`localparam int X = (AccW > W) ? AccW - W : 1`, matmul's
-broadcast record `459de9121bdd`) is refused with the comparison printed; under the case as a hypothesis
+broadcast record `b84fa7288ffd`) is refused with the comparison printed; under the case as a hypothesis
 (`(h : W < AccW)`, and a second `sv_mirror` under `(h : ¬ W < AccW)`) the parameter environment evaluates. The pinned
 ls-sv computes such a localparam on the width-exact path (`evalSized`, the constant evaluator `ctype`/`evalAt`), which
 `sv_mirror` normalizes at symbolic parameters, the comparison included.

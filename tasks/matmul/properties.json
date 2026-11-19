@@ -13,7 +13,7 @@
       "decl": "SvGolf.Tasks.Matmul.Properties.ParamsInRange",
       "file": "svgolf/tasks/matmul/Properties.lean",
       "kind": "range",
-      "text": "The statement covers every matrix size 1 ≤ N < 2^5 (up to 31 × 31), entry width 1 ≤ W < 2^10 and accumulator width 1 ≤ AccW < 2^12: the parameters are 32-bit ints, and in that range every width and index a design computes from them (the port widths N·N·W and N·N·AccW, and larger ones such as a multiplier cube's N·N·(2N-1)·AccW bits) stays far below 2^31, where a real SystemVerilog tool and Lean's model agree. One proof covers all of them; the design is scored at N = 4, W = 8, AccW = 32."
+      "text": "The statement covers every matrix size 1 ≤ N ≤ 256 (up to 256 × 256), entry width 1 ≤ W ≤ 127 and accumulator width 1 ≤ AccW ≤ 64: up to the largest realistic matrix-multiply circuits. The parameters are 32-bit ints, and in that range every width and index the board's designs compute from them (the port widths N·N·W and N·N·AccW, and larger ones such as a multiplier cube's N·N·(2N-1)·AccW bits, at most 2,143,289,344) stays below 2^31, where a real SystemVerilog tool and Lean's model agree. One proof covers all of them; the design is scored at N = 4, W = 8, AccW = 32."
     },
     {
       "name": "INTERFACE",

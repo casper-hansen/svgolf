@@ -24,11 +24,11 @@ namespace SvGolf.Tasks.Matmul.Properties
 
 open SvGolf LeanModels.Sv
 
-/-- The parameters the statement covers: `1 ≤ N < 2^5`, `1 ≤ W < 2^10`, `1 ≤ AccW < 2^12` (decided
-2026-11-16: capped at a reasonable size, so that the `int` arithmetic a design does on them stays far below
-`2^31`). -/
+/-- The parameters the statement covers: `1 ≤ N ≤ 256`, `1 ≤ W ≤ 127`, `1 ≤ AccW ≤ 64` (decided
+2026-11-19: up to the largest realistic matrix-multiply circuits; the `int` arithmetic the board's designs do on
+them stays below `2^31`). -/
 def ParamsInRange (N W AccW : Nat) : Prop :=
-  1 ≤ N ∧ N < 2 ^ 5 ∧ 1 ≤ W ∧ W < 2 ^ 10 ∧ 1 ≤ AccW ∧ AccW < 2 ^ 12
+  1 ≤ N ∧ N ≤ 256 ∧ 1 ≤ W ∧ W ≤ 127 ∧ 1 ≤ AccW ∧ AccW ≤ 64
 
 /-- Exactly these ports, in this order, with these widths; no two declarations share a name. -/
 def Interface (N W AccW : Nat) (d : Design2) : Prop :=

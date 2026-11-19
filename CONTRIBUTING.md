@@ -47,7 +47,7 @@ repository svGolf requires as the Lake package `lean-models` (in a clone of svGo
 | `clmul` | ready | every `N` | `+ - * / % **`, run-time `< <= > >=` | 300 CPU s | `clmul_n` (the array without carries) |
 | `fdivp` | ready | every `W, P` (two parameters; binary16 is `(5, 11)`) | `/ % **` | 300 CPU s | `fdivp` (restoring division, a word-level netlist of 34 sites) |
 | `arbiter` | ready | clocked, reactive: every `N` (`N*N < 2^31`) | `/ % **` | 300 CPU s | `rr_mask` (a registered mask round-robin) |
-| `matmul` | ready | clocked, transaction, a declared latency: every `N < 2^5, W < 2^10, AccW < 2^12` | `/ % **` | 300 CPU s | `matmul_g1` (`N*N` multiply-accumulate units, latency `N`) |
+| `matmul` | ready | clocked, transaction, a declared latency: every `N <= 256, W <= 127, AccW <= 64` | `/ % **` | 300 CPU s | `matmul_g1` (`N*N` multiply-accumulate units, latency `N`) |
 | `sorter` | ready | clocked, stream, a declared latency: every `N, W` (`N*W < 2^31`) | `/ % **` | 300 CPU s | `sorter_ins` (an insertion-cell array, latency `2N`) |
 
 (from each `tasks/<name>/task.json`, and par's design from `leaderboard/par.json`: one design per task, the simplest

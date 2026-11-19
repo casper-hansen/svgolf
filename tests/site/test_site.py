@@ -2678,6 +2678,14 @@ class SiteTest(unittest.TestCase):
                                 and not ln.lstrip().startswith("example"))
                 self.assertEqual(sorted(set(re.findall(r"2\^(\d+)", " ".join(p["range"] for p in params)))),
                                  sorted(set(re.findall(r"2 \^ (\d+)", defs))), defs)
+                # and so is every other number in them (matmul's `N <= 256` since 2026-11-19): the numbers of the
+                # lines that define inRange, without the powers of two and the pairs' projections (`p.2.1`)
+                def numbers(s, power):
+                    s = re.sub(power, " ", s)
+                    return {int(x) for x in re.findall(r"(?<![\w.])\d+(?![\w.])", s)} - {0}
+                own = " ".join(ln for ln in spec.split("\n") if re.match(r"\s*(def\s+)?inRange\b.*:=", ln))
+                self.assertEqual(numbers(" ".join(p["range"] for p in params), r"2\^\d+"),
+                                 numbers(own, r"2 \^ \d+"), own)
                 statement = norm(text_of(section(self.files[f"tasks/{t}/index.html"].decode("utf-8"), "statement")))
                 self.assertNotRegex(statement, r"every (width )?N ≥ 1")
                 for p in params:

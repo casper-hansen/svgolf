@@ -581,7 +581,7 @@ record hash). A player's record made before such a change is not ranked until it
 have re-recorded such records with the design, the player, the assistance and the date kept (`add
 --require-clean`; a proof ported to a changed statement says so in its notes), and since 2026-11-16 re-make them
 with `remake` when the design and the scoring flow are unchanged ("Re-making a record": the proof checked again,
-the scores carried, `remade` in the record says so; on 2026-11-16 every record was re-made at the new library pin). The git history keeps every earlier record and says when each was made; the site shows what the board
+the scores carried, `remade` in the record says so; on 2026-11-16 every record was re-made at the new library pin, and on 2026-11-19 every matmul record under matmul's new range). The git history keeps every earlier record and says when each was made; the site shows what the board
 ranks now. Par is ONE design per task, the simplest algorithm (decided 2026-11-12: `leaderboard/par.json`, one line per
 task, `par_names`), and only its records are under `svgolf-reference`: only `seed-references` records under the handle
 (`add`, `submit` and the pull-request check refuse it), and only par's design (`add` refuses any other design under

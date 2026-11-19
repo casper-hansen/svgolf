@@ -12,18 +12,18 @@
   "parameters": [
     {
       "name": "N",
-      "range": "1 <= N < 2^5"
+      "range": "1 <= N <= 256"
     },
     {
       "name": "W",
-      "range": "1 <= W < 2^10"
+      "range": "1 <= W <= 127"
     },
     {
       "name": "AccW",
-      "range": "1 <= AccW < 2^12"
+      "range": "1 <= AccW <= 64"
     }
   ],
-  "_range_comment": "Each range string states the bounds of Spec.lean's `task.inRange` on its parameter (1 <= N < 2^5, 1 <= W < 2^10, 1 <= AccW < 2^12, decided 2026-11-16; from C10 to then the range bounded the products N*N*W, N*N*AccW < 2^31, and from 2026-11-14 also W, AccW < 2^20): every width and index a design computes from the parameters (the port widths, below 2^20 and 2^22, and larger declarations such as a multiplier cube's N*N*(2N-1)*AccW bits, below 2^28) stays far below 2^31, where a real elaboration and ls-sv agree.",
+  "_range_comment": "Each range string states the bounds of Spec.lean's `task.inRange` on its parameter (1 <= N <= 256, 1 <= W <= 127, 1 <= AccW <= 64, decided 2026-11-19: up to the largest realistic matrix-multiply circuits; from 2026-11-16 to then 1 <= N < 2^5, 1 <= W < 2^10, 1 <= AccW < 2^12, which the new range neither contains nor is contained in; before that, from C10, the products N*N*W, N*N*AccW < 2^31, and from 2026-11-14 also W, AccW < 2^20): every width and index a design on the board computes from the parameters (the port widths, at most 8,323,072 and 4,194,304 bits, and larger declarations such as a multiplier cube's N*N*(2N-1)*AccW bits, at most 2,143,289,344, and a core mesh's N*N*N*W bits, at most 2,130,706,432) stays below 2^31, where a real elaboration and ls-sv agree.",
   "ports": {
     "inputs": [
       {

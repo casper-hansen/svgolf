@@ -3,8 +3,8 @@
 Multiply two `N × N` matrices of signed `W`-bit entries, with every sum wrapping at `AccW` bits. This is
 svGolf's TRANSACTION task, one of its three clocked tasks (with the arbiter and the sorter). The design has a
 clock, a reset and a handshake: it reads `A` and `B` when `start` is pulsed, and after each start raises
-`done` once `C` holds the product. The proof covers every `1 ≤ N < 2^5`, `1 ≤ W < 2^10` and
-`1 ≤ AccW < 2^12`, and it also proves the cycle count: the score is the area times that
+`done` once `C` holds the product. The proof covers every `1 ≤ N ≤ 256`, `1 ≤ W ≤ 127` and
+`1 ≤ AccW ≤ 64`, and it also proves the cycle count: the score is the area times that
 count times the clock period. So the task is the schedule: how many multipliers, how many cycles, and how
 short a cycle.
 
@@ -200,7 +200,7 @@ The latency function `lat N W AccW ≥ 1` is the submission's own, defined in it
 
 ```lean
 def task : TxTask Params where
-  inRange p := 1 ≤ p.1 ∧ p.1 < 2 ^ 5 ∧ 1 ≤ p.2.1 ∧ p.2.1 < 2 ^ 10 ∧ 1 ≤ p.2.2 ∧ p.2.2 < 2 ^ 12
+  inRange p := 1 ≤ p.1 ∧ p.1 ≤ 256 ∧ 1 ≤ p.2.1 ∧ p.2.1 ≤ 127 ∧ 1 ≤ p.2.2 ∧ p.2.2 ≤ 64
   clk := "clk"
   rst := "rst"
   start := "start"
@@ -272,12 +272,14 @@ ranked statement, `TxTask.StatementV2`, in its row for this task's guarantee, an
   refused at the `score` stage.
 * **No x-creating construct** (rule 3, `XSafe`): the `clocked_rules` stage refuses such a construct before
   the proof (`check/clocked_rules.py`); the statement's conjunct is the authority.
-* **Parameter range** (C10): `1 ≤ N < 2^5`, `1 ≤ W < 2^10`, `1 ≤ AccW < 2^12` (decided 2026-11-16; from C10 to
-  then `N·N·W < 2^31` and `N·N·AccW < 2^31`, and from 2026-11-14 also `W, AccW < 2^20`). In that range every width
-  and index a design computes from the parameters stays far below `2^31`, where an `int` wraps: the port widths
-  `N·N·W` and `N·N·AccW` below `2^20` and `2^22`, and the board's largest declaration, a multiplier cube's
-  `N·N·(2N-1)·AccW` bits, below `2^28` (under the former range three board designs declared vectors wider than
-  `2^31` bits). The design's own `int` expressions are checked to agree with a 32-bit elaboration
+* **Parameter range** (C10): `1 ≤ N ≤ 256`, `1 ≤ W ≤ 127`, `1 ≤ AccW ≤ 64` (decided 2026-11-19: up to the
+  largest realistic matrix-multiply circuits; from 2026-11-16 to then `1 ≤ N < 2^5`, `1 ≤ W < 2^10`,
+  `1 ≤ AccW < 2^12`, which this range neither contains nor is contained in; before that, from C10, `N·N·W < 2^31`
+  and `N·N·AccW < 2^31`, and from 2026-11-14 also `W, AccW < 2^20`). In that range every width and index a board
+  design computes from the parameters stays below `2^31`, where an `int` wraps: the port widths `N·N·W` and
+  `N·N·AccW` at most 8,323,072 and 4,194,304, and the board's largest declarations, a multiplier cube's
+  `N·N·(2N-1)·AccW` bits (at most 2,143,289,344) and a core mesh's `N·N·N·W` bits (at most 2,130,706,432), less
+  than 1 % below `2^31`. The design's own `int` expressions are checked to agree with a 32-bit elaboration
   (`PDesign.int32Agrees`) at the probe and scoring points.
 * **Probe points**: the extractor cross-checks the design at `(N, W, AccW)` = `(1, 1, 1)`, `(2, 3, 5)`,
   `(3, 4, 8)` and the scoring point `(4, 8, 32)`. Mind `N = 1`, and `W = 1`, where an entry is 0 or -1.

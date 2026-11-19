@@ -2,7 +2,7 @@ import SvGolf.TaskSeq
 
 /-!
 # Task `matmul`: N×N signed matrix multiplication, wrapping at the accumulator width
-# (TRUSTED text, final, decided 2026-11-08, amended 2026-11-09, 2026-11-14 and 2026-11-16; written 2026-11-04; contract C6 of `design/sequential/CONTRACT.md`)
+# (TRUSTED text, final, decided 2026-11-08, amended 2026-11-09, 2026-11-14, 2026-11-16 and 2026-11-19; written 2026-11-04; contract C6 of `design/sequential/CONTRACT.md`)
 
 Module (port order as written; `N`, `W`, `AccW` are the module's parameters, in this order):
 
@@ -34,12 +34,15 @@ next `start`. `done` is known in every cycle after the release, and 0 up to the 
 The declared latency `lat` is the submission's; the checker pins its value at the scoring point
 `(4, 8, 32)` and the score uses it (C3, C7). Run-time `/ % **` are banned, as in every task (`task.json`).
 
-**Range.** `1 ≤ N < 2^5`, `1 ≤ W < 2^10`, `1 ≤ AccW < 2^12` (decided 2026-11-16: the parameters are
-capped at a reasonable size, as in the other tasks). The parameters are `int`s, and the range keeps the `int`
-arithmetic a design does on them far below `2^31`, where an `int` wraps: the port widths `N·N·W` and `N·N·AccW`
-(below `2^20` and `2^22`), every index of the interface (`(i*N+k)*W`), and the larger widths a design declares
-from them (a multiplier cube's `N·N·(2N-1)·AccW`, below `2^28`). There a real elaboration and ls-sv agree
-(`PDesign.int32Agrees`; Task v2 decision 1, the `clmul` precedent).
+**Range.** `1 ≤ N ≤ 256`, `1 ≤ W ≤ 127`, `1 ≤ AccW ≤ 64` (decided 2026-11-19: up to the largest
+realistic matrix-multiply circuits, 256×256 matrices with entries of up to 127 bits and accumulators of up to
+64 bits; it replaces the range of 2026-11-16, `N < 2^5`, `W < 2^10`, `AccW < 2^12`, and neither range contains
+the other). The parameters are `int`s, and the range keeps the `int` arithmetic a design does on them below `2^31`,
+where an `int` wraps: the port widths `N·N·W` and `N·N·AccW` (at most 8,323,072 and 4,194,304), every index of
+the interface (`(i*N+k)*W`), and the larger widths the board's designs declare from them (a multiplier cube's
+`N·N·(2N-1)·AccW`, at most 2,143,289,344, and a core mesh's `N·N·N·W`, at most 2,130,706,432: below
+`2^31` = 2,147,483,648, by less than 1 %). There a real elaboration and ls-sv agree (`PDesign.int32Agrees`;
+Task v2 decision 1, the `clmul` precedent).
 
 **txtask-v2 (2026-11-05; final, decided 2026-11-08, amended 2026-11-09).** `Statement` is the v2
 statement `TxTask.StatementV2`: txtask-v1's interface, clock discipline and latency bound; its claims
@@ -75,7 +78,7 @@ def product (N W AccW : Nat) {n : Nat} (a b : BitVec n) : BitVec (N * N * AccW) 
 
 /-- **The task** (C6). -/
 def task : TxTask Params where
-  inRange p := 1 ≤ p.1 ∧ p.1 < 2 ^ 5 ∧ 1 ≤ p.2.1 ∧ p.2.1 < 2 ^ 10 ∧ 1 ≤ p.2.2 ∧ p.2.2 < 2 ^ 12
+  inRange p := 1 ≤ p.1 ∧ p.1 ≤ 256 ∧ 1 ≤ p.2.1 ∧ p.2.1 ≤ 127 ∧ 1 ≤ p.2.2 ∧ p.2.2 ≤ 64
   clk := "clk"
   rst := "rst"
   start := "start"
@@ -106,9 +109,16 @@ example : task.inRange (1, 1, 1) ∧ task.inRange (2, 3, 5) ∧ task.inRange (3,
     task.inRange (4, 8, 32) := by
   simp [task]
 
-/-- The range's ends (decided 2026-11-16): `N < 2^5`, `W < 2^10`, `AccW < 2^12`. -/
-example : task.inRange (2 ^ 5 - 1, 2 ^ 10 - 1, 2 ^ 12 - 1) ∧ ¬ task.inRange (2 ^ 5, 1, 1) ∧
-    ¬ task.inRange (1, 2 ^ 10, 1) ∧ ¬ task.inRange (1, 1, 2 ^ 12) := by
+/-- The range's ends (decided 2026-11-19): the corner `(256, 127, 64)` is in range, and one past it in each
+parameter is not; neither is `0` in any parameter. -/
+example : task.inRange (256, 127, 64) ∧ ¬ task.inRange (257, 127, 64) ∧ ¬ task.inRange (256, 128, 64) ∧
+    ¬ task.inRange (256, 127, 65) ∧ ¬ task.inRange (0, 1, 1) ∧ ¬ task.inRange (1, 0, 1) ∧
+    ¬ task.inRange (1, 1, 0) := by
+  simp [task]
+
+/-- Neither range contains the other (decided 2026-11-19): `N = 256` is new, and the former range's
+`W = 2^10 - 1` and `AccW = 2^12 - 1` are no longer covered. -/
+example : task.inRange (256, 1, 1) ∧ ¬ task.inRange (1, 2 ^ 10 - 1, 1) ∧ ¬ task.inRange (1, 1, 2 ^ 12 - 1) := by
   simp [task]
 
 /-- The port names are distinct. -/

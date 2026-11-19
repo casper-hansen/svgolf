@@ -728,12 +728,12 @@ point). -/
 theorem solution : Goal lat := by
   refine ⟨fun p hp => ?_, rfl⟩
   obtain ⟨N, W, AccW⟩ := p
-  obtain ⟨hN, hN5, hW, hW10, hA, hA12⟩ :
-    1 ≤ N ∧ N < 2 ^ 5 ∧ 1 ≤ W ∧ W < 2 ^ 10 ∧ 1 ≤ AccW ∧ AccW < 2 ^ 12 := hp
+  obtain ⟨hN, hN256, hW, hW127, hA, hA64⟩ :
+    1 ≤ N ∧ N ≤ 256 ∧ 1 ≤ W ∧ W ≤ 127 ∧ 1 ≤ AccW ∧ AccW ≤ 64 := hp
   have hNW : N * N * W < 2 ^ 31 := Nat.lt_of_le_of_lt
-    (Nat.mul_le_mul (Nat.mul_le_mul (by omega : N ≤ 31) (by omega : N ≤ 31)) (by omega : W ≤ 1023)) (by decide)
+    (Nat.mul_le_mul (Nat.mul_le_mul hN256 hN256) hW127) (by decide)
   have hNA : N * N * AccW < 2 ^ 31 := Nat.lt_of_le_of_lt
-    (Nat.mul_le_mul (Nat.mul_le_mul (by omega : N ≤ 31) (by omega : N ≤ 31)) (by omega : AccW ≤ 4095)) (by decide)
+    (Nat.mul_le_mul (Nat.mul_le_mul hN256 hN256) hA64) (by decide)
   have hR32 : Rng32 N W AccW := rng32_of hN hW hA hNW hNA
   exact Tasks.Matmul.task.satisfiedAtV2_of_phases (mm_interface N W AccW hN hW hA hR32)
     (mm_disciplined N W AccW hN hW hA hR32) (mm_terminatesPU N W AccW hN hW hA hR32) hN
