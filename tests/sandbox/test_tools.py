@@ -100,5 +100,61 @@ class ToolAttacks(unittest.TestCase):
         self.assertEqual(rows, [{"y": "0011"}], err)        # the model itself still computes
 
 
+
+class ModelRuntime(unittest.TestCase):
+    """The model may read the runtime libraries of a compiler that lives outside the system trees, and only
+    those files (a record was refused with "libatomic.so.1: cannot open shared object file" on a machine whose
+    compiler came from a package environment)."""
+
+    def setUp(self):
+        postsynth._model_runtime.clear()
+        self.d = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.addCleanup(postsynth._model_runtime.clear)
+
+    def fake(self, answers):
+        class R:
+            def __init__(self, out):
+                self.stdout = out
+        return lambda cmd, **kw: R(answers.get(cmd[1].split("=", 1)[1], cmd[1].split("=", 1)[1]) + "\n")
+
+    def test_outside_compiler(self):
+        lib = os.path.join(self.d, "lib")
+        os.makedirs(lib)
+        open(os.path.join(lib, "libatomic.so.1.2.0"), "w").close()
+        os.symlink("libatomic.so.1.2.0", os.path.join(lib, "libatomic.so.1"))
+        run = self.fake({"libatomic.so.1": os.path.join(lib, "libatomic.so.1"),
+                         "libstdc++.so.6": "/usr/lib/does-not-exist/libstdc++.so.6"})
+        self.assertEqual(postsynth.model_runtime_libs("/x/c++", run), [os.path.join(lib, "libatomic.so.1")])
+        exe = os.path.join(self.d, "obj", "VNET")
+        os.makedirs(os.path.dirname(exe))
+        open(exe, "w").close()
+        old = postsynth.cxx_path
+        postsynth.cxx_path = lambda: "/x/c++"
+        try:
+            spec, env = postsynth.model_sandbox(exe, "/v.hex")
+        finally:
+            postsynth.cxx_path = old
+        rt = os.path.join(self.d, "obj", "rt")
+        self.assertEqual(env["LD_LIBRARY_PATH"], rt)
+        self.assertEqual(os.listdir(rt), ["libatomic.so.1"])      # a copy under the soname, not a link
+        self.assertFalse(os.path.islink(os.path.join(rt, "libatomic.so.1")))
+        self.assertEqual(spec.read, ["/v.hex", rt])               # nothing outside the work directory
+        self.assertEqual(spec.write, [])
+        self.assertFalse(spec.fork)
+
+    def test_system_compiler_grants_nothing(self):
+        # a compiler that does not know a name echoes it back: not a path, no grant, no loader path
+        self.assertEqual(postsynth.model_runtime_libs("/y/c++", self.fake({})), [])
+        old = postsynth.cxx_path
+        postsynth.cxx_path = lambda: "/y/c++"
+        try:
+            spec, env = postsynth.model_sandbox("/bin/sh", "/v.hex")
+        finally:
+            postsynth.cxx_path = old
+        self.assertNotIn("LD_LIBRARY_PATH", env)
+        self.assertEqual(spec.read, ["/v.hex"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)

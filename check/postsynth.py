@@ -352,6 +352,60 @@ def cxx_path():
                          "`c++` (README.md, \"Checking\")")
 
 
+# The compiler runtime libraries a Verilator model may be linked against. A system compiler keeps them in the
+# system library trees, which every sandboxed process can read. A compiler installed elsewhere (a package
+# environment, a toolchain under /opt) keeps them beside itself, and the dynamic loader of the sandboxed
+# model then cannot find them ("error while loading shared libraries: libatomic.so.1").
+MODEL_RUNTIME_SONAMES = ("libstdc++.so.6", "libgcc_s.so.1", "libatomic.so.1")
+SYSTEM_LIB_TREES = ("/usr/lib", "/usr/lib32", "/usr/lib64", "/lib", "/lib32", "/lib64")
+_model_runtime = {}
+
+
+def model_runtime_libs(cxx=None, run=subprocess.run):
+    """The compiler runtime libraries that live OUTSIDE the system library trees, as resolved files, for
+    the compiler the model is built with (`cxx -print-file-name=SONAME`; a compiler that does not know the
+    name echoes it back, and that is skipped). [] for a system compiler, and on macOS."""
+    cxx = cxx or cxx_path()
+    if cxx in _model_runtime:
+        return _model_runtime[cxx]
+    out = []
+    for so in MODEL_RUNTIME_SONAMES:
+        try:
+            p = run([cxx, f"-print-file-name={so}"], capture_output=True, text=True, timeout=30,
+                    env=sandbox.scrubbed_env()).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if not os.path.isabs(p) or not os.path.isfile(p):
+            continue
+        d = os.path.realpath(os.path.dirname(p))
+        if any(d == t or d.startswith(t + "/") for t in map(os.path.realpath, SYSTEM_LIB_TREES)):
+            continue
+        out.append(os.path.join(d, so))
+    _model_runtime[cxx] = out
+    return out
+
+
+def model_sandbox(exe, vp):
+    """(spec, environment) of the sandboxed model: it executes itself, reads the vector file and nothing
+    else, starts nothing, writes nothing. With a compiler from outside the system trees, copies of that
+    compiler's runtime libraries (exactly those files, under their sonames) are staged in `rt/` beside the
+    model; the model may read that directory and the loader is pointed at it. Nothing outside the run's
+    own work directory is granted."""
+    libs = model_runtime_libs()
+    env = {"PATH": "/usr/bin:/bin", "LC_ALL": "C"}
+    read = [vp]
+    if libs:
+        rt = os.path.join(os.path.dirname(os.path.realpath(exe)), "rt")
+        os.makedirs(rt, exist_ok=True)
+        for x in libs:
+            dst = os.path.join(rt, os.path.basename(x))
+            if not os.path.isfile(dst):
+                shutil.copyfile(os.path.realpath(x), dst)
+        env["LD_LIBRARY_PATH"] = rt
+        read.append(rt)
+    return sandbox.exec_spec(exe, read=read, label="model"), env
+
+
 def simcells():
     try:
         dat = subprocess.run([tool("yosys-config"), "--datdir"], capture_output=True, text=True,
@@ -1377,8 +1431,9 @@ def vl_run(exe, ins, outs, vecs, work, tag, timeout):
     try:
         # the compiled model is code made from the submission (a `$system` in the RTL would run in it):
         # it executes itself, reads the vector file and nothing else, starts nothing, writes nothing
-        r = run_group([exe, vp], timeout, spec=sandbox.exec_spec(exe, read=[vp], label="model"), label="model",
-                      env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"} if sandbox.policy().active else None)
+        mspec, menv = model_sandbox(exe, vp)
+        r = run_group([exe, vp], timeout, spec=mspec, label="model",
+                      env=menv if sandbox.policy().active else None)
     except subprocess.TimeoutExpired:
         return None, time.time() - t0, f"the Verilator model did not finish within {timeout:.0f}s"
     el = time.time() - t0
@@ -1874,8 +1929,8 @@ def vl_run_clocked(exe, dins, outs, lines, seed, draw, cap, work, timeout):
     t0 = time.time()
     try:
         r = run_group([exe, vp, str(draw["vl_seed"]), str(cap), str(start_of(seed, draw)[0])], timeout,
-                      spec=sandbox.exec_spec(exe, read=[vp], label="model"), label="model",
-                      env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"} if sandbox.policy().active else None)
+                      spec=model_sandbox(exe, vp)[0], label="model",
+                      env=model_sandbox(exe, vp)[1] if sandbox.policy().active else None)
     except subprocess.TimeoutExpired:
         return None, None, time.time() - t0, f"the Verilator model did not finish within {timeout:.0f}s"
     loader_failure(r)
@@ -1995,8 +2050,8 @@ def vl_run_react(exe, dins, outs, lines, seed, draw, work, timeout):
     t0 = time.time()
     try:
         r = run_group([exe, vp, str(draw["vl_seed"]), str(start_of(seed, draw)[0])], timeout,
-                      spec=sandbox.exec_spec(exe, read=[vp], label="model"), label="model",
-                      env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"} if sandbox.policy().active else None)
+                      spec=model_sandbox(exe, vp)[0], label="model",
+                      env=model_sandbox(exe, vp)[1] if sandbox.policy().active else None)
     except subprocess.TimeoutExpired:
         return None, time.time() - t0, f"the Verilator model did not finish within {timeout:.0f}s"
     loader_failure(r)
