@@ -2723,18 +2723,21 @@ class SiteTest(unittest.TestCase):
         home = norm(text_of(self.files["index.html"]))
         self.assertIn("for every N with 1 <= N < 2^20, whenever the inputs are known", home)
 
-    def test_try_it_without_lean_under_the_hero(self):
-        """Decided 2026-11-17: right under the front page's hero, "Try it without Lean": the exact commands that score
+    def test_try_it_without_lean_under_the_tasks(self):
+        """Decided 2026-11-17, moved 2026-11-20: the tasks come right under the front page's hero, and under the task
+        cards, "Try it without Lean": the exact commands that score
         a design with the real tools on your own machine (the virtual environment, pyslang, the liberty, then
         score/ppa.py on the adder's par design), where to get the pinned Yosys (Step 0's recipe on the tutorial, which
         the link opens), the line score/ppa.py prints last for it (README's Quick start quotes it, from a real run),
         and one plain sentence that a record needs a proof. home.md's own steps point to it rather than repeat it."""
         home = self.files["index.html"].decode("utf-8")
         hero_end = home.index("</header>", home.index('<header class="hero'))
-        self.assertTrue(home[hero_end:].startswith('</header>\n<section class="card try" id="try-it-without-lean">'),
+        self.assertTrue(home[hero_end:].startswith('</header>\n<section class="course">'),
                         home[hero_end:hero_end + 120])
         box = section(home, "try-it-without-lean")
-        self.assertLess(hero_end, home.index('<section class="course">'))
+        cards_end = home.index("</section>", home.index('<section class="course">'))
+        self.assertTrue(home[cards_end:].startswith('</section>\n<section class="card try" id="try-it-without-lean">'),
+                        home[cards_end:cards_end + 120])
         block = html.unescape(re.sub(r"<[^>]+>", "", re.search(r"<pre\b[^>]*>(.*?)</pre>", box, re.S).group(1)))
         cmds = [ln for ln in block.replace(" \\\n    ", " ").split("\n") if ln and not ln.startswith("#")]
         par = lb.par_stem(os.path.join(SVGOLF, "tasks"), lb.load_task(os.path.join(SVGOLF, "tasks"), "add"))

@@ -6379,7 +6379,7 @@ def task_card(t, here):
             + f'{tags}' + (preview_html(t) if t.preview else both(t, lambda: big_numbers(t, notes=False))) + "</li>")
 
 
-TRY_ID = "try-it-without-lean"          # the front page's box under the hero (decided 2026-11-17)
+TRY_ID = "try-it-without-lean"          # the front page's box under the task cards (2026-11-17; moved 2026-11-20)
 
 
 def ppa_summary_line(d):
@@ -6391,7 +6391,7 @@ def ppa_summary_line(d):
 
 
 def try_html(site, tasks, here):
-    """"Try it without Lean" (decided 2026-11-17, the box under the front page's hero): score a design on your own
+    """"Try it without Lean" (decided 2026-11-17; since 2026-11-20 the box under the front page's task cards): score a design on your own
     machine with the real tools, no Lean, as exact commands from the clone (Step 0's virtual environment, pyslang, the
     liberty, then `score/ppa.py` on the adder's par design), what its last line says (par's numbers, from the data),
     and one sentence that a record also needs a proof. "" without the adder or its par numbers."""
@@ -6509,10 +6509,11 @@ def home_page(site, tasks):
     # are the rules page's ("The courses", "Par, record and under par"), linked from every footer ("How it is scored")
     head = "<h2>Tasks</h2>"
     # under the cards, who made the board's records so far (decided 2026-11-17), one sentence
-    parts = [hero, try_html(site, tasks, here),
+    # the tasks come first, right under the hero; "Try it without Lean" follows them (decided 2026-11-20)
+    parts = [hero,
              f'<section class="course"><div class="section-head" id="tasks">{head}</div>'
              + f'<ul class="task-cards">{cards}</ul>{provenance_front_html(site.provenance, here)}</section>',
-             steps_html]
+             try_html(site, tasks, here), steps_html]
     # the rest of home.md: a section that is a numbered list as cards, any other as a card
     for level, sec_title, s0, s1 in secs:
         if level != 2 or (level, sec_title, s0, s1) == how:
