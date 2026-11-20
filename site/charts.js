@@ -809,6 +809,12 @@
     if (over > 0) {
       out = out.map(function (y) { return y - over; });
       for (var k = out.length - 2; k >= 0; k--) { out[k] = Math.min(out[k], out[k + 1] - gap); }
+      // the shift moves the whole run up, names far above the crowding too: when every name fits in [lo, hi], those
+      // pushed past the top come back down, each only as far as the gap needs
+      if (out[0] < lo && (out.length - 1) * gap <= hi - lo) {
+        out[0] = lo;
+        for (var j = 1; j < out.length; j++) { out[j] = Math.max(out[j], out[j - 1] + gap); }
+      }
     }
     return out;
   }
@@ -818,19 +824,26 @@
   // The explorer's Size axis names each line at its right end by the submission's short title (its writeup's first
   // line; a design without one, a reference or a baseline, by its name), par's line "par · <title>" (decided
   // 2026-11-13); the player's name stays in the tooltips. Two lines with the same title get the player's name appended
-  // (" · <player>"); a line standing for several designs keeps its " +N". A label longer than `n` characters is cut
+  // (" · <player>"); a line standing for several designs keeps its " +N". Lines that would still get the same name
+  // (the same title and the same player: two records of one player without writeups, both titled by their file's
+  // stem) get their record's short id (its first 12 hex digits, as the site shows a record elsewhere) appended in
+  // the player's place, " · <id>"; every other name stays as it was. A label longer than `n` characters is cut
   // with an ellipsis, the appended parts kept whole; when two cut labels would read the same, both are cut in the
   // middle instead, so that their ends tell them apart. `lines`: the lines drawn (sizeLines' objects). Pure.
   function sizeLabels(lines, n) {
     var count = {};
     function who(ln) { return ln.lead || ln.names[0]; }
     function base(ln) { return ln.title || who(ln); }
+    function shortId(ln) { return ln.kind === "record" ? String(ln.id).slice(0, 12) : String(ln.id); }
     lines.forEach(function (ln) { count[base(ln)] = (count[base(ln)] || 0) + 1; });
-    function parts(ln) {
+    function parts(ln, alike) {
       return { pre: ln.par ? "par · " : "", core: base(ln),
-               post: (count[base(ln)] > 1 && ln.title ? " · " + who(ln) : "") +
+               post: (alike ? " · " + shortId(ln) : count[base(ln)] > 1 && ln.title ? " · " + who(ln) : "") +
                      (ln.names.length > 1 ? " +" + (ln.names.length - 1) : "") };
     }
+    function whole(p) { return p.pre + p.core + p.post; }
+    var plain = lines.map(function (ln) { return parts(ln, false); }), times = {};
+    plain.forEach(function (p) { times[whole(p)] = (times[whole(p)] || 0) + 1; });
     function cut(p, middle) {
       var room = n - p.pre.length - p.post.length;
       if (p.pre.length + p.core.length + p.post.length <= n) { return p.pre + p.core + p.post; }
@@ -839,7 +852,8 @@
       var head = Math.ceil((room - 1) / 2), tail = room - 1 - head;
       return p.pre + p.core.slice(0, head) + "…" + p.core.slice(p.core.length - tail) + p.post;
     }
-    var ps = lines.map(parts), out = ps.map(function (p) { return cut(p, false); }), seen = {};
+    var ps = lines.map(function (ln, k) { return times[whole(plain[k])] > 1 ? parts(ln, true) : plain[k]; });
+    var out = ps.map(function (p) { return cut(p, false); }), seen = {};
     out.forEach(function (l, k) { (seen[l] = seen[l] || []).push(k); });
     Object.keys(seen).forEach(function (l) {
       var ks = seen[l];

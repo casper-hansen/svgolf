@@ -312,6 +312,12 @@ def _spread(ys, lo, hi, gap):
         out = [y - over for y in out]
         for k in range(len(out) - 2, -1, -1):
             out[k] = min(out[k], out[k + 1] - gap)
+        # the shift moves the whole run up, names far above the crowding too: when every name fits in [lo, hi], those
+        # pushed past the top come back down, each only as far as the gap needs (charts.js's `spread` is the same)
+        if out[0] < lo and (len(out) - 1) * gap <= hi - lo:
+            out[0] = lo
+            for k in range(1, len(out)):
+                out[k] = max(out[k], out[k - 1] + gap)
     return out
 
 

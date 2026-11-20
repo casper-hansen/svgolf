@@ -4141,8 +4141,9 @@ class CommittedAsap7PnrTest(unittest.TestCase):
                          if lb.asap7pnr_status(pnr, a7, r["files"]["sv"]["sha256"], task=task, pins=pins)[0] == "bound"}
                 self.assertEqual({r["record_hash"] for r in board["ranking"]}, bound)
         # 2026-11-13, campaign 3: every design the tasks show is routed (52 since the 13 matmul architecture records);
-        # 2026-11-19: clockwork-otter's matmul record 7f5da0d09f15 waits for its run (its request is stored, pending)
-        self.assertEqual(totals, {"bound": 52, "pending": 1})
+        # 2026-11-19: clockwork-otter's matmul record 7f5da0d09f15 waits for its run (its request is stored, pending);
+        # 2026-11-20: so does clockwork-otter's matmul record ddc2d1b271db
+        self.assertEqual(totals, {"bound": 52, "pending": 2})
 
 
 def git(cwd, *args):

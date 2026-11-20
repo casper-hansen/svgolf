@@ -224,6 +224,18 @@ class ChartTest(unittest.TestCase):
         self.assertGreater(s.hi, 5)
         self.assertTrue(all(s.lo <= t <= s.hi for t in s.ticks()))
 
+    def test_margin_names_spread_inside_the_frame(self):
+        """`_spread` (and charts.js's `spread`, the same rule): names at least `gap` apart; a crowd at the bottom pushes
+        the run up, but names far above it that the shift took past the top come back down when every name fits (a
+        Size view's top name was drawn above the drawing, 2026-11-20); a run that cannot fit still ends at the bottom."""
+        got = svgplot._spread([0, 10, 100, 100, 100, 100], 0, 110, 10)
+        self.assertEqual(got, [0, 10, 80, 90, 100, 110])
+        got = svgplot._spread([30, 100, 100, 100], 0, 110, 10)       # nothing past the top: the shift alone
+        self.assertEqual(got, [20, 90, 100, 110])
+        got = svgplot._spread([0] * 20, 0, 100, 10)                  # too many names for the frame: as before
+        self.assertEqual(got[-1], 100)
+        self.assertTrue(all(b - a >= 10 for a, b in zip(got, got[1:])))
+
     def test_step_line_and_rounding(self):
         self.assertEqual(svgplot.step_points([(30, 100), (10, 300), (20, 200)]),
                          [(10, 300), (20, 300), (20, 200), (30, 200), (30, 100)])
