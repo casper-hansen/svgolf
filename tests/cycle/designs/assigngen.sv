@@ -1,6 +1,6 @@
-// tests/cycle: continuous assignments inside a generate loop (one per word) and one at the module level, beside a
-// register: sv_mirror covers them (a family of comb processes and a second comb process); sv_cycle refuses the
-// clock step of several comb processes by name.
+// tests/cycle: continuous assignments inside a generate loop (one per word) and one at the module level that reads
+// the family's signal (u = t | a), beside a register: sv_mirror covers them; sv_cycle refuses the clock step by name
+// (a comb process that reads a signal a comb process drives: not a flat comb part).
 module assigngen #(parameter int N = 4, parameter int W = 8) (
   input  logic           clk,
   input  logic [N*W-1:0] a, b,

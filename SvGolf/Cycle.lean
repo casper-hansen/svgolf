@@ -76,11 +76,31 @@ A `localparam` chosen by a comparison of the parameters is refused with the comp
 one of `hyps` (`(h : W < AccW)`, `(h : ¬ W < AccW)`, one `sv_mirror` per case) the parameter environment
 evaluates and the command proceeds.
 
-There is no `X.profile` (the design is not FF-only). Two comb processes, or one in a generate loop, are refused by
-`sv_cycle` (the mirror covers them): their settle in every schedule order needs a lemma that every order of the
-passes reaches one fixpoint, not proved yet. So are a process list that branches on a generate `if` (a condition of
-the parameters alone can be given as a hypothesis of `sv_mirror` instead, one mirror per case) and a process split
-at a genvar's first or last value. These refusals come before the disjointness term is read.
+**Several comb processes, or one inside a generate loop (a flat comb part)**: covered when every comb process is a
+continuous assignment to a whole signal or a static part select and none reads a signal a comb process drives (the
+family may be generated, any number of loops deep; nothing is unrolled). With pairwise disjoint windows a settle
+pass in every schedule order ends at the state where each window holds its assignment's value, computed on the state
+before the settle, and a second pass confirms it (`combSettle2_flat`, with `cycleStep2_flat` the cycle). The term
+after `using` is then one of: `h : (X.procs params).Pairwise WinDisj` (every window two processes write, continuous
+and procedural: `WinDisj.of_all` decides one pair, as `ProcDisj.of_all` does); the one-driver rule itself,
+`h : driversOk design.pdesign.declNames design.pdesign.inputNames (X.procs params) = true`; or
+`Pairwise ProcDisj` as above, when the continuous windows are disjoint by evaluation (assignments at the module
+level). `sv_cycle` defines, per continuous assignment, its write `X.<p>C params … x₁ … xₙ` (one update, its value
+computed on `X.St …`; `X.<p>_comb`), the comb writes of the design in process order `X.combQ` (`X.combQ_eq`; a
+family stays a `List.range` family), the settled values `X.comb_<signal>` (`nbaFold "<signal>" (X.combQ …) x`, the
+writes to the signal committed) and the settled state `X.comb`; it proves `X.combQ_disj` (the writes are pairwise
+disjoint, `NbaDisj`), `X.flat_ok` and `X.drv_declared` (the two checks), **`X.settle`** and `X.cycle` as for one
+comb process. A window of a settled signal is read with `extract_nbaFold_of_mem` from `X.combQ_disj` and the
+membership of the write in `X.combQ`.
+
+There is no `X.profile` (the design is not FF-only). Among several comb processes, `sv_cycle` refuses by name (the
+mirror covers them): an `always_comb` process; a continuous assignment to an element select or a concatenation; a
+comb process that reads a signal a comb process drives (the settle of comb processes that read each other needs an
+acyclic order of them, a rank argument over the passes, not proved yet); continuous windows that are not disjoint,
+or not by evaluation while only `Pairwise ProcDisj` is given. So are a process list that branches on a generate
+`if` (a condition of the parameters alone can be given as a hypothesis of `sv_mirror` instead, one mirror per case)
+and a process split at a genvar's first or last value. These refusals, the last one of the comb list excepted, come
+before the term after `using` is read.
 
 Nothing the commands produce is trusted: every definition and theorem is added to the environment through the
 kernel, and every proof is a proof term built by `simp`, `omega` and the library lemmas below, checked like
@@ -871,6 +891,702 @@ theorem ff_of_ffNba {d : Design2} (h : d.processes.toList.all ffNba = true) :
   cases p with
   | alwaysFF c b => exact ⟨c, b, rfl, by simpa [ffNba] using this⟩
   | _ => simp_all [ffNba, Process2.isEdgePhase]
+
+/-! ### One cycle with a flat comb part: continuous assignments to disjoint static windows
+
+A comb part is *flat* when every comb process is a continuous assignment to a whole signal or to a static part
+select, and none of them reads a signal a comb process drives (`flatProc`, over the list `cn` of the comb-driven
+signals). With pairwise disjoint driven windows (the one-driver rule), a settle pass in ANY order of the comb
+processes is the commit of one write per assignment, each value computed on the state before the settle
+(`combPass2_flat`): a write changes only comb-driven signals, which no assignment reads. Every schedule order is a
+permutation of the comb processes and disjoint writes commute (`commitNba2_perm`), so one pass ends at the same
+state in every order (`flatSettle`), and a second pass writes the same values again (`commitNba2_idem`):
+`combSettle2_flat`. `cycleStep2_flat` is the cycle. The comb processes may be a generated family, any number of
+loops deep: nothing here unrolls it. -/
+
+/-- A static target (a whole signal, a static part select) that names a signal of `cn`. -/
+def flatLhs (cn : List String) : Lhs2 → Bool
+  | .ident n => cn.contains n
+  | .slice n _ _ => cn.contains n
+  | .index _ _ _ => false
+  | .concat _ => false
+
+/-- A process of a flat comb part over the comb-driven signals `cn`: a clocked process, or a continuous
+assignment to a static target of `cn` whose value has size below `K` (the fuel) and reads no signal of `cn`. -/
+def flatProc (cn : List String) (K : Nat) : Process2 → Bool
+  | .assign t e => flatLhs cn t && (decide (e.size < K) && e.reads.all fun r => !cn.contains r.name)
+  | .alwaysFF _ _ => true
+  | .alwaysPlain _ _ => true
+  | .alwaysFFR _ _ _ _ => true
+  | .alwaysComb _ => false
+  | .unsupported _ _ => false
+
+/-- The write of the value `v` to a static target on `st` (nothing when the target is not declared). -/
+def lhsUpd (st : SvState) (v : LVec) : Lhs2 → NbaQueue2
+  | .ident n =>
+      match SvState.lookup st n with
+      | some old => [(n, 0, v.resizeU old.width)]
+      | none => []
+  | .slice n lo w =>
+      match SvState.lookup st n with
+      | some _ => [(n, lo, v.resizeU w)]
+      | none => []
+  | .index _ _ _ => []
+  | .concat _ => []
+
+/-- **The one write of a continuous assignment**, its value computed on `st` (nothing for any other process, or
+when the value does not evaluate). -/
+def combUpd (st : SvState) : Process2 → NbaQueue2
+  | .assign t e =>
+      match evalPure2 st e with
+      | .ok v => lhsUpd st v t
+      | .timeout => []
+      | .unsupported _ => []
+  | .alwaysFF _ _ => []
+  | .alwaysPlain _ _ => []
+  | .alwaysFFR _ _ _ _ => []
+  | .alwaysComb _ => []
+  | .unsupported _ _ => []
+
+/-- `combUpd` with the fueled evaluator (what `sv_cycle` normalizes; `combUpdF_eq`). -/
+def combUpdF (F : Nat) (st : SvState) : Process2 → NbaQueue2
+  | .assign t e =>
+      match evalExpr2 F st e with
+      | .ok v => lhsUpd st v t
+      | .timeout => []
+      | .unsupported _ => []
+  | .alwaysFF _ _ => []
+  | .alwaysPlain _ _ => []
+  | .alwaysFFR _ _ _ _ => []
+  | .alwaysComb _ => []
+  | .unsupported _ _ => []
+
+theorem combUpdF_eq {cn : List String} {K F : Nat} {p : Process2} (h : flatProc cn K p = true) (hF : K ≤ F)
+    (st : SvState) : combUpdF F st p = combUpd st p := by
+  cases p with
+  | assign t e =>
+      have hs : e.size < F := by
+        simp only [flatProc, Bool.and_eq_true, decide_eq_true_eq] at h
+        omega
+      simp only [combUpdF, combUpd, evalExpr2_eq_evalPure2 hs]
+  | _ => rfl
+
+theorem lhsUpd_names {cn : List String} {st : SvState} {v : LVec} {t : Lhs2} (h : flatLhs cn t = true) :
+    ∀ u ∈ lhsUpd st v t, cn.contains u.1 = true := by
+  cases t with
+  | ident n =>
+      intro u hu
+      simp only [lhsUpd] at hu
+      split at hu
+      · simp only [List.mem_singleton] at hu
+        subst hu
+        exact h
+      · simp at hu
+  | slice n lo w =>
+      intro u hu
+      simp only [lhsUpd] at hu
+      split at hu
+      · simp only [List.mem_singleton] at hu
+        subst hu
+        exact h
+      · simp at hu
+  | index a i ew => intro u hu; simp [lhsUpd] at hu
+  | concat ps => intro u hu; simp [lhsUpd] at hu
+
+/-- A flat process writes only signals of `cn`. -/
+theorem combUpd_names {cn : List String} {K : Nat} {p : Process2} (h : flatProc cn K p = true) (st : SvState) :
+    ∀ u ∈ combUpd st p, cn.contains u.1 = true := by
+  cases p with
+  | assign t e =>
+      have ht : flatLhs cn t = true := by
+        simp only [flatProc, Bool.and_eq_true] at h
+        exact h.1
+      intro u hu
+      simp only [combUpd] at hu
+      split at hu
+      · exact lhsUpd_names ht u hu
+      · simp at hu
+      · simp at hu
+  | _ => intro u hu; simp [combUpd] at hu
+
+theorem lhsUpd_covered {st : SvState} {v : LVec} {t : Lhs2} :
+    ∀ u ∈ lhsUpd st v t, ∃ a ∈ t.drvWins, Covers a u := by
+  cases t with
+  | ident n =>
+      intro u hu
+      simp only [lhsUpd] at hu
+      split at hu
+      · simp only [List.mem_singleton] at hu
+        subst hu
+        exact ⟨(n, none), by simp [Lhs2.drvWins], rfl, fun l k h => by simp at h⟩
+      · simp at hu
+  | slice n lo w =>
+      intro u hu
+      simp only [lhsUpd] at hu
+      split at hu
+      · simp only [List.mem_singleton] at hu
+        subst hu
+        refine ⟨(n, some (lo, w)), by simp [Lhs2.drvWins], rfl, fun l k h => ?_⟩
+        simp only [Option.some.injEq, Prod.mk.injEq] at h
+        obtain ⟨rfl, rfl⟩ := h
+        simp
+      · simp at hu
+  | index a i ew => intro u hu; simp [lhsUpd] at hu
+  | concat ps => intro u hu; simp [lhsUpd] at hu
+
+/-- The write of a continuous assignment is inside one of the windows it drives. -/
+theorem combUpd_covered (st : SvState) (p : Process2) : ∀ u ∈ combUpd st p, ∃ a ∈ p.drvWins, Covers a u := by
+  cases p with
+  | assign t e =>
+      intro u hu
+      simp only [combUpd] at hu
+      split at hu
+      · exact lhsUpd_covered u hu
+      · simp at hu
+      · simp at hu
+  | _ => intro u hu; simp [combUpd] at hu
+
+theorem lhsUpd_pairwise (st : SvState) (v : LVec) (t : Lhs2) : (lhsUpd st v t).Pairwise NbaDisj := by
+  cases t with
+  | ident n => simp only [lhsUpd]; split <;> simp
+  | slice n lo w => simp only [lhsUpd]; split <;> simp
+  | index a i ew => exact List.Pairwise.nil
+  | concat ps => exact List.Pairwise.nil
+
+theorem combUpd_pairwise (st : SvState) (p : Process2) : (combUpd st p).Pairwise NbaDisj := by
+  cases p with
+  | assign t e =>
+      simp only [combUpd]
+      split
+      · exact lhsUpd_pairwise ..
+      · exact List.Pairwise.nil
+      · exact List.Pairwise.nil
+  | _ => exact List.Pairwise.nil
+
+/-- **One run of a flat process is the commit of its write** (a clocked process does nothing in a settle pass). -/
+theorem runCombProcess2_flat {cn : List String} {K F : Nat} {st : SvState} {p : Process2}
+    (h : flatProc cn K p = true) (hF : K ≤ F) (hne : p.isCombPhase = true → combUpd st p ≠ []) :
+    runCombProcess2 F st p = .ok (commitNba2 st (combUpd st p)) := by
+  cases p with
+  | assign t e =>
+      have hs : e.size < F := by
+        simp only [flatProc, Bool.and_eq_true, decide_eq_true_eq] at h
+        omega
+      have hne' := hne rfl
+      cases t with
+      | ident n =>
+          cases hv : evalPure2 st e with
+          | ok v =>
+              cases hl : SvState.lookup st n with
+              | some old =>
+                  simp [runCombProcess2, resolveLhs2, combUpd, lhsUpd, evalExpr2_eq_evalPure2 hs, hv, hl,
+                    commitNba2_cons, commitNba2_nil, nbaStep]
+              | none => simp [combUpd, lhsUpd, hv, hl] at hne'
+          | timeout => simp [combUpd, hv] at hne'
+          | unsupported m => simp [combUpd, hv] at hne'
+      | slice n lo w =>
+          cases hv : evalPure2 st e with
+          | ok v =>
+              cases hl : SvState.lookup st n with
+              | some old =>
+                  simp [runCombProcess2, resolveLhs2, combUpd, lhsUpd, evalExpr2_eq_evalPure2 hs, hv, hl,
+                    commitNba2_cons, commitNba2_nil, nbaStep]
+              | none => simp [combUpd, lhsUpd, hv, hl] at hne'
+          | timeout => simp [combUpd, hv] at hne'
+          | unsupported m => simp [combUpd, hv] at hne'
+      | index a i ew => simp [flatProc, flatLhs] at h
+      | concat ps => simp [flatProc, flatLhs] at h
+  | alwaysFF c b => rfl
+  | alwaysPlain c b => rfl
+  | alwaysFFR c r b hi => rfl
+  | alwaysComb b => simp [flatProc] at h
+  | unsupported k t => simp [flatProc] at h
+
+/-- `t` is `s` up to the values of the comb-driven signals `cn`: the same names, the same values outside `cn`,
+the same widths. -/
+structure CombSim (cn : List String) (s t : SvState) : Prop where
+  keys : t.map Prod.fst = s.map Prod.fst
+  same : ∀ n, cn.contains n = false → SvState.lookup t n = SvState.lookup s n
+  width : ∀ n, (SvState.lookup t n).map LVec.width = (SvState.lookup s n).map LVec.width
+
+theorem CombSim.refl (cn : List String) (s : SvState) : CombSim cn s s :=
+  ⟨rfl, fun _ _ => rfl, fun _ => rfl⟩
+
+theorem CombSim.step {cn : List String} {s t : SvState} (h : CombSim cn s t) {u : String × Nat × LVec}
+    (hu : cn.contains u.1 = true) : CombSim cn s (nbaStep t u) := by
+  refine ⟨by rw [keys_nbaStep]; exact h.keys, fun n hn => ?_, fun n => ?_⟩
+  · have hne : u.1 ≠ n := fun he => by
+      rw [he, hn] at hu
+      exact Bool.false_ne_true hu
+    unfold nbaStep
+    split
+    · rw [SvState.lookup_set_ne _ _ hne]; exact h.same n hn
+    · exact h.same n hn
+  · unfold nbaStep
+    split
+    · rename_i old hl
+      by_cases he : u.1 = n
+      · subst he
+        rw [SvState.lookup_set_self, ← h.width u.1, hl]
+        simp
+      · rw [SvState.lookup_set_ne _ _ he]; exact h.width n
+    · exact h.width n
+
+theorem CombSim.commit {cn : List String} {s : SvState} : ∀ (q : NbaQueue2) {t : SvState}, CombSim cn s t →
+    (∀ u ∈ q, cn.contains u.1 = true) → CombSim cn s (commitNba2 t q)
+  | [], _, h, _ => h
+  | u :: q, _, h, hq => by
+      rw [commitNba2_cons]
+      exact CombSim.commit q (h.step (hq u List.mem_cons_self)) fun u' hu' => hq u' (List.mem_cons_of_mem _ hu')
+
+/-- **Frame**: an expression that reads no signal of `cn` has the same value on `t` as on `s`. -/
+theorem evalPure2_sim {cn : List String} {s t : SvState} (h : CombSim cn s t) {e : Expr2}
+    (hr : (e.reads.all fun r => !cn.contains r.name) = true) : evalPure2 t e = evalPure2 s e := by
+  refine evalPure2_congr_reads fun r hrm => ?_
+  have hn : cn.contains r.name = false := by
+    have := List.all_eq_true.mp hr r hrm
+    simpa using this
+  cases r with
+  | whole n => exact h.same n hn
+  | win n lo w => simp only [ReadWin.agree, h.same n hn]
+
+theorem lhsUpd_sim {cn : List String} {s t : SvState} (h : CombSim cn s t) (v : LVec) (tg : Lhs2) :
+    lhsUpd t v tg = lhsUpd s v tg := by
+  cases tg with
+  | ident n =>
+      have hw := h.width n
+      simp only [lhsUpd]
+      cases ht : SvState.lookup t n <;> cases hs : SvState.lookup s n <;> simp_all
+  | slice n lo w =>
+      have hw := h.width n
+      simp only [lhsUpd]
+      cases ht : SvState.lookup t n <;> cases hs : SvState.lookup s n <;> simp_all
+  | index a i ew => rfl
+  | concat ps => rfl
+
+/-- A flat process makes the same write on `t` as on `s`. -/
+theorem combUpd_sim {cn : List String} {K : Nat} {s t : SvState} (h : CombSim cn s t) {p : Process2}
+    (hp : flatProc cn K p = true) : combUpd t p = combUpd s p := by
+  cases p with
+  | assign tg e =>
+      have hr : (e.reads.all fun r => !cn.contains r.name) = true := by
+        simp only [flatProc, Bool.and_eq_true] at hp
+        exact hp.2.2
+      simp only [combUpd, evalPure2_sim h hr]
+      cases evalPure2 s e with
+      | ok v => exact lhsUpd_sim h v tg
+      | timeout => rfl
+      | unsupported m => rfl
+  | _ => rfl
+
+/-- The write of process `i` of the design, its value computed on `s`. -/
+def combUpdAt (d : Design2) (s : SvState) (i : Nat) : NbaQueue2 :=
+  match d.processes[i]? with
+  | some p => combUpd s p
+  | none => []
+
+/-- **A settle pass over any list of process indices**, from a state `t` that is `s` up to the comb-driven
+signals: the commit of the listed processes' writes, each computed on `s`. -/
+theorem combPass2_flat {d : Design2} {cn : List String} {K F : Nat}
+    (hflat : ∀ p ∈ d.processes.toList, flatProc cn K p = true) (hF : K ≤ F) {s : SvState}
+    (hok : ∀ p ∈ d.processes.toList, p.isCombPhase = true → combUpd s p ≠ []) :
+    ∀ (l : List Nat) (t : SvState), CombSim cn s t →
+      combPass2 d F t l = .ok (commitNba2 t (l.flatMap (combUpdAt d s)))
+  | [], t, _ => rfl
+  | i :: l, t, ht => by
+      cases hp : d.processes[i]? with
+      | none =>
+          have h0 : combUpdAt d s i = [] := by simp [combUpdAt, hp]
+          simp only [combPass2, hp, Res.pure_eq, Res.ok_bind, List.flatMap_cons, h0, List.nil_append]
+          exact combPass2_flat hflat hF hok l t ht
+      | some p =>
+          have hm : p ∈ d.processes.toList := Array.mem_toList_iff.mpr (Array.mem_of_getElem? hp)
+          have h0 : combUpdAt d s i = combUpd s p := by simp [combUpdAt, hp]
+          have hsim := combUpd_sim ht (hflat p hm)
+          have hrun := runCombProcess2_flat (st := t) (hflat p hm) hF
+            (fun hc => by rw [hsim]; exact hok p hm hc)
+          rw [hsim] at hrun
+          simp only [combPass2, hp, hrun, Res.ok_bind, List.flatMap_cons, h0, commitNba2_append]
+          exact combPass2_flat hflat hF hok l _ (CombSim.commit _ ht (combUpd_names (hflat p hm) s))
+
+/-- The writes of two different processes are disjoint, when the driven windows are. -/
+theorem combUpdAt_disj {d : Design2}
+    (hdw : (d.processes.toList.flatMap Process2.drvWins).Pairwise fun a b => a.overlaps b = false)
+    (s : SvState) : ∀ i j, i ≠ j → ∀ u ∈ combUpdAt d s i, ∀ u' ∈ combUpdAt d s j, NbaDisj u u' := by
+  have hpw := (List.pairwise_flatMap.mp hdw).2
+  have key : ∀ i j (hi : i < d.processes.size) (hj : j < d.processes.size), i < j →
+      ∀ a ∈ d.processes[i].drvWins, ∀ b ∈ d.processes[j].drvWins, a.overlaps b = false :=
+    fun i j hi hj hij => List.pairwise_iff_getElem.mp hpw i j (by simpa using hi) (by simpa using hj) hij
+  intro i j hij u hu u' hu'
+  cases hp : d.processes[i]? with
+  | none => simp [combUpdAt, hp] at hu
+  | some p =>
+    cases hq : d.processes[j]? with
+    | none => simp [combUpdAt, hq] at hu'
+    | some q =>
+      have hu2 : u ∈ combUpd s p := by simpa [combUpdAt, hp] using hu
+      have hu2' : u' ∈ combUpd s q := by simpa [combUpdAt, hq] using hu'
+      obtain ⟨hi, rfl⟩ := Array.getElem?_eq_some_iff.mp hp
+      obtain ⟨hj, rfl⟩ := Array.getElem?_eq_some_iff.mp hq
+      obtain ⟨a, ha, hca⟩ := combUpd_covered s _ u hu2
+      obtain ⟨b, hb, hcb⟩ := combUpd_covered s _ u' hu2'
+      rcases Nat.lt_or_gt_of_ne hij with h | h
+      · exact covers_disj (key i j hi hj h a ha b hb) hca hcb
+      · exact covers_disj (by rw [DrvWin.overlaps_comm]; exact key j i hj hi h b hb a ha) hca hcb
+
+/-- The comb processes' writes, in index order, are the processes' writes in process order (a clocked process
+writes nothing in a settle). -/
+theorem flatMap_combUpdAt_all (d : Design2) (s : SvState) :
+    d.combIndices.flatMap (combUpdAt d s) = d.processes.toList.flatMap (combUpd s) := by
+  have h1 : d.combIndices.flatMap (combUpdAt d s) =
+      (List.range d.processes.size).flatMap (combUpdAt d s) := by
+    unfold Design2.combIndices
+    refine flatMap_filter_of _ _ _ fun i _ hi => ?_
+    unfold combUpdAt
+    cases hp : d.processes[i]? with
+    | none => rfl
+    | some p =>
+        rw [hp] at hi
+        cases p <;> simp_all [Process2.isCombPhase, combUpd]
+  rw [h1, ← Array.length_toList]
+  refine CombView.flatMap_range_eq _ _ _ fun i hi => ?_
+  have hi' : i < d.processes.size := by simpa using hi
+  simp only [combUpdAt, Array.getElem?_eq_getElem hi', Array.getElem_toList]
+
+/-- The writes of a flat comb part are pairwise disjoint. -/
+theorem combQ_pairwise {d : Design2}
+    (hdw : (d.processes.toList.flatMap Process2.drvWins).Pairwise fun a b => a.overlaps b = false)
+    (s : SvState) : (d.processes.toList.flatMap (combUpd s)).Pairwise NbaDisj := by
+  rw [← flatMap_combUpdAt_all, List.pairwise_flatMap]
+  refine ⟨fun i _ => ?_, ?_⟩
+  · unfold combUpdAt
+    split
+    · exact combUpd_pairwise ..
+    · exact List.Pairwise.nil
+  · have hnd : d.combIndices.Nodup := List.nodup_range.filter _
+    exact List.Pairwise.imp (fun {i j} hij u hu u' hu' => combUpdAt_disj hdw s i j hij u hu u' hu') hnd
+
+theorem set_set : ∀ (st : SvState) (n : String) (a b : LVec),
+    SvState.set (SvState.set st n a) n b = SvState.set st n b
+  | [], n, a, b => by simp [SvState.set]
+  | (k, w) :: rest, n, a, b => by
+      by_cases h : (k == n) = true
+      · simp [SvState.set, h]
+      · simp [SvState.set, h, set_set rest n a b]
+
+/-- A write made twice is the write made once. -/
+theorem nbaStep_idem (st : SvState) (u : String × Nat × LVec) : nbaStep (nbaStep st u) u = nbaStep st u := by
+  cases hl : SvState.lookup st u.1 with
+  | none =>
+      have h1 : nbaStep st u = st := by simp [nbaStep, hl]
+      rw [h1, h1]
+  | some old =>
+      have h1 : nbaStep st u = SvState.set st u.1 (old.insertAt u.2.1 u.2.2) := by simp [nbaStep, hl]
+      have h2 : nbaStep (SvState.set st u.1 (old.insertAt u.2.1 u.2.2)) u =
+          SvState.set (SvState.set st u.1 (old.insertAt u.2.1 u.2.2)) u.1
+            ((old.insertAt u.2.1 u.2.2).insertAt u.2.1 u.2.2) := by
+        simp [nbaStep]
+      rw [h1, h2, LVec.insertAt_insertAt_of_width_le (Nat.le_refl _), set_set]
+
+/-- **Pairwise disjoint writes committed twice are the writes committed once.** -/
+theorem commitNba2_idem : ∀ (q : NbaQueue2) (st : SvState), (st.map Prod.fst).Nodup → q.Pairwise NbaDisj →
+    commitNba2 (commitNba2 st q) q = commitNba2 st q
+  | [], _, _, _ => rfl
+  | u :: q, st, hnd, hp => by
+      have hu : ∀ u' ∈ q, NbaDisj u u' := (List.pairwise_cons.mp hp).1
+      have hq : q.Pairwise NbaDisj := (List.pairwise_cons.mp hp).2
+      have hnd' : ((nbaStep st u).map Prod.fst).Nodup := by rw [keys_nbaStep]; exact hnd
+      calc commitNba2 (commitNba2 st (u :: q)) (u :: q)
+          = commitNba2 (nbaStep st u) (q ++ u :: q) := by
+              rw [← commitNba2_append, List.cons_append, commitNba2_cons]
+        _ = commitNba2 (nbaStep st u) (u :: (q ++ q)) := (commitNba2_move hnd' hu).symm
+        _ = commitNba2 (nbaStep st u) (q ++ q) := by rw [commitNba2_cons, nbaStep_idem]
+        _ = commitNba2 (commitNba2 (nbaStep st u) q) q := commitNba2_append _ _ _
+        _ = commitNba2 (nbaStep st u) q := commitNba2_idem q _ hnd' hq
+        _ = commitNba2 st (u :: q) := rfl
+
+/-- **The settled state of a flat comb part**: every continuous assignment's write, its value computed on `s`,
+committed in process order. -/
+def flatSettle (d : Design2) (s : SvState) : SvState :=
+  commitNba2 s (d.processes.toList.flatMap (combUpd s))
+
+/-- A settle whose every pass from `s` ends at `S`, and from `S` at `S` again, ends at `S` (one or two passes). -/
+theorem combSettle2_two_pass {d : Design2} {σ : ScheduleOracle} {K F : Nat} (hF : K + 2 ≤ F) {s S : SvState}
+    (h1 : ∀ j f, K ≤ f → combPass2 d f s (σ.choose j d.combIndices) = .ok S)
+    (h2 : ∀ j f, K ≤ f → combPass2 d f S (σ.choose j d.combIndices) = .ok S) (k : Nat) :
+    ∃ k', combSettle2 d σ F s k = .ok (S, k') := by
+  obtain ⟨f, rfl⟩ : ∃ f, F = f + K + 2 := ⟨F - K - 2, by omega⟩
+  rw [show f + K + 2 = (f + K + 1) + 1 by omega, combSettle2.eq_2, h1 k (f + K + 1) (by omega)]
+  simp only [Res.ok_bind]
+  by_cases hb : (S == s) = true
+  · rw [ite_eq_left hb]; exact ⟨_, rfl⟩
+  · rw [ite_eq_right hb, show f + K + 1 = (f + K) + 1 by omega, combSettle2.eq_2, h2 (k + 1) (f + K) (by omega)]
+    simp only [Res.ok_bind]
+    rw [beq_self_eq_true, ite_eq_left rfl]
+    exact ⟨_, rfl⟩
+
+/-- **The comb settle of a flat comb part, under every schedule.** When every comb process is a continuous
+assignment to a whole signal or a static part select of the signals `cn`, none reads a signal of `cn`
+(`flatProc`), the driven windows are pairwise disjoint, and every assignment's value evaluates on `s` with its
+target declared (`combUpd s p ≠ []`): from `s`, a state with distinct names, the settle ends, in one or two
+passes and in every schedule order, at `flatSettle d s`: `s` with each driven window holding its assignment's
+value computed on `s`. The comb processes may be a generated family (nothing is unrolled). -/
+theorem combSettle2_flat {d : Design2} {cn : List String} {K : Nat}
+    (hflat : d.processes.toList.all (flatProc cn K) = true)
+    (hdw : (d.processes.toList.flatMap Process2.drvWins).Pairwise fun a b => a.overlaps b = false)
+    (σ : ScheduleOracle) {F : Nat} (hF : K + 2 ≤ F) {s : SvState} (hnd : (s.map Prod.fst).Nodup)
+    (hok : ∀ p ∈ d.processes.toList, p.isCombPhase = true → combUpd s p ≠ []) (k : Nat) :
+    ∃ k', combSettle2 d σ F s k = .ok (flatSettle d s, k') := by
+  have hfl : ∀ p ∈ d.processes.toList, flatProc cn K p = true := List.all_eq_true.mp hflat
+  have hnde : d.combIndices.Nodup := List.nodup_range.filter _
+  have hnames : ∀ u ∈ d.processes.toList.flatMap (combUpd s), cn.contains u.1 = true := by
+    intro u hu
+    obtain ⟨p, hp, hu⟩ := List.mem_flatMap.mp hu
+    exact combUpd_names (hfl p hp) s u hu
+  have hpass : ∀ (j f : Nat) (t : SvState), K ≤ f → CombSim cn s t → (t.map Prod.fst).Nodup →
+      combPass2 d f t (σ.choose j d.combIndices) =
+        .ok (commitNba2 t (d.processes.toList.flatMap (combUpd s))) := by
+    intro j f t hf ht hndt
+    have hperm := σ.choose_perm j d.combIndices
+    rw [combPass2_flat hfl hf hok _ t ht,
+      commitNba2_perm (combUpdAt_disj hdw s) hperm (hperm.nodup_iff.mpr hnde) hndt, flatMap_combUpdAt_all]
+  refine combSettle2_two_pass hF (fun j f hf => hpass j f s hf (CombSim.refl cn s) hnd) (fun j f hf => ?_) k
+  have hS : CombSim cn s (flatSettle d s) := CombSim.commit _ (CombSim.refl cn s) hnames
+  have hndS : ((flatSettle d s).map Prod.fst).Nodup := by
+    rw [flatSettle, keys_commitNba2]; exact hnd
+  exact (hpass j f _ hf hS hndS).trans (congrArg Res.ok (commitNba2_idem _ _ hnd (combQ_pairwise hdw s)))
+
+/-- **One cycle of a design whose comb part is flat** (continuous assignments to disjoint static windows that
+read no comb-driven signal, beside `always_ff` processes), under every schedule: the inputs applied, the comb
+part settled (`flatSettle`), the edge processes' updates committed, the comb part settled again. -/
+theorem cycleStep2_flat {d : Design2} {cn : List String} {K : Nat}
+    (hflat : d.processes.toList.all (flatProc cn K) = true)
+    (hdw : (d.processes.toList.flatMap Process2.drvWins).Pairwise fun a b => a.overlaps b = false)
+    (σ : ScheduleOracle) {F : Nat} (hF : K + 2 ≤ F) (e st : SvState) (k : Nat)
+    (hnd : ((applyInputs2 d e st).map Prod.fst).Nodup)
+    (hok1 : ∀ p ∈ d.processes.toList, p.isCombPhase = true → combUpd (applyInputs2 d e st) p ≠ [])
+    (hreset : ∀ a b, d.resetIndices a b = [])
+    (hff : ∀ (i : Nat) (p : Process2), d.processes[i]? = some p → p.isEdgePhase = true →
+      ∃ c b, p = .alwaysFF c b ∧ b.nbaOnly = true)
+    (hrun : ∀ (i : Nat) (p : Process2), d.processes[i]? = some p → p.isEdgePhase = true →
+      ∃ q, runEdgeProcess2 F (flatSettle d (applyInputs2 d e st)) [] p =
+        .ok (flatSettle d (applyInputs2 d e st), q))
+    (hd : d.ffDisjB = true)
+    (hok2 : ∀ p ∈ d.processes.toList, p.isCombPhase = true →
+      combUpd (commitNba2 (flatSettle d (applyInputs2 d e st))
+        (d.processes.toList.flatMap (runQ F (flatSettle d (applyInputs2 d e st))))) p ≠ []) :
+    ∃ k', cycleStep2 d σ F e st k =
+      .ok (flatSettle d (commitNba2 (flatSettle d (applyInputs2 d e st))
+        (d.processes.toList.flatMap (runQ F (flatSettle d (applyInputs2 d e st))))), k') := by
+  have hnd1 : ((flatSettle d (applyInputs2 d e st)).map Prod.fst).Nodup := by
+    rw [flatSettle, keys_commitNba2]; exact hnd
+  refine cycleStep2_mixed σ e st k (fun j => combSettle2_flat hflat hdw σ hF hnd hok1 j) hreset hff hrun hd hnd1
+    (fun j => ?_)
+  rw [flatMap_ffUpd_all]
+  exact combSettle2_flat hflat hdw σ hF (by rw [keys_commitNba2]; exact hnd1) hok2 j
+
+/-! #### The forms `sv_cycle` cites -/
+
+/-- The driven windows are pairwise disjoint, from the one-driver rule, when every driven signal is declared. -/
+theorem drvWins_pairwise_of_driversOk {names inputs : List String} {ps : List Process2}
+    (hok : driversOk names inputs ps = true)
+    (hdecl : ps.all (fun p => p.drvWins.all fun w => names.contains w.1) = true) :
+    (ps.flatMap Process2.drvWins).Pairwise fun a b => a.overlaps b = false := by
+  have h := (driversOk_iff.mp hok).1
+  have he : driverWins names ps = ps.flatMap Process2.drvWins :=
+    CombView.flatMap_congr' fun p hp =>
+      List.filter_eq_self.mpr fun w hw => List.all_eq_true.mp (List.all_eq_true.mp hdecl p hp) w hw
+  rwa [he] at h
+
+/-- **The clocked processes write disjoint windows**, from the one-driver rule, when every process with a
+procedural window is exclusive (an `always_ff`) and every such window is on a declared signal. -/
+theorem ffDisjB_of_driversOk {d : Design2} {names inputs : List String}
+    (hok : driversOk names inputs d.processes.toList = true)
+    (hex : d.processes.toList.all (fun p => p.exclusive || p.procWins.isEmpty) = true)
+    (hdecl : d.processes.toList.all (fun p => p.procWins.all fun w => names.contains w.1) = true) :
+    d.ffDisjB = true := by
+  refine ffDisjB_of_pairwise ((driversOk_iff.mp hok).2.2.2.imp_of_mem fun {p q} hp hq h => ?_)
+  intro a ha b hb
+  have hfp : ∀ r ∈ d.processes.toList, r.procWinsOn names = r.procWins := fun r hr =>
+    List.filter_eq_self.mpr fun w hw => List.all_eq_true.mp (List.all_eq_true.mp hdecl r hr) w hw
+  have hep := List.all_eq_true.mp hex p hp
+  by_cases hx : (p.exclusive || q.exclusive) = true
+  · simp only [Process2.exclClash, hx, Bool.true_and, hfp p hp, hfp q hq] at h
+    have h1 := List.any_eq_false.mp h a ha
+    have h2 := List.any_eq_false.mp ((Bool.not_eq_true _).mp h1) b hb
+    exact (Bool.not_eq_true _).mp h2
+  · simp only [Bool.or_eq_true, not_or, Bool.not_eq_true] at hx
+    simp only [hx.1, Bool.false_or, List.isEmpty_iff] at hep
+    rw [hep] at ha
+    simp at ha
+
+theorem combUpd_ne_nil_of_all {cn : List String} {K F : Nat} {ps : List Process2}
+    (hflat : ps.all (flatProc cn K) = true) (hF : K ≤ F) {s : SvState}
+    (h : ps.all (fun p => !p.isCombPhase || !(combUpdF F s p).isEmpty) = true) :
+    ∀ p ∈ ps, p.isCombPhase = true → combUpd s p ≠ [] := by
+  intro p hp hc he
+  have h1 := List.all_eq_true.mp h p hp
+  rw [combUpdF_eq (List.all_eq_true.mp hflat p hp) hF, hc, he] at h1
+  simp at h1
+
+theorem flatMap_combUpdF_eq {cn : List String} {K F : Nat} {ps : List Process2}
+    (hflat : ps.all (flatProc cn K) = true) (hF : K ≤ F) (s : SvState) :
+    ps.flatMap (combUpdF F s) = ps.flatMap (combUpd s) :=
+  CombView.flatMap_congr' fun p hp => combUpdF_eq (List.all_eq_true.mp hflat p hp) hF s
+
+/-- The writes of a flat comb part are pairwise disjoint (`sv_cycle`'s `X.combQ_disj`). -/
+theorem combQ_pairwise_of {d : Design2} {cn : List String} {K F' : Nat} {names inputs : List String}
+    (hflat : d.processes.toList.all (flatProc cn K) = true)
+    (hdrv : driversOk names inputs d.processes.toList = true)
+    (hdecl : d.processes.toList.all (fun p => p.drvWins.all fun w => names.contains w.1) = true)
+    (hF' : K ≤ F') {s : SvState} {Q : NbaQueue2} (hQ : d.processes.toList.flatMap (combUpdF F' s) = Q) :
+    Q.Pairwise NbaDisj := by
+  rw [← hQ, flatMap_combUpdF_eq hflat hF']
+  exact combQ_pairwise (drvWins_pairwise_of_driversOk hdrv hdecl) s
+
+/-- **The comb settle of a flat comb part on a state `s`**, in the form `sv_cycle` generates: `Q` the comb
+writes on `s` (in process order), `S` the state `s` with every comb-driven signal `n` holding `nbaFold n Q`. -/
+theorem combSettle2_flat_of {d : Design2} {cn : List String} {K F' : Nat} {names inputs : List String}
+    (hflat : d.processes.toList.all (flatProc cn K) = true)
+    (hdrv : driversOk names inputs d.processes.toList = true)
+    (hdecl : d.processes.toList.all (fun p => p.drvWins.all fun w => names.contains w.1) = true)
+    (hF' : K ≤ F') {s S : SvState} {Q : NbaQueue2} (hnd : (s.map Prod.fst).Nodup)
+    (hQ : d.processes.toList.flatMap (combUpdF F' s) = Q)
+    (hne : d.processes.toList.all (fun p => !p.isCombPhase || !(combUpdF F' s p).isEmpty) = true)
+    (hS : (s.map fun p => (p.1, if p.1 ∈ cn then nbaFold p.1 Q p.2 else p.2)) = S)
+    (σ : ScheduleOracle) {F : Nat} (hF : K + 2 ≤ F) (k : Nat) :
+    ∃ k', combSettle2 d σ F s k = .ok (S, k') := by
+  have hq : d.processes.toList.flatMap (combUpd s) = Q := by
+    rw [← hQ, flatMap_combUpdF_eq hflat hF']
+  have hnames : ∀ u ∈ Q, u.1 ∈ cn := by
+    intro u hu
+    rw [← hq] at hu
+    obtain ⟨p, hp, hu⟩ := List.mem_flatMap.mp hu
+    exact List.contains_iff_mem.mp (combUpd_names (List.all_eq_true.mp hflat p hp) s u hu)
+  have hSe : flatSettle d s = S := by
+    rw [← hS, flatSettle, hq]
+    exact commitNba2_eq_map_of_names hnd hnames
+  rw [← hSe]
+  exact combSettle2_flat hflat (drvWins_pairwise_of_driversOk hdrv hdecl) σ hF hnd
+    (combUpd_ne_nil_of_all hflat hF' hne) k
+
+/-- A family that writes nothing. -/
+theorem flatMap_nil_fun {α β : Type} (l : List α) : l.flatMap (fun _ => ([] : List β)) = [] := by
+  induction l with
+  | nil => rfl
+  | cons a l ih => rw [List.flatMap_cons, ih]; rfl
+
+/-! #### Reading a settled signal: the windows of `nbaFold` over disjoint writes -/
+
+/-- A window no write of the queue touches keeps its content. -/
+theorem extract_nbaFold_of_disj {n : String} {lo w : Nat} : ∀ (q : NbaQueue2) (x : LVec),
+    (∀ u ∈ q, u.1 ≠ n ∨ u.2.1 + u.2.2.width ≤ lo ∨ lo + w ≤ u.2.1) →
+    (nbaFold n q x).extract lo w = x.extract lo w
+  | [], _, _ => rfl
+  | u :: q, x, h => by
+      have hq : ∀ u' ∈ q, u'.1 ≠ n ∨ u'.2.1 + u'.2.2.width ≤ lo ∨ lo + w ≤ u'.2.1 :=
+        fun u' hu' => h u' (List.mem_cons_of_mem _ hu')
+      show (nbaFold n q (if u.1 = n then x.insertAt u.2.1 u.2.2 else x)).extract lo w = _
+      rw [extract_nbaFold_of_disj q _ hq]
+      split
+      · rename_i hn
+        rcases h u List.mem_cons_self with h1 | h1 | h1
+        · exact absurd hn h1
+        · exact LVec.extract_insertAt_of_disjoint (.inr h1)
+        · exact LVec.extract_insertAt_of_disjoint (.inl h1)
+      · rfl
+
+/-- **A window written by a queue of pairwise disjoint writes holds the written value** (the settled value of a
+generated family's window: `X.comb_<signal>` is `nbaFold "<signal>" (X.combQ …) x`, `X.combQ_disj` the
+disjointness). -/
+theorem extract_nbaFold_of_mem {n : String} {lo : Nat} {v : LVec} : ∀ {q : NbaQueue2} {x : LVec},
+    q.Pairwise NbaDisj → (n, lo, v) ∈ q → lo + v.width ≤ x.width →
+    (nbaFold n q x).extract lo v.width = v
+  | [], _, _, hm, _ => by simp at hm
+  | u :: q, x, hp, hm, hw => by
+      have hu := (List.pairwise_cons.mp hp).1
+      have hq := (List.pairwise_cons.mp hp).2
+      show (nbaFold n q (if u.1 = n then x.insertAt u.2.1 u.2.2 else x)).extract lo v.width = v
+      rcases List.mem_cons.mp hm with rfl | hm'
+      · have hd : ∀ u' ∈ q, u'.1 ≠ n ∨ u'.2.1 + u'.2.2.width ≤ lo ∨ lo + v.width ≤ u'.2.1 := by
+          intro u' hu'
+          rcases hu u' hu' with h | h | h
+          · exact .inl (Ne.symm h)
+          · exact .inr (.inr h)
+          · exact .inr (.inl h)
+        rw [ite_eq_left rfl, extract_nbaFold_of_disj q _ hd]
+        exact LVec.extract_insertAt_self rfl hw
+      · refine extract_nbaFold_of_mem hq hm' ?_
+        split <;> simp [hw]
+
+/-! #### The windows of a design with continuous assignments: one pairwise fact
+
+`SvGolf.ProcDisj` relates the procedural windows of two processes; a continuous assignment has none. `WinDisj`
+relates every window, continuous and procedural, so that one `Pairwise WinDisj` over the process list gives the
+one-driver rule (`driversOk_of_winDisj`) and the disjointness of the clocked processes' windows. -/
+
+/-- Every window a process writes: the windows a continuous assignment drives, the windows a procedural process
+assigns. -/
+def allWins (p : Process2) : List DrvWin := p.drvWins ++ p.procWins
+
+/-- **Two processes write disjoint windows**, continuous and procedural alike. -/
+abbrev WinDisj (p q : Process2) : Prop := ∀ a ∈ allWins p, ∀ b ∈ allWins q, a.overlaps b = false
+
+/-- `WinDisj` decided pair by pair: on a concrete pair `simp` evaluates both window lists and
+`DrvWin.overlaps`, leaving the window arithmetic (`omega`, with the row-major facts). -/
+theorem WinDisj.of_all {p q : Process2}
+    (h : ((allWins p).all fun a => (allWins q).all fun b => !a.overlaps b) = true) : WinDisj p q := by
+  intro a ha b hb
+  have := List.all_eq_true.mp (List.all_eq_true.mp h a ha) b hb
+  simpa using this
+
+theorem drvWins_or_procWins_nil (p : Process2) : p.drvWins = [] ∨ p.procWins = [] := by
+  cases p <;> simp [Process2.drvWins, Process2.procWins]
+
+/-- The procedural half of `WinDisj` (`SvGolf.ProcDisj`, the form `ffDisjB_of_pairwise` takes). -/
+theorem procDisj_of_winDisj {ps : List Process2} (h : ps.Pairwise WinDisj) :
+    ps.Pairwise fun p q => ∀ a ∈ p.procWins, ∀ b ∈ q.procWins, a.overlaps b = false :=
+  h.imp fun {p q} hpq a ha b hb => hpq a (List.mem_append_right _ ha) b (List.mem_append_right _ hb)
+
+/-- **The one-driver rule from one pairwise fact**: the processes write pairwise disjoint windows (`WinDisj`),
+each continuous assignment's own windows are disjoint, and no window is on an input. -/
+theorem driversOk_of_winDisj {names inputs : List String} {ps : List Process2}
+    (hdisj : ps.Pairwise WinDisj)
+    (hself : ps.all (fun p => drvWinsDisjoint p.drvWins) = true)
+    (hin : ps.all (fun p => (allWins p).all fun w => !inputs.contains w.1) = true) :
+    driversOk names inputs ps = true := by
+  have hinw : ∀ p ∈ ps, ∀ w ∈ allWins p, inputs.contains w.1 = false := fun p hp w hw => by
+    have := List.all_eq_true.mp (List.all_eq_true.mp hin p hp) w hw
+    simpa using this
+  refine driversOk_of_procDisj ?_ ?_ ?_ (procDisj_of_winDisj hdisj)
+  · unfold driverWins
+    rw [List.pairwise_flatMap]
+    refine ⟨fun p hp => ?_, hdisj.imp fun {p q} hpq a ha b hb => ?_⟩
+    · exact (drvWinsDisjoint_iff.mp (List.all_eq_true.mp hself p hp)).sublist List.filter_sublist
+    · exact hpq a (List.mem_append_left _ (List.mem_filter.mp ha).1) b
+        (List.mem_append_left _ (List.mem_filter.mp hb).1)
+  · intro w hw
+    obtain ⟨p, hp, hwp⟩ := List.mem_flatMap.mp hw
+    have hwp' : w ∈ p.drvWins := (List.mem_filter.mp hwp).1
+    refine ⟨hinw p hp w (List.mem_append_left _ hwp'), fun v hv => ?_⟩
+    obtain ⟨q, hq, hvq⟩ := List.mem_flatMap.mp hv
+    by_cases hpq : p = q
+    · subst hpq
+      rcases drvWins_or_procWins_nil p with h0 | h0
+      · rw [h0] at hwp'; simp at hwp'
+      · rw [h0] at hvq; simp at hvq
+    · obtain ⟨i, hi, rfl⟩ := List.getElem_of_mem hp
+      obtain ⟨j, hj, rfl⟩ := List.getElem_of_mem hq
+      have key := List.pairwise_iff_getElem.mp hdisj
+      rcases Nat.lt_trichotomy i j with h | h | h
+      · exact key i j hi hj h w (List.mem_append_left _ hwp') v (List.mem_append_right _ hvq)
+      · subst h; exact absurd rfl hpq
+      · rw [DrvWin.overlaps_comm]
+        exact key j i hj hi h v (List.mem_append_right _ hvq) w (List.mem_append_left _ hwp')
+  · intro n hn
+    obtain ⟨p, hp, hnp⟩ := List.mem_flatMap.mp hn
+    obtain ⟨w, hw, rfl⟩ := List.mem_map.mp hnp
+    exact hinw p hp w (List.mem_append_right _ hw)
 
 /-! ## 2. The dischargers -/
 
@@ -2765,6 +3481,9 @@ partial def consChain (e : Lean.Expr) : Array Lean.Expr × Lean.Expr :=
 /-- The names `sv_cycle` defines for a design with a comb process, besides `cycleNames`. -/
 def combNames : List Name := [`comb, `comb_stable, `settle, `commit, `edgeQ]
 
+/-- The names `sv_cycle` defines for a flat comb part (several continuous assignments), besides `combNames`. -/
+def flatNames : List Name := [`combQ, `combQ_eq, `combQ_disj, `flat_ok, `drv_declared]
+
 /-- The constants `X.*` (other than `X.procs`) that occur in `e`: the processes of the mirror. -/
 def mirrorLeaves (X : Name) (e : Lean.Expr) : Array Name :=
   e.foldConsts #[] fun n acc =>
@@ -2813,6 +3532,8 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
           that branches is not covered; for a condition of the parameters alone, give the case as a hypothesis of \
           `sv_mirror` (one mirror per case)"
       let staticLeaves := heads.filterMap (·.getAppFn.constName?)
+      -- the comb processes of the mirror: the leaf, its instantiated body, whether it is inside a generate loop
+      let mut combLeaves : Array (Name × Lean.Expr × Bool) := #[]
       for leaf in leaves do
         let some v := (← getConstInfo leaf).value? | continue
         let body ← lambdaTelescope v fun _ b => pure b
@@ -2821,37 +3542,92 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
           throwError "sv_cycle: refused: the process `{Lean.mkConst leaf}` is split at the first or last value of \
             its genvar (`if … then … else …`: its instantiation differs there, a window that leaves its vector at one \
             end of the loop): the run of a split process is not covered"
-        -- a comb process in a generate loop
-        if !staticLeaves.contains leaf && (← isCombTerm body) then
-          throwError "sv_cycle: refused: a comb process inside a generate loop (`{Lean.mkConst leaf}`): a family of \
-            comb processes is not covered (their settle in every schedule order needs the commutation of their runs \
-            over a permutation, `combPass2` of a family, which is not proved yet)"
-      -- the comb process, if any: one static `always_comb` or `assign`
+        if ← isCombTerm body then combLeaves := combLeaves.push (leaf, body, !staticLeaves.contains leaf)
+      -- several comb processes, or one inside a generate loop: the flat comb part (`combSettle2_flat`), every
+      -- comb process a continuous assignment to a whole signal or a static part select, none reading a signal a
+      -- comb process drives; anything else is refused by name
+      let flat := combLeaves.size ≥ 2 || combLeaves.any (·.2.2)
+      let mut cnNames : Array String := #[]
+      let mut cnDriver : Array Name := #[]
+      if flat then
+        for (leaf, body, inGen) in combLeaves do
+          let (k, as) ← ctorOf body
+          if k != ``Process2.assign || as.size != 2 then
+            throwError "sv_cycle: refused: an `always_comb` process (`{Lean.mkConst leaf}`) \
+              {if inGen then "inside a generate loop" else "beside another comb process"}: several comb processes \
+              are covered when each is a continuous assignment (`assign`) to a whole signal or a static part select \
+              and none reads a signal a comb process drives (`combSettle2_flat`); the settle of several `always_comb` \
+              processes in every schedule order is not proved yet"
+          let (lk, las) ← ctorOf as[0]!
+          unless (lk == ``Lhs2.ident || lk == ``Lhs2.slice) && las.size > 0 do
+            throwError "sv_cycle: refused: the continuous assignment `{Lean.mkConst leaf}` drives \
+              {if lk == ``Lhs2.concat then "a concatenation" else "an element select"}: among several comb processes \
+              a target is covered when it is a whole signal or a static part select (`x[lo +: w]`)"
+          let some n := strLit? (← whnf las[0]!)
+            | throwError "sv_cycle: internal error: the target of `{leaf}` is not a literal name"
+          unless cnNames.contains n do
+            cnNames := cnNames.push n
+            cnDriver := cnDriver.push leaf
+        for (leaf, body, _) in combLeaves do
+          let (_, as) ← ctorOf body
+          for t in subtermsWith as[1]! (·.isAppOfArity ``Expr2.ident 1) do
+            if let some n := strLit? (← whnf t.appArg!) then
+              if let some (_, drv) := (cnNames.zip cnDriver).find? (·.1 == n) then
+                throwError "sv_cycle: refused: the comb process `{Lean.mkConst leaf}` reads `{n}`, which a comb \
+                  process drives (`{Lean.mkConst drv}`): several comb processes are covered when none reads \
+                  a signal a comb process drives; the settle of comb processes that read each other's outputs needs \
+                  an acyclic order of them (a rank argument over the passes), which is not proved yet"
+      -- otherwise the comb process, if any: one static `always_comb` or `assign`
       let mut comb? : Option Nat := none
-      for i in [:heads.size] do
-        if ← isCombTerm heads[i]! then
-          if comb?.isSome then
-            throwError "sv_cycle: refused: a second comb process (`{heads[i]!.getAppFn}`): one `always_comb` or \
-              `assign` beside the `always_ff` processes is covered; several need the settle in every schedule order \
-              of runs that read each other's outputs (a lemma that every order of `combPass2` reaches the same \
-              fixpoint, from an acyclic order of the comb processes), which is not proved yet"
-          comb? := some i
+      if !flat then
+        for i in [:heads.size] do
+          if ← isCombTerm heads[i]! then comb? := some i
       -- the disjointness, elaborated without error recovery (an ill-typed term stops the command here, before
       -- any theorem is added)
       let procsE := app `procs
       let pairTy ← mkAppM ``List.Pairwise #[Lean.mkConst ``SvGolf.ProcDisj, procsE]
-      let hE ← Term.withoutErrToSorry do
-        let hE ← Term.elabTermEnsuringType hStx pairTy
+      let drvTy ← mkEq (← mkAppM ``driversOk #[← mkAppM ``PDesign.declNames #[pdE],
+        ← mkAppM ``PDesign.inputNames #[pdE], procsE]) (Lean.mkConst ``Bool.true)
+      let elabStrict (ty : Lean.Expr) : TermElabM Lean.Expr := Term.withoutErrToSorry do
+        let hE ← Term.elabTermEnsuringType hStx ty
         Term.synthesizeSyntheticMVarsNoPostponing
         instantiateMVars hE
+      let winTy ← mkAppM ``List.Pairwise #[Lean.mkConst ``SvGolf.Cycle.WinDisj, procsE]
+      -- a flat comb part takes the one-driver rule itself (`driversOk …`), or the disjointness of every window,
+      -- continuous and procedural (`Pairwise WinDisj`), or that of the procedural windows (`Pairwise ProcDisj`)
+      -- when the continuous windows are disjoint by evaluation: `kind` 0, 1, 2
+      let (hE, kind) ← do
+        if flat then
+          let saved ← saveState
+          try
+            let h ← elabStrict drvTy
+            pure (h, 0)
+          catch exD =>
+            saved.restore
+            try
+              let h ← elabStrict winTy
+              pure (h, 1)
+            catch exW =>
+              saved.restore
+              try
+                let h ← elabStrict pairTy
+                pure (h, 2)
+              catch exP =>
+                throwError "sv_cycle: the term after `using` is none of: the disjointness of the windows the \
+                  processes of the mirror write, continuous and procedural{indentExpr winTy}\n({exW.toMessageData})\n\
+                  the one-driver rule of the mirror{indentExpr drvTy}\n({exD.toMessageData})\nthe disjointness of \
+                  the procedural windows{indentExpr pairTy}\n({exP.toMessageData})"
+        else
+          pure (← elabStrict pairTy, 2)
       if hE.hasMVar then throwError "sv_cycle: the disjointness term has holes"
       if hE.hasSorry then
         throwError "sv_cycle: the disjointness term contains `sorry` (a lemma of yours may be unfinished while you \
           work; the command's argument may not)"
-      let mixed := comb?.isSome
+      let mixed := comb?.isSome || flat
       -- the names this command defines must be free
       let env ← getEnv
       for n in cycleNames ++ (if mixed then combNames else []) ++
+          (if flat then flatNames ++ (combLeaves.toList.map fun (l, _, _) => l.componentsRev.head!.appendAfter "C") else []) ++
           (leaves.toList.flatMap fun l => derivedNames l.componentsRev.head! ++ [l.componentsRev.head!.appendAfter "_comb"]) do
         if env.contains (X ++ n) then
           throwError "sv_cycle: `{X ++ n}` already exists (an earlier `sv_cycle {Xs}` or a declaration of yours)"
@@ -2861,7 +3637,74 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
       -- 1. sem_eq
       let semTy ← mkEq (mkAppN (Lean.mkConst semC) ps) (app `D)
       let hTerm ← exprToSyntax hE
-      let semPf ← if mixed then proveBy "sv_cycle: the one-driver rule" semTy (← `(Lean.Parser.Tactic.tacticSeq|
+      -- a flat comb part: the one-driver rule (given, or from the procedural windows with the continuous windows
+      -- disjoint by evaluation) and the disjointness of the clocked processes' windows
+      let mut drvPf : Lean.Expr := hE
+      let mut ffS : Term ← `(ffDisjB_of_pairwise $hTerm)
+      if flat then
+        if kind == 0 then
+          let ffTy ← mkEq (← mkAppM ``Design2.ffDisjB #[app `D]) (Lean.mkConst ``Bool.true)
+          let ffPf ← proveBy "sv_cycle: the clocked processes' windows are not proved disjoint from the one-driver rule"
+            ffTy (← `(Lean.Parser.Tactic.tacticSeq|
+              refine SvGolf.Cycle.ffDisjB_of_driversOk $hTerm ?_ ?_
+              · simp (config := { decide := true }) [$(ident `D):ident, $(ident `procs):ident, List.all_append,
+                  List.all_flatMap, List.all_map, List.all_cons, List.all_nil, Process2.exclusive, Process2.procWins,
+                  $leafSimps,*]
+              · simp (config := { decide := true }) [$(ident `D):ident, $(ident `procs):ident, List.all_append,
+                  List.all_flatMap, List.all_map, List.all_cons, List.all_nil, PDesign.declNames, $fieldLs,*,
+                  Process2.procWins, Stmt2.drvWins, Stmt2.drvWinsOpt, Stmt2.drvWinsList, Lhs2.drvWins,
+                  Lhs2.drvWinsList, CaseItem2.drvWinsList, CaseItem2.drvWins, $leafSimps,*]))
+          ffS ← exprToSyntax ffPf
+        else if kind == 1 then
+          drvPf ← proveBy "sv_cycle: the one-driver rule" drvTy (← `(Lean.Parser.Tactic.tacticSeq|
+            refine SvGolf.Cycle.driversOk_of_winDisj $hTerm ?_ ?_
+            · simp (config := { decide := true }) [$(ident `procs):ident, List.all_append, List.all_flatMap,
+                List.all_map, List.all_cons, List.all_nil, drvWinsDisjoint, Process2.drvWins, Lhs2.drvWins,
+                Lhs2.drvWinsList, $leafSimps,*]
+            · simp (config := { decide := true }) [$(ident `procs):ident, List.all_append, List.all_flatMap,
+                List.all_map, List.all_cons, List.all_nil, SvGolf.Cycle.allWins, PDesign.inputNames, $fieldLs,*,
+                Process2.drvWins, Process2.procWins, Stmt2.drvWins, Stmt2.drvWinsOpt, Stmt2.drvWinsList,
+                Lhs2.drvWins, Lhs2.drvWinsList, CaseItem2.drvWinsList, CaseItem2.drvWins, $leafSimps,*]))
+          ffS ← `(ffDisjB_of_pairwise (SvGolf.Cycle.procDisj_of_winDisj $hTerm))
+        else
+          let msgs := (← getThe Core.State).messages
+          let pf? ← try
+              let pf ← proveBy "sv_cycle: the one-driver rule" drvTy (← `(Lean.Parser.Tactic.tacticSeq|
+                refine SvGolf.Cycle.driversOk_of_procDisj ?_ ?_ (SvGolf.Cycle.noInput_of_all ?_) ?_
+                · simp (config := { decide := true }) [$(ident `D):ident, $(ident `procs):ident, driverWins,
+                    Process2.drvWins, Lhs2.drvWins, Lhs2.drvWinsList, PDesign.declNames, $fieldLs,*, List.flatMap_cons,
+                    List.flatMap_append, List.flatMap_map, $leafSimps,*]
+                · simp (config := { decide := true }) [$(ident `D):ident, $(ident `procs):ident, driverWins,
+                    Process2.drvWins, Lhs2.drvWins, Lhs2.drvWinsList, PDesign.declNames, PDesign.inputNames, $fieldLs,*,
+                    Process2.procWins, Stmt2.drvWins, Stmt2.drvWinsOpt, Stmt2.drvWinsList, CaseItem2.drvWinsList,
+                    CaseItem2.drvWins, DrvWin.overlaps, List.forall_mem_flatMap, List.forall_mem_map, $leafSimps,*]
+                · simp (config := { decide := true }) [$(ident `D):ident, $(ident `procs):ident, List.all_append,
+                    List.all_flatMap, List.all_map, List.all_cons, PDesign.inputNames, $fieldLs,*,
+                    Process2.procWrites, Process2.procWins, Stmt2.drvWins, Stmt2.drvWinsOpt, Stmt2.drvWinsList,
+                    Lhs2.drvWins, Lhs2.drvWinsList, CaseItem2.drvWinsList, CaseItem2.drvWins, $leafSimps,*]
+                · exact $hTerm))
+              pure (some pf)
+            catch _ =>
+              -- the failed evaluation's own messages are dropped: the refusal below names the reason
+              modifyThe Core.State fun st => { st with messages := msgs }
+              pure none
+          let some pf := pf?
+            | throwError "sv_cycle: refused: the windows the continuous assignments drive are not pairwise disjoint \
+                and apart from the clocked processes' windows by evaluation (two assignments drive one bit, or the \
+                windows are those of a generated family, whose disjointness is arithmetic): overlapping windows have \
+                no settle; for disjoint ones give the disjointness of every window, `sv_cycle {Xs} using h` \
+                with `h : ({Xs}.procs …).Pairwise SvGolf.Cycle.WinDisj` (`WinDisj.of_all`, `pairwise_flatMap_range`), \
+                or the one-driver rule itself, `h : driversOk design.pdesign.declNames design.pdesign.inputNames \
+                ({Xs}.procs …) = true`"
+          drvPf := pf
+      let semPf ← if flat then proveBy "sv_cycle: the one-driver rule" semTy (← `(Lean.Parser.Tactic.tacticSeq|
+        show (PDesign.instantiateGD2 _ _).aliasGuard = _
+        refine (congrArg Design2.aliasGuard
+          (PDesign.instantiateGD2_of_ok $(← exprToSyntax (thm `instantiate)) $(← exprToSyntax drvPf))).trans ?_
+        refine SvGolf.Cycle.aliasGuard_of_allNotComb ?_
+        simp (config := { decide := true }) [$(ident `D):ident, $(ident `procs):ident, List.all_append,
+          List.all_flatMap, List.all_map, List.all_cons, SvGolf.Cycle.notComb, $leafSimps,*]))
+      else if mixed then proveBy "sv_cycle: the one-driver rule" semTy (← `(Lean.Parser.Tactic.tacticSeq|
         show (PDesign.instantiateGD2 _ _).aliasGuard = _
         refine (congrArg Design2.aliasGuard
           (PDesign.instantiateGD2_of_ok $(← exprToSyntax (thm `instantiate)) ?hok)).trans ?hag
@@ -2961,6 +3804,7 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
       let mut leafInfo : Array (Name × Nat) := #[]   -- (leaf, number of genvars)
       let mut runQSimps : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
       let mut runSimps : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
+      let mut combSimps : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
       let mut gvNames : Array (Array Name) := #[]
       for leaf in leaves do
         let lty ← inferType (Lean.mkConst leaf)
@@ -2974,9 +3818,11 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
       -- the fuel: enough for every process (doubled until no run is stuck)
       let mut done := false
       let mut results : Array (Name × Nat × Lean.Expr × Lean.Expr) := #[]   -- leaf, ngv, Q (abstracted over gvs), proof
+      let mut combResults : Array (Name × Lean.Expr × Lean.Expr) := #[]   -- leaf, its comb write (abstracted), proof
       for _ in [0:4] do
         if done then break
         results := #[]
+        combResults := #[]
         let mut stuck := false
         for ((leaf, ngv), gns) in leafInfo.zip gvNames do
           let r ← withLocalDeclsDND (gns.map fun n => (n, Lean.mkConst ``Nat)) fun gvs => do
@@ -3011,6 +3857,39 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
           | (some (Q, pf), _) => results := results.push (leaf, ngv, Q, pf)
           | (none, some why) => throwError "sv_cycle: refused: {why}"
           | (none, none) => stuck := true
+          -- a flat comb part: the write of the process in a comb settle (nothing for a clocked process)
+          if flat then
+            let isComb := combLeaves.any (·.1 == leaf)
+            let rc ← withLocalDeclsDND (gns.map fun n => (n, Lean.mkConst ``Nat)) fun gvs => do
+              let P := mkAppN (Lean.mkConst leaf) (ps ++ gvs)
+              let lhs ← mkAppM ``SvGolf.Cycle.combUpdF #[← mkAppM ``HAdd.hAdd #[fv, mkNatLit K], st vs, P]
+              let (rhs, pf) ← convNorm lhs (← `(Lean.Parser.Tactic.Conv.convSeq|
+                simp only [↓ SvGolf.Cycle.evalExpr2_scmp, ↓ SvGolf.Cycle.evalExpr2_index, SvGolf.Cycle.combUpdF,
+                  SvGolf.Cycle.lhsUpd, evalExpr2, evalExprs2, readSignal, $(ident `St):ident, SvState.lookup,
+                  evalBinOp, evalUnaryOp, Res.ok_bind, Res.pure_eq, SvGolf.Cycle.ite_res_ok, List.toList_toArray,
+                  Array.toArray_toList, $(mkCIdent leaf):ident, beq_iff_eq, String.reduceEq, ↓reduceIte,
+                  Bool.false_eq_true, Bool.true_eq_false, Option.some.injEq]))
+              verbose m!"sv_cycle: the comb write of {leaf}:{indentExpr rhs}"
+              if (rhs.find? fun t => t.isAppOf ``evalExpr2 || t.isAppOf ``evalExprs2).isSome then
+                return (none, none)   -- out of fuel: try a larger one
+              if isComb then
+                let some ents := listLitSyn? rhs
+                  | return (none, some m!"the write of the continuous assignment `{leaf}` on the positional state \
+                      is not one update:{indentExpr rhs}")
+                unless ents.size == 1 do
+                  return (none, some m!"the write of the continuous assignment `{leaf}` on the positional state \
+                    is not one update:{indentExpr rhs}")
+                if let some why ← firstUnfinished? rhs (allowIte := true) then
+                  return (none, some m!"the write of `{leaf}` leaves {why}")
+              else
+                unless rhs.isAppOfArity ``List.nil 1 do
+                  return (none, some m!"internal error: the clocked process `{leaf}` writes in a comb settle:\
+                    {indentExpr rhs}")
+              return (some (← mkLambdaFVars gvs rhs, ← mkLambdaFVars gvs pf), none)
+            match rc with
+            | (some (C, pf), _) => combResults := combResults.push (leaf, C, pf)
+            | (none, some why) => throwError "sv_cycle: refused: {why}"
+            | (none, none) => stuck := true
         if stuck then K := 2 * K else done := true
       unless done do throwError "sv_cycle: a process run needs more fuel than {K}"
       for ((leaf, ngv, Q, pf), gns) in results.zip gvNames do
@@ -3036,121 +3915,245 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
             s!"The updates of `{leaf}`, as `runQ` (`sv_cycle`)."
         runQSimps := runQSimps.push (← lem (X ++ base.appendAfter "_runQ"))
         runSimps := runSimps.push (← lem (X ++ base.appendAfter "_run"))
+      -- a flat comb part: per process, its write in a comb settle on `X.St …`
+      if flat then
+        for ((leaf, C, pf), gns) in combResults.zip gvNames do
+          let base := leaf.componentsRev.head!
+          let isComb := combLeaves.any (·.1 == leaf)
+          withLocalDeclsDND (gns.map fun n => (n, Lean.mkConst ``Nat)) fun gvs => do
+            let P := mkAppN (Lean.mkConst leaf) (ps ++ gvs)
+            let lhs ← mkAppM ``SvGolf.Cycle.combUpdF #[← mkAppM ``HAdd.hAdd #[fv, mkNatLit K], st vs, P]
+            if isComb then
+              let cName := X ++ base.appendAfter "C"
+              addDefn cName (ps ++ gvs ++ vs) (C.beta gvs)
+                s!"The write `{leaf}` makes in a comb settle, its value computed on the state `X.St …` (`sv_cycle`)."
+              addThm (X ++ base.appendAfter "_comb") (ps ++ gvs ++ vs ++ #[fv])
+                (← mkEq lhs (mkAppN (Lean.mkConst cName) (ps ++ gvs ++ vs))) (pf.beta gvs)
+                s!"The write of `{leaf}` in a comb settle on `X.St …`, at every fuel from {K} (`sv_cycle`)."
+            else
+              addThm (X ++ base.appendAfter "_comb") (ps ++ gvs ++ vs ++ #[fv]) (← mkEq lhs (C.beta gvs)) (pf.beta gvs)
+                s!"The clocked process `{leaf}` writes nothing in a comb settle (`sv_cycle`)."
+          combSimps := combSimps.push (← lem (X ++ base.appendAfter "_comb"))
       if mixed then
-        let c := comb?.get!
-        let Pc := heads[c]!
-        let pcLeaf := Pc.getAppFn.constName!
         let fuelE ← mkAppM ``HAdd.hAdd #[fv, mkNatLit K]
-        mark "5b. the comb process"
-        -- 5b. the comb process: one run on `X.St …`, its values, their stability, the settle
-        let lhsC ← mkAppM ``runCombProcess2 #[fuelE, st vs, Pc]
-        let (rhsC, pfC) ← convNorm lhsC (← `(Lean.Parser.Tactic.Conv.convSeq|
-          simp only [↓ SvGolf.Cycle.evalExpr2_scmp, ↓ SvGolf.Cycle.evalExpr2_index, runCombProcess2, execStmt2,
-            execStmts2, evalExpr2, evalExprs2, resolveLhs2, readSignal, $(ident `St):ident, SvState.lookup,
-            SvState.set, evalBinOp, evalUnaryOp, Res.ok_bind, Res.pure_eq, SvGolf.Cycle.ite_res_ok,
-            SvGolf.Cycle.ite_pair, List.nil_append, List.toList_toArray, Array.toArray_toList,
-            $(mkCIdent pcLeaf):ident, beq_iff_eq, String.reduceEq, ↓reduceIte, Bool.false_eq_true,
-            Bool.true_eq_false, Option.some.injEq, LVec.insertAt_zero_of_width_eq, LVec.width_resizeU,
-            LVec.width_insertAt]))
-        verbose m!"sv_cycle: the run of the comb process {pcLeaf}:{indentExpr rhsC}"
-        let some stC := okPayload? rhsC
-          | throwError "sv_cycle: refused: the run of the comb process `{pcLeaf}` is not a success:{indentExpr rhsC}"
-        if (stC.find? fun t => t.isAppOf ``execStmt2 || t.isAppOf ``evalExpr2 || t.isAppOf ``execStmts2
-            || t.isAppOf ``evalExprs2 || t.isAppOf ``resolveLhs2).isSome then
-          throwError "sv_cycle: the run of the comb process `{pcLeaf}` needs more fuel than {K}: give \
-            `sv_cycle {Xs} (fuel := {2 * K}) using …`"
-        if let some why ← firstUnfinished? stC (allowIte := true) then
-          throwError "sv_cycle: refused: the values of the comb process `{pcLeaf}` leave {why}"
-        let some ents := listLitSyn? stC
-          | throwError "sv_cycle: refused: the run of the comb process `{pcLeaf}` does not keep the state's \
-              shape:{indentExpr stC}"
-        unless ents.size == decls.size do
-          throwError "sv_cycle: refused: the run of the comb process `{pcLeaf}` does not keep the state's \
-            shape:{indentExpr stC}"
-        let mut ys : Array Lean.Expr := #[]
-        let mut combDefs : Array Name := #[]
-        for k in [:ents.size] do
-          let en ← whnfR ents[k]!
-          unless en.isAppOfArity ``Prod.mk 4 do
-            throwError "sv_cycle: internal error: a binding of the comb run's state: {en}"
-          unless strLit? (← whnf en.appFn!.appArg!) == some decls[k]!.1 do
-            throwError "sv_cycle: refused: the run of the comb process `{pcLeaf}` does not keep the state's \
-              shape:{indentExpr stC}"
-          let v := en.appArg!
-          if v == vs[k]! then ys := ys.push vs[k]!
+        let ys : Array Lean.Expr ← do
+          if flat then
+            mark "5b. the continuous assignments: their writes and the settle"
+            let cnE ← mkListLit (Lean.mkConst ``String) (cnNames.toList.map mkStrLit)
+            let cnS ← exprToSyntax cnE
+            let dS ← exprToSyntax (app `D)
+            let pdS ← exprToSyntax pdE
+            let kS : Term := quote K
+            let elabTy (stx : Term) : TermElabM Lean.Expr := do
+              let e ← Term.elabType stx
+              Term.synthesizeSyntheticMVarsNoPostponing
+              instantiateMVars e
+            -- every comb process flat; every driven signal declared
+            let flatTy ← elabTy (← `(List.all (Array.toList (Design2.processes $dS))
+              (SvGolf.Cycle.flatProc $cnS $kS) = true))
+            let flatPf ← proveBy "sv_cycle: refused: the comb processes are not proved flat by evaluation (each a \
+                continuous assignment to a whole signal or a static part select, of size below the fuel, reading no \
+                signal a comb process drives)" flatTy (← `(Lean.Parser.Tactic.tacticSeq|
+              simp (config := { decide := true }) [$(ident `D):ident, $(ident `procs):ident, List.all_append,
+                List.all_flatMap, List.all_map, List.all_cons, List.all_nil, SvGolf.Cycle.flatProc,
+                SvGolf.Cycle.flatLhs, Expr2.size, Expr2.listSize, Expr2.reads, Expr2.listReads, Expr2.sliceReads,
+                Expr2.indexReads, ReadWin.name, List.toList_toArray, $leafSimps,*]))
+            addThm (X ++ `flat_ok) all flatTy flatPf
+              "The comb part of the mirror is flat (`flatProc`): every comb process a continuous assignment to a \
+              whole signal or a static part select, reading no signal a comb process drives (`sv_cycle`)."
+            let declTy ← elabTy (← `(List.all (Array.toList (Design2.processes $dS))
+              (fun p => List.all (Process2.drvWins p) fun w => List.contains (PDesign.declNames $pdS) w.1) = true))
+            let declPf ← proveBy "sv_cycle: refused: a continuous assignment drives a signal that is not declared"
+              declTy (← `(Lean.Parser.Tactic.tacticSeq|
+              simp (config := { decide := true }) [$(ident `D):ident, $(ident `procs):ident, List.all_append,
+                List.all_flatMap, List.all_map, List.all_cons, List.all_nil, PDesign.declNames, $fieldLs,*,
+                Process2.drvWins, Lhs2.drvWins, Lhs2.drvWinsList, $leafSimps,*]))
+            addThm (X ++ `drv_declared) all declTy declPf
+              "Every signal a continuous assignment of the mirror drives is declared (`sv_cycle`)."
+            -- the comb writes of every process on `X.St …`, in process order
+            let procsL ← mkAppM ``Array.toList #[← mkAppM ``Design2.processes #[app `D]]
+            let allC ← mkAppM ``List.flatMap #[← mkAppM ``SvGolf.Cycle.combUpdF #[fuelE, st vs], procsL]
+            let (qC, qCPf) ← convNorm allC (← `(Lean.Parser.Tactic.Conv.convSeq|
+              simp only [$(ident `D):ident, List.toList_toArray, $(ident `procs):ident, List.flatMap_append,
+                List.flatMap_cons, List.flatMap_nil, List.append_nil, List.nil_append, List.flatMap_assoc,
+                List.flatMap_map, SvGolf.Cycle.flatMap_nil_fun, $combSimps,*]))
+            if qC.containsFVar fv.fvarId! || (qC.find? fun t => t.isAppOf ``SvGolf.Cycle.combUpdF).isSome then
+              throwError "sv_cycle: internal error: the comb writes are not normalized:{indentExpr qC}"
+            addDefn (X ++ `combQ) (ps ++ vs) qC
+              "The writes of the continuous assignments in a comb settle on `X.St …`, in process order, each value \
+              computed on that state (`sv_cycle`)."
+            let combQApp (ws : Array Lean.Expr) : Lean.Expr := mkAppN (Lean.mkConst (X ++ `combQ)) (ps ++ ws)
+            addThm (X ++ `combQ_eq) (ps ++ vs ++ #[fv]) (← mkEq allC (combQApp vs)) qCPf
+              "The comb writes of every process on `X.St …`, in process order (`sv_cycle`)."
+            let flatS ← exprToSyntax (mkAppN (Lean.mkConst (X ++ `flat_ok)) all)
+            let declS ← exprToSyntax (mkAppN (Lean.mkConst (X ++ `drv_declared)) all)
+            let drvS ← exprToSyntax drvPf
+            let writesS ← exprToSyntax (mkAppN (Lean.mkConst (X ++ `combQ_eq)) (ps ++ vs ++ #[mkNatLit 0]))
+            let disjTy ← mkAppM ``List.Pairwise #[Lean.mkConst ``NbaDisj, combQApp vs]
+            let disjPf ← proveBy "sv_cycle: the comb writes are disjoint" disjTy (← `(Lean.Parser.Tactic.tacticSeq|
+              exact SvGolf.Cycle.combQ_pairwise_of (cn := $cnS) (K := $kS) $flatS $drvS $declS
+                (Nat.le_add_left _ _) $writesS))
+            addThm (X ++ `combQ_disj) (ps ++ hs ++ vs) disjTy disjPf
+              "The comb writes on `X.St …` are pairwise disjoint (`NbaDisj`): with `extract_nbaFold_of_mem`, the \
+              window a continuous assignment drives holds its value in the settled signal (`sv_cycle`)."
+            -- the settled values: a comb-driven signal is the commit of the comb writes to it
+            let mut ys : Array Lean.Expr := #[]
+            let mut combDefs : Array Name := #[]
+            for k in [:decls.size] do
+              if cnNames.contains decls[k]!.1 then
+                let cn := X ++ Name.mkSimple ("comb_" ++ (decls[k]!.1.map fun ch => if ch.isAlphanum || ch == '_' then ch else '_'))
+                if (← getEnv).contains cn then
+                  throwError "sv_cycle: `{cn}` already exists (an earlier `sv_cycle {Xs}` or a declaration of yours)"
+                addDefn cn (ps ++ vs) (← mkAppM ``nbaFold #[mkStrLit decls[k]!.1, combQApp vs, vs[k]!])
+                  s!"The value of `{decls[k]!.1}` after the comb settle on `X.St …`: the comb writes to it \
+                    (`X.combQ`), committed (`sv_cycle`)."
+                combDefs := combDefs.push cn
+                ys := ys.push (mkAppN (Lean.mkConst cn) (ps ++ vs))
+              else ys := ys.push vs[k]!
+            addDefn (X ++ `comb) (ps ++ vs) (st ys)
+              "The settled state: `X.St …` with the continuous assignments' values (`sv_cycle`)."
+            let combDefIds ← combDefs.mapM lem
+            let cDefIds ← (combLeaves.map fun (l, _, _) => X ++ l.componentsRev.head!.appendAfter "C").mapM lem
+            let settledSt := mkAppN (Lean.mkConst (X ++ `comb)) (ps ++ vs)
+            withLocalDeclD `σ (Lean.mkConst ``ScheduleOracle) fun σ => do
+            withLocalDeclD `kk (Lean.mkConst ``Nat) fun kv => do
+            withLocalDeclD `F (Lean.mkConst ``Nat) fun Fv => do
+            withLocalDeclD `hF (← mkAppM ``LE.le #[mkNatLit (K + 2), Fv]) fun hFv => do
+            let ex ← withLocalDeclD `k' (Lean.mkConst ``Nat) fun k' => do
+              mkLambdaFVars #[k'] (← mkEq (← mkAppM ``combSettle2 #[app `D, σ, Fv, st vs, kv])
+                (← mkAppM ``Res.ok #[← mkAppM ``Prod.mk #[settledSt, k']]))
+            let settleTy ← mkAppM ``Exists #[ex]
+            let settlePf ← proveBy "sv_cycle: the comb settle" settleTy (← `(Lean.Parser.Tactic.tacticSeq|
+              refine SvGolf.Cycle.combSettle2_flat_of (cn := $cnS) (K := $kS) $flatS $drvS $declS
+                (Nat.le_add_left _ _) ?hnd $writesS ?hne ?hS $(← exprToSyntax σ) $(← exprToSyntax hFv)
+                $(← exprToSyntax kv)
+              case hnd => simp [$(ident `St):ident]
+              case hne =>
+                simp only [$(ident `D):ident, List.toList_toArray, $(ident `procs):ident, List.all_cons,
+                  List.all_append, List.all_flatMap, List.all_map, List.all_nil, Function.comp_def, $combSimps,*]
+                simp [Process2.isCombPhase, $leafSimps,*, $cDefIds,*]
+              case hS => simp [$(ident `St):ident, $(ident `comb):ident, $combDefIds,*]))
+            addThm (X ++ `settle) (ps ++ hs ++ vs ++ #[σ, Fv, kv, hFv]) settleTy settlePf
+              s!"**The comb settle** of the loaded design's mirror from `X.St …`, any schedule, any fuel from \
+                {K + 2}: every continuous assignment's window holds its value, `X.comb` (`sv_cycle`, \
+                `combSettle2_flat`)."
+            pure ys
           else
-            let cn := X ++ Name.mkSimple ("comb_" ++ (decls[k]!.1.map fun ch => if ch.isAlphanum || ch == '_' then ch else '_'))
-            if (← getEnv).contains cn then
-              throwError "sv_cycle: `{cn}` already exists (an earlier `sv_cycle {Xs}` or a declaration of yours)"
-            addDefn cn (ps ++ vs) v
-              s!"The value of `{decls[k]!.1}` after one run of the comb process `{pcLeaf}` on `X.St …` (`sv_cycle`)."
-            combDefs := combDefs.push cn
-            ys := ys.push (mkAppN (Lean.mkConst cn) (ps ++ vs))
-        addDefn (X ++ `comb) (ps ++ vs) (st ys)
-          "The settled state: `X.St …` with the comb process's values (`sv_cycle`)."
+            let c := comb?.get!
+            let Pc := heads[c]!
+            let pcLeaf := Pc.getAppFn.constName!
+            mark "5b. the comb process"
+            -- 5b. the comb process: one run on `X.St …`, its values, their stability, the settle
+            let lhsC ← mkAppM ``runCombProcess2 #[fuelE, st vs, Pc]
+            let (rhsC, pfC) ← convNorm lhsC (← `(Lean.Parser.Tactic.Conv.convSeq|
+              simp only [↓ SvGolf.Cycle.evalExpr2_scmp, ↓ SvGolf.Cycle.evalExpr2_index, runCombProcess2, execStmt2,
+                execStmts2, evalExpr2, evalExprs2, resolveLhs2, readSignal, $(ident `St):ident, SvState.lookup,
+                SvState.set, evalBinOp, evalUnaryOp, Res.ok_bind, Res.pure_eq, SvGolf.Cycle.ite_res_ok,
+                SvGolf.Cycle.ite_pair, List.nil_append, List.toList_toArray, Array.toArray_toList,
+                $(mkCIdent pcLeaf):ident, beq_iff_eq, String.reduceEq, ↓reduceIte, Bool.false_eq_true,
+                Bool.true_eq_false, Option.some.injEq, LVec.insertAt_zero_of_width_eq, LVec.width_resizeU,
+                LVec.width_insertAt]))
+            verbose m!"sv_cycle: the run of the comb process {pcLeaf}:{indentExpr rhsC}"
+            let some stC := okPayload? rhsC
+              | throwError "sv_cycle: refused: the run of the comb process `{pcLeaf}` is not a success:{indentExpr rhsC}"
+            if (stC.find? fun t => t.isAppOf ``execStmt2 || t.isAppOf ``evalExpr2 || t.isAppOf ``execStmts2
+                || t.isAppOf ``evalExprs2 || t.isAppOf ``resolveLhs2).isSome then
+              throwError "sv_cycle: the run of the comb process `{pcLeaf}` needs more fuel than {K}: give \
+                `sv_cycle {Xs} (fuel := {2 * K}) using …`"
+            if let some why ← firstUnfinished? stC (allowIte := true) then
+              throwError "sv_cycle: refused: the values of the comb process `{pcLeaf}` leave {why}"
+            let some ents := listLitSyn? stC
+              | throwError "sv_cycle: refused: the run of the comb process `{pcLeaf}` does not keep the state's \
+                  shape:{indentExpr stC}"
+            unless ents.size == decls.size do
+              throwError "sv_cycle: refused: the run of the comb process `{pcLeaf}` does not keep the state's \
+                shape:{indentExpr stC}"
+            let mut ys : Array Lean.Expr := #[]
+            let mut combDefs : Array Name := #[]
+            for k in [:ents.size] do
+              let en ← whnfR ents[k]!
+              unless en.isAppOfArity ``Prod.mk 4 do
+                throwError "sv_cycle: internal error: a binding of the comb run's state: {en}"
+              unless strLit? (← whnf en.appFn!.appArg!) == some decls[k]!.1 do
+                throwError "sv_cycle: refused: the run of the comb process `{pcLeaf}` does not keep the state's \
+                  shape:{indentExpr stC}"
+              let v := en.appArg!
+              if v == vs[k]! then ys := ys.push vs[k]!
+              else
+                let cn := X ++ Name.mkSimple ("comb_" ++ (decls[k]!.1.map fun ch => if ch.isAlphanum || ch == '_' then ch else '_'))
+                if (← getEnv).contains cn then
+                  throwError "sv_cycle: `{cn}` already exists (an earlier `sv_cycle {Xs}` or a declaration of yours)"
+                addDefn cn (ps ++ vs) v
+                  s!"The value of `{decls[k]!.1}` after one run of the comb process `{pcLeaf}` on `X.St …` (`sv_cycle`)."
+                combDefs := combDefs.push cn
+                ys := ys.push (mkAppN (Lean.mkConst cn) (ps ++ vs))
+            addDefn (X ++ `comb) (ps ++ vs) (st ys)
+              "The settled state: `X.St …` with the comb process's values (`sv_cycle`)."
+            let combApp (ws : Array Lean.Expr) : Lean.Expr := mkAppN (Lean.mkConst (X ++ `comb)) (ps ++ ws)
+            let combRunN := X ++ (pcLeaf.componentsRev.head!).appendAfter "_comb"
+            addThm combRunN (ps ++ vs ++ #[fv]) (← mkEq lhsC (← mkAppM ``Res.ok #[combApp vs])) pfC
+              s!"One run of the comb process `{pcLeaf}` on `X.St …`, at every fuel from {K} (`sv_cycle`)."
+            let combDefIds ← combDefs.mapM lem
+            let stableTy ← mkEq (combApp ys) (combApp vs)
+            let stablePf ← proveBy s!"sv_cycle: refused: the values of the comb process `{pcLeaf}` are not proved \
+                stable (a second run on them changes them: the process reads a signal it writes, other than through \
+                its width; the settle of such a process needs a rank argument over its passes, not proved yet)"
+              stableTy (← `(Lean.Parser.Tactic.tacticSeq|
+                simp [$(ident `comb):ident, $(ident `St):ident, $combDefIds,*, LVec.width_resizeU, LVec.width_insertAt]))
+              (detail := false)
+            addThm (X ++ `comb_stable) (ps ++ vs) stableTy stablePf
+              "The comb process's values are settled: a second run gives them again (`sv_cycle`)."
+            -- the comb process is the only comb index
+            let pre := heads.extract 0 c
+            let post ← (heads.extract (c + 1) heads.size).foldrM (fun h acc => mkAppM ``List.cons #[h, acc]) famTail
+            let preL ← mkListLit (Lean.mkConst ``Process2) pre.toList
+            let splitTy ← mkEq (← mkAppM ``Array.toList #[← mkAppM ``Design2.processes #[app `D]])
+              (← mkAppM ``HAppend.hAppend #[preL, ← mkAppM ``List.cons #[Pc, post]])
+            let splitPf ← mkExpectedTypeHint (← proveBy "sv_cycle: the process list" splitTy
+              (← `(Lean.Parser.Tactic.tacticSeq| first | rfl | simp [$(ident `D):ident, $(ident `procs):ident]))) splitTy
+            let hPTy ← mkEq (← mkAppM ``Process2.isCombPhase #[Pc]) (Lean.mkConst ``Bool.true)
+            let hPPf ← mkExpectedTypeHint (← proveBy "sv_cycle: the comb process" hPTy
+              (← `(Lean.Parser.Tactic.tacticSeq| first | rfl | simp [$(mkCIdent pcLeaf):ident, Process2.isCombPhase])))
+              hPTy
+            let notComb ← withLocalDeclD `p (Lean.mkConst ``Process2) fun p => do
+              mkLambdaFVars #[p] (← mkAppM ``not #[← mkAppM ``Process2.isCombPhase #[p]])
+            let tacAll ← `(Lean.Parser.Tactic.tacticSeq| simp [Process2.isCombPhase, List.all_cons, List.all_append,
+              List.all_map, List.all_flatMap, $leafSimps,*])
+            let preTy ← mkEq (← mkAppM ``List.all #[preL, notComb]) (Lean.mkConst ``Bool.true)
+            let postTy ← mkEq (← mkAppM ``List.all #[post, notComb]) (Lean.mkConst ``Bool.true)
+            let hpre ← mkExpectedTypeHint (← proveBy "sv_cycle: the processes before the comb process" preTy tacAll)
+              preTy
+            let hpost ← mkExpectedTypeHint (← proveBy "sv_cycle: the processes after the comb process" postTy tacAll)
+              postTy
+            let hci ← mkAppM ``SvGolf.Cycle.combIndices_of_split #[splitPf, hPPf, hpre, hpost]
+            let hciS ← exprToSyntax hci
+            withLocalDeclD `σ (Lean.mkConst ``ScheduleOracle) fun σ => do
+            withLocalDeclD `kk (Lean.mkConst ``Nat) fun kv => do
+            let exOk (lhs rhsSt : Lean.Expr) : MetaM Lean.Expr := do
+              let ex ← withLocalDeclD `k' (Lean.mkConst ``Nat) fun k' => do
+                mkLambdaFVars #[k'] (← mkEq lhs (← mkAppM ``Res.ok #[← mkAppM ``Prod.mk #[rhsSt, k']]))
+              mkAppM ``Exists #[ex]
+            withLocalDeclD `F (Lean.mkConst ``Nat) fun Fv => do
+            withLocalDeclD `hF (← mkAppM ``LE.le #[mkNatLit (K + 2), Fv]) fun hFv => do
+              let settleTy ← exOk (← mkAppM ``combSettle2 #[app `D, σ, Fv, st vs, kv]) (combApp vs)
+              let runS (ws : Array Lean.Expr) : TermElabM Term := exprToSyntax (mkAppN (Lean.mkConst combRunN) (ps ++ ws))
+              let stableS ← exprToSyntax (mkAppN (Lean.mkConst (X ++ `comb_stable)) (ps ++ vs))
+              let settlePf ← proveBy "sv_cycle: the comb settle" settleTy (← `(Lean.Parser.Tactic.tacticSeq|
+                exact SvGolf.Cycle.combSettle2_single ($hciS).1 ($hciS).2 $(← exprToSyntax σ) $(← exprToSyntax hFv)
+                  (fun f hf => by
+                    obtain ⟨g, hg⟩ : ∃ g, f = g + $(quote K) := ⟨f - $(quote K), by omega⟩
+                    subst hg
+                    exact $(← runS vs) g)
+                  (fun f hf => by
+                    obtain ⟨g, hg⟩ : ∃ g, f = g + $(quote K) := ⟨f - $(quote K), by omega⟩
+                    subst hg
+                    exact ($(← runS ys) g).trans (congrArg Res.ok $stableS))
+                  $(← exprToSyntax kv)))
+              addThm (X ++ `settle) (ps ++ hs ++ vs ++ #[σ, Fv, kv, hFv]) settleTy settlePf
+                s!"**The comb settle** of the loaded design's mirror from `X.St …`, any schedule, any fuel from \
+                  {K + 2}: the comb process's values, `X.comb` (`sv_cycle`)."
+            pure ys
         let combApp (ws : Array Lean.Expr) : Lean.Expr := mkAppN (Lean.mkConst (X ++ `comb)) (ps ++ ws)
-        let combRunN := X ++ (pcLeaf.componentsRev.head!).appendAfter "_comb"
-        addThm combRunN (ps ++ vs ++ #[fv]) (← mkEq lhsC (← mkAppM ``Res.ok #[combApp vs])) pfC
-          s!"One run of the comb process `{pcLeaf}` on `X.St …`, at every fuel from {K} (`sv_cycle`)."
-        let combDefIds ← combDefs.mapM lem
-        let stableTy ← mkEq (combApp ys) (combApp vs)
-        let stablePf ← proveBy s!"sv_cycle: refused: the values of the comb process `{pcLeaf}` are not proved \
-            stable (a second run on them changes them: the process reads a signal it writes, other than through \
-            its width; the settle of such a process needs a rank argument over its passes, not proved yet)"
-          stableTy (← `(Lean.Parser.Tactic.tacticSeq|
-            simp [$(ident `comb):ident, $(ident `St):ident, $combDefIds,*, LVec.width_resizeU, LVec.width_insertAt]))
-          (detail := false)
-        addThm (X ++ `comb_stable) (ps ++ vs) stableTy stablePf
-          "The comb process's values are settled: a second run gives them again (`sv_cycle`)."
-        -- the comb process is the only comb index
-        let pre := heads.extract 0 c
-        let post ← (heads.extract (c + 1) heads.size).foldrM (fun h acc => mkAppM ``List.cons #[h, acc]) famTail
-        let preL ← mkListLit (Lean.mkConst ``Process2) pre.toList
-        let splitTy ← mkEq (← mkAppM ``Array.toList #[← mkAppM ``Design2.processes #[app `D]])
-          (← mkAppM ``HAppend.hAppend #[preL, ← mkAppM ``List.cons #[Pc, post]])
-        let splitPf ← mkExpectedTypeHint (← proveBy "sv_cycle: the process list" splitTy
-          (← `(Lean.Parser.Tactic.tacticSeq| first | rfl | simp [$(ident `D):ident, $(ident `procs):ident]))) splitTy
-        let hPTy ← mkEq (← mkAppM ``Process2.isCombPhase #[Pc]) (Lean.mkConst ``Bool.true)
-        let hPPf ← mkExpectedTypeHint (← proveBy "sv_cycle: the comb process" hPTy
-          (← `(Lean.Parser.Tactic.tacticSeq| first | rfl | simp [$(mkCIdent pcLeaf):ident, Process2.isCombPhase])))
-          hPTy
-        let notComb ← withLocalDeclD `p (Lean.mkConst ``Process2) fun p => do
-          mkLambdaFVars #[p] (← mkAppM ``not #[← mkAppM ``Process2.isCombPhase #[p]])
-        let tacAll ← `(Lean.Parser.Tactic.tacticSeq| simp [Process2.isCombPhase, List.all_cons, List.all_append,
-          List.all_map, List.all_flatMap, $leafSimps,*])
-        let preTy ← mkEq (← mkAppM ``List.all #[preL, notComb]) (Lean.mkConst ``Bool.true)
-        let postTy ← mkEq (← mkAppM ``List.all #[post, notComb]) (Lean.mkConst ``Bool.true)
-        let hpre ← mkExpectedTypeHint (← proveBy "sv_cycle: the processes before the comb process" preTy tacAll)
-          preTy
-        let hpost ← mkExpectedTypeHint (← proveBy "sv_cycle: the processes after the comb process" postTy tacAll)
-          postTy
-        let hci ← mkAppM ``SvGolf.Cycle.combIndices_of_split #[splitPf, hPPf, hpre, hpost]
-        let hciS ← exprToSyntax hci
-        withLocalDeclD `σ (Lean.mkConst ``ScheduleOracle) fun σ => do
-        withLocalDeclD `kk (Lean.mkConst ``Nat) fun kv => do
-        let exOk (lhs rhsSt : Lean.Expr) : MetaM Lean.Expr := do
-          let ex ← withLocalDeclD `k' (Lean.mkConst ``Nat) fun k' => do
-            mkLambdaFVars #[k'] (← mkEq lhs (← mkAppM ``Res.ok #[← mkAppM ``Prod.mk #[rhsSt, k']]))
-          mkAppM ``Exists #[ex]
-        withLocalDeclD `F (Lean.mkConst ``Nat) fun Fv => do
-        withLocalDeclD `hF (← mkAppM ``LE.le #[mkNatLit (K + 2), Fv]) fun hFv => do
-          let settleTy ← exOk (← mkAppM ``combSettle2 #[app `D, σ, Fv, st vs, kv]) (combApp vs)
-          let runS (ws : Array Lean.Expr) : TermElabM Term := exprToSyntax (mkAppN (Lean.mkConst combRunN) (ps ++ ws))
-          let stableS ← exprToSyntax (mkAppN (Lean.mkConst (X ++ `comb_stable)) (ps ++ vs))
-          let settlePf ← proveBy "sv_cycle: the comb settle" settleTy (← `(Lean.Parser.Tactic.tacticSeq|
-            exact SvGolf.Cycle.combSettle2_single ($hciS).1 ($hciS).2 $(← exprToSyntax σ) $(← exprToSyntax hFv)
-              (fun f hf => by
-                obtain ⟨g, hg⟩ : ∃ g, f = g + $(quote K) := ⟨f - $(quote K), by omega⟩
-                subst hg
-                exact $(← runS vs) g)
-              (fun f hf => by
-                obtain ⟨g, hg⟩ : ∃ g, f = g + $(quote K) := ⟨f - $(quote K), by omega⟩
-                subst hg
-                exact ($(← runS ys) g).trans (congrArg Res.ok $stableS))
-              $(← exprToSyntax kv)))
-          addThm (X ++ `settle) (ps ++ hs ++ vs ++ #[σ, Fv, kv, hFv]) settleTy settlePf
-            s!"**The comb settle** of the loaded design's mirror from `X.St …`, any schedule, any fuel from \
-              {K + 2}: the comb process's values, `X.comb` (`sv_cycle`)."
         mark "6. the updates at the edge and the next state"
         -- 6. the updates at the edge, the commit entry by entry, the next state
         let allQ ← mkAppM ``List.flatMap #[← mkAppM ``SvGolf.Cycle.runQ #[fuelE, st vs],
@@ -3229,7 +4232,7 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
                 Process2.isEdgePhase, List.all_cons, List.all_append, List.all_map, List.all_flatMap, $leafSimps,*]))
             (fun i p hp _ => $(← exprToSyntax (mkAppN hallGen (ysA.push fv2))) p
               (Array.mem_toList_iff.mpr (Array.mem_of_getElem? hp)))
-            (ffDisjB_of_pairwise $hTerm)
+            $ffS
             (by simp [$(ident `St):ident])
             (fun j => by
               rw [SvGolf.Cycle.flatMap_ffUpd_all,
@@ -3355,7 +4358,11 @@ syntax (name := svCycle) "sv_cycle " ident (" (" &"fuel" " := " num ")")? " usin
         exact $(← exprToSyntax initPf)))
       addThm (X ++ `init) all initTy initPf' "The initial state of the loaded design (`sv_cycle`)."
       mark "done"
-      if mixed then
+      if flat then
+        logInfo m!"sv_cycle: proved {X}.sem_eq, .apply, .settle (fuel from {K + 2}), .cycle (fuel from {K + 2}), \
+          .powerUp, .init, .combQ_disj; defined {X}.St, .combQ (the continuous assignments' writes), .comb (their \
+          settled values), .edgeQ, .next and the updates of {results.size} process(es)"
+      else if mixed then
         logInfo m!"sv_cycle: proved {X}.sem_eq, .apply, .settle (fuel from {K + 2}), .cycle (fuel from {K + 2}), \
           .powerUp, .init; defined {X}.St, .comb (the comb process's values), .edgeQ, .next and the updates of \
           {results.size} process(es)"
@@ -3401,5 +4408,9 @@ theorem simpSets_ready (P : Prop) (h : P) : P := by
 #print axioms applyInputs2_eq_map
 #print axioms cycleStep2_eq_commit
 #print axioms SvGolf.ProcDisj.of_all
+#print axioms combSettle2_flat
+#print axioms cycleStep2_flat
+#print axioms combSettle2_flat_of
+#print axioms extract_nbaFold_of_mem
 
 end SvGolf.Cycle

@@ -948,6 +948,7 @@ say what. A lemma that is in no library yet is named in its task's README, with 
 | name | module | what it says | use it when |
 |---|---|---|---|
 | `sv_mirror X := design (params) (hyps)`, `sv_cycle X using h` (commands) | SvGolf.Cycle | write steps 1 and 2 of section 19 from the loaded design at symbolic parameters: the mirror `X.D`, `X.sem_eq`, `X.profile`, the state `X.St`, each process's updates, `X.next`, `X.cycle`, `X.powerUp`, `X.init` (19.4) | an FF-only design: before writing a mirror or a run lemma by hand |
+| `combSettle2_flat`, `cycleStep2_flat`, `WinDisj`, `WinDisj.of_all`, `driversOk_of_winDisj`, `extract_nbaFold_of_mem` | SvGolf.Cycle | the settle and the cycle of a flat comb part (continuous assignments to pairwise disjoint static windows that read no comb-driven signal, a generated family included), under every schedule; the disjointness of every window two processes write; a window of a settled signal | several comb processes or a generated family of `assign`s beside the registers (19.4); `sv_cycle` cites them |
 | `ProcDisj.of_all`, `sv_window` (a tactic) | SvGolf.Cycle | two processes are disjoint when no pair of their windows overlaps, decided by `simp` on a concrete pair; a window `lo + w ≤ total` of products of parameters and genvars, each genvar replaced by its bound | `sv_cycle`'s one fact (19.4); window bounds in `Nat` |
 | `cycleStep2_profile`, `ffDisjB_of_pairwise`, `driversOk_of_ff` | SeqProfile, SeqFamily | a cycle of an FF-only design runs every `always_ff` body on the pre-edge state, then commits the queue; the disjointness and one-driver conditions from pairwise-disjoint windows | one clock cycle (section 19, step 2) |
 | `GenItem.expand2_genFor_ascending_processes`, `pairwise_flatMap_range`, `DrvWin.overlaps_some_eq_false` | Gen2, Hier2Gen | a generate loop expands to a `flatMap` over its indices; a family's windows are pairwise disjoint when each cell's are and every two cells' are; two windows are disjoint when the names differ or the ranges do not meet | the agreement (section 19, step 1) |
@@ -2701,6 +2702,36 @@ updates and their commit, signal by signal), `X.next` (the comb values of the co
 arbiter's reference keeps its own `rrD` and `rrNext` and relates them once (`rr_D_eq`, `rr_next_eq`: a `simp` with
 two `by_cases`).
 
+**Several comb processes, or one inside a generate loop** are covered when they form a *flat comb part*: every
+comb process a continuous assignment (`assign`) to a whole signal or a static part select (`x[lo +: w]`), none
+reading a signal a comb process drives. The assignments may be a generated family, any number of loops deep (a
+matmul design that picks `a_pick[(i*N+j)*W +: W]` from registers for every cell). With pairwise disjoint windows,
+a settle pass in every schedule order ends at the state where each window holds its assignment's value, computed on
+the state before the settle, and a second pass confirms it (`SvGolf.Cycle.combSettle2_flat`; `cycleStep2_flat` is
+the cycle; no permutation of runs is needed, nothing is unrolled). The one fact you give is then about every
+window, continuous and procedural:
+
+```lean
+theorem mm_disj (N W AccW : Nat) : (mm.procs N W AccW).Pairwise SvGolf.Cycle.WinDisj := …
+sv_cycle mm using mm_disj N W AccW
+```
+
+`WinDisj p q` says that no window `p` writes (`allWins p`: the windows a continuous assignment drives, the windows
+a procedural process assigns) shares a bit with one `q` writes; `WinDisj.of_all` decides one pair by `simp`, as
+`ProcDisj.of_all` does, and `pairwise_flatMap_range` and the row-major facts split a family
+(`tests/cycle/Generate.lean`, section 7a: 25 lines for a two-deep family). `sv_cycle` also takes the one-driver rule
+itself (`driversOk design.pdesign.declNames design.pdesign.inputNames (mm.procs N W AccW) = true`), or
+`Pairwise ProcDisj` when the continuous windows are disjoint by evaluation (assignments at the module level). It
+generates, per continuous assignment, its write `X.<p>C` (one update `(signal, lo, value)`, the value computed on
+`X.St …`), the comb writes of the design in process order `X.combQ` (a family stays a `List.range` family), the
+settled value of each comb-driven signal `X.comb_<signal> = nbaFold "<signal>" (X.combQ …) x`, the settled state
+`X.comb`, `X.combQ_disj` (the writes are pairwise disjoint), `X.settle`, and `X.edgeQ`, `X.commit`, `X.next`,
+`X.cycle` as for one comb process. To read a window of a settled signal use
+`SvGolf.Cycle.extract_nbaFold_of_mem (X.combQ_disj …) hmem hwidth`: the write `(n, lo, v)` is in `X.combQ …`
+(`simp only [X.combQ, X.<p>C, List.mem_flatMap, List.mem_range, List.mem_singleton]`, then the indices) and
+`lo + v.width ≤ x.width` (the signal's width is part of your invariant), so
+`(nbaFold n (X.combQ …) x).extract lo v.width = v`.
+
 A `localparam` chosen by a comparison of the parameters (`localparam int X = (AccW > W) ? AccW - W : 1`, matmul's
 broadcast record `b84fa7288ffd`) is refused with the comparison printed; under the case as a hypothesis
 (`(h : W < AccW)`, and a second `sv_mirror` under `(h : ¬ W < AccW)`) the parameter environment evaluates. The pinned
@@ -2721,8 +2752,10 @@ start `s`, a loop bound or start that can be negative under the hypotheses (`N -
 whose condition does not evaluate at symbolic parameters, a declaration inside a generate block, a module
 instance, package parameters, a parameter environment that does not evaluate at symbolic parameters (a comparison
 of parameters without its case hypothesis, above), a hypothesis or a disjointness argument containing `sorry`;
-and, at `sv_cycle` (the mirror covers them), two comb processes or one in a generate loop (their settle in every
-schedule order needs a lemma that every order of the passes reaches one fixpoint, not proved yet), a process list
+and, at `sv_cycle` (the mirror covers them), among several comb processes: an `always_comb` process, a continuous
+assignment to an element select or a concatenation, a comb process that reads a signal a comb process drives (their
+settle needs an acyclic order of the comb processes, a rank argument over the passes, not proved yet), continuous
+windows that are not disjoint; a process list
 that branches on a generate `if` (give the case as a hypothesis instead, one mirror per case), a process split at a
 genvar's first or last value, and a process whose run is not a success; `sv_cycle`'s refusals of the mirror's
 shape come before it reads the disjointness term. Nothing they produce is trusted: every definition and theorem

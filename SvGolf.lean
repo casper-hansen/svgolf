@@ -93,7 +93,9 @@ import LeanModels.SoftFloat.Binary
   updates, the next state and the clock step `X.cycle`, power-up and the initial state), every definition and
   theorem through the kernel, a shape they do not cover refused by name; with the lemmas they cite
   (`applyInputs2_eq_map`, `cycleStep2_eq_commit`, `ProcDisj.of_all`) and the dischargers `sv_disch`,
-  `sv_window` (PROVING.md, section 19.4).
+  `sv_window` (PROVING.md, section 19.4); since 2026-11-22 also a design with a flat comb part (continuous
+  assignments to pairwise disjoint static windows, a generated family included: `combSettle2_flat`,
+  `cycleStep2_flat`, `WinDisj`).
 * `SvGolf.RoundRobin` — untrusted, kernel-checked word-level facts for round-robin arbiters, for
   every width: the lowest set bit `x &&& (~~~x + 1)`, the thermometer above a one-hot, the mask
   round-robin's pick and next mask with its one-step theorem in the cyclic distance.

@@ -23,9 +23,13 @@ instantiates a design with exact 32-bit `int` arithmetic, so a parameter is its 
 * `lpcmp.sv`: a localparam chosen by a comparison of the parameters (`(N > W) ? N - W : 1`, an `int` localparam the
   exact 32-bit `int` instantiation computes on the width-exact path, `evalSized`): refused with the comparison
   printed, then generated under each case hypothesis, one mirror per case.
-* `assigngen.sv`, `comb2.sv`, `combgen.sv`: continuous assignments inside a generate loop, two at the module level,
-  an `always_comb` inside a generate loop: the mirror covers them; `sv_cycle` refuses their clock step by name
-  (several comb processes: their settle in every schedule order is not proved yet).
+* `famgrid.sv`, `famword.sv`, `assign2.sv`: several comb processes that form a flat comb part (a two-deep
+  generated family of continuous assignments feeding a family of registers; a one-deep family beside one register;
+  two continuous assignments at the module level): the comb settle and the cycle generated end to end, at every
+  size (`combSettle2_flat`).
+* `assigngen.sv`, `comb2.sv`, `combgen.sv`, `overlap.sv`: a continuous assignment that reads a signal another
+  drives (inside a generate loop, at the module level), an `always_comb` inside a generate loop, a generated family
+  whose windows overlap at some size: the mirror covers them; `sv_cycle` refuses their clock step by name.
 * `shift.sv`: a generate loop from `1` (`for (k = 1; k < N; k++)`): a `List.range' 1 (N - 1)` family, the window
   `(k-1)*W` decided from the loop's start; the clock step generated end to end.
 * `genif.sv`, `genifk.sv`: a generate `if` on a parameter and on a genvar: kept as an `if` of the process list (of
@@ -304,11 +308,177 @@ example (N AccW k j : Nat) (hN : 1 ≤ N) (hk : k < N - 1) (hj : j < N) :
     ((k + 1) * N + j) * AccW + AccW ≤ N * N * AccW := by
   sv_window
 
-/-! ## 7. Comb processes inside a generate loop, and several: the mirror covers them
+/-! ## 7. Several comb processes: a flat comb part is covered, any other is refused by name
 
 The instantiation does not depend on how many comb processes there are, or where: the mirror covers them. The clock
-step does: their settle in every schedule order is not proved yet, so `sv_cycle` refuses it by name, before it reads
-the disjointness term (the name given here is never elaborated). -/
+step of several comb processes (or of one inside a generate loop) is covered when the comb part is *flat*: every comb
+process a continuous assignment to a whole signal or a static part select, none reading a signal a comb process
+drives (`combSettle2_flat`: with pairwise disjoint windows, a settle pass in every schedule order ends at the state
+where each window holds its assignment's value). Any other shape is refused by name, before the term after `using`
+is read (the name given in the refusals below is never elaborated). -/
+
+/-! ### 7a. A two-deep generated family of continuous assignments feeding a family of registers -/
+
+load_sv famD from "tests/cycle/designs/famgrid.sv" (top := "famgrid")
+
+sv_mirror fam := famD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+  (hN46 : N < 46341)
+
+/-- Cell `(i, j)`: its continuous assignment, then its register; a two-deep family, never unrolled. -/
+example (N W : Nat) : fam.procs N W = (List.range N).flatMap fun i => (List.range N).flatMap fun j =>
+    [fam.g_cell N W i j] ++ [fam.g_cell_1 N W i j] := rfl
+
+example (N W i j : Nat) : fam.g_cell N W i j = .assign (.slice "t" ((i * N + j) * W) W)
+    (.binary .xor ((Expr2.ident "a").slice ((i * N + j) * W) W) ((Expr2.ident "b").slice ((j * N + i) * W) W)) := rfl
+
+/-- **The player's one fact**: two different processes write disjoint windows, continuous (`t`) and procedural
+(`q`) alike. Cell `(i, j)` writes window `(i * N + j) * W` of `t` and of `q`. -/
+theorem fam_disj (N W : Nat) : (fam.procs N W).Pairwise WinDisj := by
+  have sep : ∀ i j i' j', i * N + j < i' * N + j' → (i * N + j) * W + W ≤ (i' * N + j') * W := by
+    intro i j i' j' h
+    have := Nat.mul_le_mul_right W (Nat.succ_le_of_lt h)
+    rwa [Nat.succ_mul] at this
+  have cell : ∀ i j i' j', i * N + j < i' * N + j' →
+      ∀ p ∈ [fam.g_cell N W i j] ++ [fam.g_cell_1 N W i j],
+      ∀ q ∈ [fam.g_cell N W i' j'] ++ [fam.g_cell_1 N W i' j'], WinDisj p q := by
+    intro i j i' j' h p hp q hq
+    have := sep i j i' j' h
+    simp only [List.singleton_append, List.mem_cons, List.not_mem_nil, or_false] at hp hq
+    rcases hp with rfl | rfl <;> rcases hq with rfl | rfl <;>
+      exact WinDisj.of_all (by simp [allWins, fam.g_cell, fam.g_cell_1, Process2.drvWins, Process2.procWins,
+        Stmt2.drvWins, Lhs2.drvWins, DrvWin.overlaps] <;> omega)
+  unfold fam.procs
+  refine pairwise_flatMap_range (fun i _ => ?_) ?_
+  · refine pairwise_flatMap_range (fun j _ => ?_) ?_
+    · simp only [List.singleton_append]
+      exact .cons (fun q hq => by
+        simp only [List.mem_cons, List.not_mem_nil, or_false] at hq
+        subst hq
+        exact WinDisj.of_all (by simp [allWins, fam.g_cell, fam.g_cell_1, Process2.drvWins, Process2.procWins,
+          Stmt2.drvWins, Lhs2.drvWins, DrvWin.overlaps])) (.cons (fun _ h => by simp at h) .nil)
+    · intro j j' hj _ p hp q hq
+      exact cell i j i j' (by omega) p hp q hq
+  · intro i i' hi _ p hp q hq
+    obtain ⟨j, hj, hp⟩ := List.mem_flatMap.mp hp
+    obtain ⟨j', _, hq⟩ := List.mem_flatMap.mp hq
+    exact cell i j i' j' (rowMajor_lt (List.mem_range.mp hj) hi) p hp q hq
+
+/-- info: sv_cycle: proved SvGolf.Tests.Cycle.fam.sem_eq, .apply, .settle (fuel from 32), .cycle (fuel from 32),
+.powerUp, .init, .combQ_disj; defined SvGolf.Tests.Cycle.fam.St, .combQ (the continuous assignments' writes), .comb
+(their settled values), .edgeQ, .next and the updates of 2 process(es) -/
+#guard_msgs (whitespace := lax) in
+sv_cycle fam using fam_disj N W
+
+/-- The write of cell `(i, j)`'s assignment, and the comb writes of the whole design: the family, not unrolled. -/
+example (N W i j : Nat) (clk a b q t : LVec) : fam.g_cellC N W i j clk a b q t =
+    [("t", (i * N + j) * W, ((a.extract ((i * N + j) * W) W).xor (b.extract ((j * N + i) * W) W)).resizeU W)] := rfl
+
+example (N W : Nat) (clk a b q t : LVec) : fam.combQ N W clk a b q t =
+    (List.range N).flatMap fun i => (List.range N).flatMap fun j => fam.g_cellC N W i j clk a b q t := rfl
+
+/-- The settled `t` is the commit of the comb writes; the settled state changes `t` only. -/
+example (N W : Nat) (clk a b q t : LVec) :
+    fam.comb_t N W clk a b q t = nbaFold "t" (fam.combQ N W clk a b q t) t ∧
+    fam.comb N W clk a b q t = fam.St clk a b q (fam.comb_t N W clk a b q t) := ⟨rfl, rfl⟩
+
+/-- **The clock step, for every size and every schedule**: the same kind of equation as for an FF-only design. -/
+example (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648) (hN46 : N < 46341)
+    (σ : ScheduleOracle) (e : SvState) (clk a b q t : LVec) :
+    ∃ k', cycleStep2 (famD.sem N W) σ 32 e (fam.St clk a b q t) 0 =
+      .ok (fam.next N W (appIn e "clk" clk) (appIn e "a" a) (appIn e "b" b) q t, k') :=
+  fam.cycle N W hN hW hN32 hW32 hN46 σ e clk a b q t 0 32 (Nat.le_refl _)
+
+/-- As a player reads the settled signal: window `(i, j)` of the settled `t` holds `a[i][j] ^ b[j][i]`, from the
+disjointness of the comb writes (`fam.combQ_disj`) by `extract_nbaFold_of_mem`. -/
+example (N W i j : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+    (hN46 : N < 46341) (hi : i < N) (hj : j < N) (clk a b q t : LVec) (ht : t.width = N * N * W) :
+    (fam.comb_t N W clk a b q t).extract ((i * N + j) * W) W =
+      ((a.extract ((i * N + j) * W) W).xor (b.extract ((j * N + i) * W) W)).resizeU W := by
+  have hm : ("t", (i * N + j) * W,
+      ((a.extract ((i * N + j) * W) W).xor (b.extract ((j * N + i) * W) W)).resizeU W) ∈
+        fam.combQ N W clk a b q t := by
+    simp only [fam.combQ, fam.g_cellC, List.mem_flatMap, List.mem_range, List.mem_singleton]
+    exact ⟨i, hi, j, hj, rfl⟩
+  have h := extract_nbaFold_of_mem (x := t) (fam.combQ_disj N W hN hW hN32 hW32 hN46 clk a b q t) hm (by
+    rw [LVec.width_resizeU, ht]
+    sv_window)
+  rw [LVec.width_resizeU] at h
+  exact h
+
+/-- info: 'SvGolf.Tests.Cycle.fam.cycle' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms fam.cycle
+
+/-- info: 'SvGolf.Tests.Cycle.fam.settle' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms fam.settle
+
+/-- info: 'SvGolf.Tests.Cycle.fam.combQ_disj' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms fam.combQ_disj
+
+/-! ### 7a'. A one-deep family alone in its generate block (a `List.map` family), a register at the module level -/
+
+load_sv famwordD from "tests/cycle/designs/famword.sv" (top := "famword")
+
+sv_mirror fw := famwordD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+
+example (N W : Nat) : fw.procs N W = fw.p0 N W :: (List.range N).map (fw.g_word N W) := rfl
+
+/-- The register writes `q`, word `k` drives `t[k*W +: W]`. -/
+theorem fw_disj (N W : Nat) : (fw.procs N W).Pairwise WinDisj := by
+  refine .cons (fun p hp => ?_) (pairwise_map_range fun k k' h _ => ?_)
+  · obtain ⟨k, -, rfl⟩ := List.mem_map.mp hp
+    exact WinDisj.of_all (by simp [allWins, fw.p0, fw.g_word, Process2.drvWins, Process2.procWins, Stmt2.drvWins,
+      Lhs2.drvWins, DrvWin.overlaps])
+  · have := Nat.mul_le_mul_right W (show k + 1 ≤ k' by omega)
+    rw [Nat.add_mul, Nat.one_mul] at this
+    exact WinDisj.of_all (by simp [allWins, fw.g_word, Process2.drvWins, Process2.procWins, Lhs2.drvWins,
+      DrvWin.overlaps] <;> omega)
+
+sv_cycle fw using fw_disj N W
+
+example (N W : Nat) (clk a b q t : LVec) : fw.combQ N W clk a b q t =
+    (List.range N).flatMap fun k => fw.g_wordC N W k clk a b q t := rfl
+
+example (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+    (σ : ScheduleOracle) (e : SvState) (clk a b q t : LVec) :
+    ∃ k', cycleStep2 (famwordD.sem N W) σ 32 e (fw.St clk a b q t) 0 =
+      .ok (fw.next N W (appIn e "clk" clk) (appIn e "a" a) (appIn e "b" b) q t, k') :=
+  fw.cycle N W hN hW hN32 hW32 σ e clk a b q t 0 32 (Nat.le_refl _)
+
+/-- info: 'SvGolf.Tests.Cycle.fw.cycle' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms fw.cycle
+
+/-! ### 7b. Two continuous assignments at the module level: the windows disjoint by evaluation -/
+
+load_sv assign2D from "tests/cycle/designs/assign2.sv" (top := "assign2")
+
+sv_mirror a2 := assign2D (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
+
+example (N : Nat) : a2.procs N = [a2.p0 N, a2.p1 N, a2.p2 N] := rfl
+
+/-- The procedural windows (the register's): the continuous windows (`t`, `u`) are disjoint by evaluation. -/
+theorem a2_disj (N : Nat) : (a2.procs N).Pairwise ProcDisj := by
+  refine .cons (fun p hp => ?_) (.cons (fun p hp => ?_) (.cons (fun p hp => ?_) .nil)) <;> simp at hp <;>
+    (try rcases hp with rfl | rfl) <;> (try subst hp) <;>
+    exact ProcDisj.of_all (by simp [a2.p0, a2.p1, a2.p2, Process2.procWins, Stmt2.drvWins, Lhs2.drvWins,
+      DrvWin.overlaps])
+
+sv_cycle a2 using a2_disj N
+
+/-- A whole-signal assignment's write takes the signal's width. -/
+example (N : Nat) (clk a b q t u : LVec) :
+    a2.combQ N clk a b q t u = [("t", 0, (a.or b).resizeU t.width), ("u", 0, (a.and b).resizeU u.width)] := rfl
+
+example (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648) (σ : ScheduleOracle) (e : SvState)
+    (clk a b q t u : LVec) :
+    ∃ k', cycleStep2 (assign2D.sem N) σ 32 e (a2.St clk a b q t u) 0 =
+      .ok (a2.next N (appIn e "clk" clk) (appIn e "a" a) (appIn e "b" b) q t u, k') :=
+  a2.cycle N hN hN32 σ e clk a b q t u 0 32 (Nat.le_refl _)
+
+/-- info: 'SvGolf.Tests.Cycle.a2.cycle' depends on axioms: [propext, Classical.choice, Quot.sound] -/
+#guard_msgs in #print axioms a2.cycle
+
+/-! ### 7c. Refused by name: a comb process that reads another's output, an `always_comb` family, windows that
+are not disjoint -/
 
 load_sv agD from "tests/cycle/designs/assigngen.sv" (top := "assigngen")
 
@@ -324,9 +494,9 @@ example (N W k : Nat) : ag.g_word N W k = .assign (.slice "t" (k * W) W)
 /-- info: 'SvGolf.Tests.Cycle.ag.instantiate' depends on axioms: [propext, Classical.choice, Quot.sound] -/
 #guard_msgs in #print axioms ag.instantiate
 
-/-- error: sv_cycle: refused: a comb process inside a generate loop (`ag.g_word`): a family of comb processes is not
-covered (their settle in every schedule order needs the commutation of their runs over a permutation, `combPass2` of
-a family, which is not proved yet) -/
+/-- error: sv_cycle: refused: the comb process `ag.p0` reads `t`, which a comb process drives (`ag.g_word`): several
+comb processes are covered when none reads a signal a comb process drives; the settle of comb processes that read
+each other's outputs needs an acyclic order of them (a rank argument over the passes), which is not proved yet -/
 #guard_msgs (whitespace := lax) in
 sv_cycle ag using ag_disj
 
@@ -336,10 +506,9 @@ sv_mirror c2 := comb2D (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 
 example (N : Nat) : c2.procs N = [c2.p0 N, c2.p1 N, c2.p2 N] := rfl
 
-/-- error: sv_cycle: refused: a second comb process (`c2.p1`): one `always_comb` or `assign` beside the `always_ff`
-processes is covered; several need the settle in every schedule order of runs that read each other's outputs (a
-lemma that every order of `combPass2` reaches the same fixpoint, from an acyclic order of the comb processes), which
-is not proved yet -/
+/-- error: sv_cycle: refused: the comb process `c2.p1` reads `t`, which a comb process drives (`c2.p0`): several
+comb processes are covered when none reads a signal a comb process drives; the settle of comb processes that read
+each other's outputs needs an acyclic order of them (a rank argument over the passes), which is not proved yet -/
 #guard_msgs (whitespace := lax) in
 sv_cycle c2 using c2_disj
 
@@ -350,11 +519,37 @@ sv_mirror cg := combgenD (N : Nat) (hN : 1 ≤ N) (hN32 : N < 2147483648)
 /-- Bit `k` of `t`, an `always_comb` (its self-read guard decided at the symbolic genvar). -/
 example (N : Nat) : cg.procs N = cg.p0 N :: (List.range N).map (cg.g_and N) := rfl
 
-/-- error: sv_cycle: refused: a comb process inside a generate loop (`cg.g_and`): a family of comb processes is not
-covered (their settle in every schedule order needs the commutation of their runs over a permutation, `combPass2` of
-a family, which is not proved yet) -/
+/-- error: sv_cycle: refused: an `always_comb` process (`cg.g_and`) inside a generate loop: several comb processes
+are covered when each is a continuous assignment (`assign`) to a whole signal or a static part select and none reads
+a signal a comb process drives (`combSettle2_flat`); the settle of several `always_comb` processes in every schedule
+order is not proved yet -/
 #guard_msgs (whitespace := lax) in
 sv_cycle cg using cg_disj
+
+load_sv overlapD from "tests/cycle/designs/overlap.sv" (top := "overlap")
+
+sv_mirror ov := overlapD (N W : Nat) (hN : 1 ≤ N) (hW : 1 ≤ W) (hN32 : N < 2147483648) (hW32 : W < 2147483648)
+
+/-- Word `k` drives `t[k*W +: 2]`: two neighbours share a bit when `W = 1`. -/
+example (N W k : Nat) : ov.g_w N W k = .assign (.slice "t" (k * W) 2) ((Expr2.ident "a").slice (k * W) 2) := rfl
+
+/-- The procedural windows are disjoint (one register); the continuous windows are not, so the disjointness of
+every window (`WinDisj`) and the one-driver rule have no proof at every size. -/
+theorem ov_disj (N W : Nat) : (ov.procs N W).Pairwise ProcDisj := by
+  unfold ov.procs
+  refine .cons (fun p hp => ?_) (pairwise_map_range fun k k' _ _ => ?_)
+  · obtain ⟨k, -, rfl⟩ := List.mem_map.mp hp
+    exact ProcDisj.of_all (by simp [ov.p0, ov.g_w, Process2.procWins])
+  · exact ProcDisj.of_all (by simp [ov.g_w, Process2.procWins])
+
+/-- error: sv_cycle: refused: the windows the continuous assignments drive are not pairwise disjoint and apart from
+the clocked processes' windows by evaluation (two assignments drive one bit, or the windows are those of a generated
+family, whose disjointness is arithmetic): overlapping windows have no settle; for disjoint ones give the
+disjointness of every window, `sv_cycle ov using h` with `h : (ov.procs …).Pairwise SvGolf.Cycle.WinDisj`
+(`WinDisj.of_all`, `pairwise_flatMap_range`), or the one-driver rule itself, `h : driversOk design.pdesign.declNames
+design.pdesign.inputNames (ov.procs …) = true` -/
+#guard_msgs (whitespace := lax) in
+sv_cycle ov using ov_disj N W
 
 /-! ## 8. A generate loop from another start -/
 
