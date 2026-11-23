@@ -10,11 +10,11 @@
 
 <h2>Why it scores as it does</h2>
 
-<p>The array has the reference's N² multipliers and adders, plus weight, delay-line and partial-sum registers: 1,266 flip-flops and about 86,300 µm² on sky130, close to the reference's area. The period is 9,802 ps. The cost is the fill and drain: one product takes 2N cycles, twice the reference's N, and the score counts a single transaction. Area × time is about 6.77 million µm²·ns, 1.81 × par on sky130 and 1.85 × par on ASAP7. It is the better of the design's two records.</p>
+<p>The array has <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a>'s N² multipliers and adders, plus weight, delay-line and partial-sum registers: 1,266 flip-flops and about 86,300 µm² on sky130, close to the reference's area. The period is 9,802 ps. The cost is the fill and drain: one product takes 2N cycles, twice the reference's N, and the score counts a single transaction. Area × time is about 6.77 million µm²·ns, 1.81 × par on sky130 and 1.85 × par on ASAP7. It is the better of the design's two records.</p>
 
 <h2>The proof</h2>
 
-<p>The proof (1,484 code lines) follows the reference's order. <code>mm_sem_eq</code> matches the loaded design with a hand-built one: a control process and five generated families. This takes a disjointness argument for their write windows (<code>mm_gen_pairwise</code>). The localparam needs a case split on W &lt; AccW (<code>xv</code>, <code>mm_paramEnv</code>).</p>
+<p>The proof (1,484 code lines) follows <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a>'s order. <code>mm_sem_eq</code> matches the loaded design with a hand-built one: a control process and five generated families. This takes a disjointness argument for their write windows (<code>mm_gen_pairwise</code>). The localparam needs a case split on W &lt; AccW (<code>xv</code>, <code>mm_paramEnv</code>).</p>
 
 <p>The invariant <code>BusyAt</code> gives the control exactly and the rest window by window:</p>
 

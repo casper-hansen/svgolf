@@ -1,10 +1,10 @@
 <h1>Newton-Raphson divider with exact correction</h1>
 
-<p>This record replaces the <code>P + 2</code> restoring steps of par's divider with a Newton-Raphson core (<code>fdivp_newton.sv</code>, 46 sites). Its files are the task's second proved reference, entered under a handle like any player's, and built to show a second algorithm with a step count logarithmic in <code>P</code>, not to win.</p>
+<p>This record replaces the <code>P + 2</code> restoring steps of <a href="f5a6045c647f29e093b2c35ded2bd33da330c897e174ee98e974a0f902835892.html">par</a>'s divider with a Newton-Raphson core (<code>fdivp_newton.sv</code>, 46 sites). Its files are the task's second proved reference, entered under a handle like any player's, and built to show a second algorithm with a step count logarithmic in <code>P</code>, not to win.</p>
 
 <h2>The idea</h2>
 
-<p>The core works in fixed point with <code>F = P + 4</code> fraction bits and must deliver exactly what par's restoring steps deliver: the quotient <code>floor(ma * 2^(P+1) / mb)</code> and a sticky bit. Everything around it is par's.</p>
+<p>The core works in fixed point with <code>F = P + 4</code> fraction bits and must deliver exactly what <a href="f5a6045c647f29e093b2c35ded2bd33da330c897e174ee98e974a0f902835892.html">par</a>'s restoring steps deliver: the quotient <code>floor(ma * 2^(P+1) / mb)</code> and a sticky bit. Everything around it is par's.</p>
 
 <ol>
 <li>The initial reciprocal <code>45/32 - 15/32 * d</code> has relative error at most 1/16 and needs no table and no multiplier (<code>15 * mb</code> is <code>16 * mb - mb</code>).</li>
@@ -18,7 +18,7 @@
 
 <h2>The proof</h2>
 
-<p>The proof (4693 code lines) copies par's sections on the IEEE 754 spec, the rounding certificate and the shared glue verbatim. Its own sections are <code>NwCore</code>, the mathematics (the reciprocal's error shrinks quadratically per step, <code>newton_rest</code> equates the corrected core with restoring division, <code>nwNI_spec</code> shows the step count suffices); <code>NwG1</code>, the glue, with <code>newton_rows</code> (an induction over the steps) and <code>core</code>; and <code>NwG2</code>, the chain over the 46 equations. A practical lesson from the header: <code>omega</code> calls in the chain's full context took 35 s, against 2 s in a small lemma of their own.</p>
+<p>The proof (4693 code lines) copies <a href="f5a6045c647f29e093b2c35ded2bd33da330c897e174ee98e974a0f902835892.html">par</a>'s sections on the IEEE 754 spec, the rounding certificate and the shared glue verbatim. Its own sections are <code>NwCore</code>, the mathematics (the reciprocal's error shrinks quadratically per step, <code>newton_rest</code> equates the corrected core with restoring division, <code>nwNI_spec</code> shows the step count suffices); <code>NwG1</code>, the glue, with <code>newton_rows</code> (an induction over the steps) and <code>core</code>; and <code>NwG2</code>, the chain over the 46 equations. A practical lesson from the header: <code>omega</code> calls in the chain's full context took 35 s, against 2 s in a small lemma of their own.</p>
 
 <h2>What did not work</h2>
 

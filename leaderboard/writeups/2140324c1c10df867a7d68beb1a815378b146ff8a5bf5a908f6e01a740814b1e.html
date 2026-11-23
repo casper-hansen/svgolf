@@ -14,11 +14,11 @@
 
 <h2>Why it scores as it does</h2>
 
-<p>It trades area for speed. On sky130 it takes 2064 ps over a 24-cell critical path, 21% faster than par's 2611 ps over 32 cells. The area is 641.9 µm² in 115 cells (51 NAND2, 30 AND2, 17 XOR2, 12 OR2, three XNOR2 and two NAND2B), 39% above par. So area times time is 1324.8 µm²·ns, about 10% over par. On the routed ASAP7 course it measures 418 ps and 9.48 µm², which gives 3.96 µm²·ns, close to par's 3.92.</p>
+<p>It trades area for speed. On sky130 it takes 2064 ps over a 24-cell critical path, 21% faster than <a href="../reference/add_n.html">par</a>'s 2611 ps over 32 cells. The area is 641.9 µm² in 115 cells (51 NAND2, 30 AND2, 17 XOR2, 12 OR2, three XNOR2 and two NAND2B), 39% above par. So area times time is 1324.8 µm²·ns, about 10% over par. On the routed ASAP7 course it measures 418 ps and 9.48 µm², which gives 3.96 µm²·ns, close to par's 3.92.</p>
 
 <h2>The proof</h2>
 
-<p>When this proof was written, the <code>sv_comb</code> tactics refused this source because of the conditional generate inside an inner generate loop and the <code>$clog2</code> localparam. The source was not rewritten to suit them. (The pinned library's tactics have read this source since 2026-11-15; this record's proof was not rewritten to use them.) Instead the proof (1026 code lines) follows the by-hand route of the ripple reference:</p>
+<p>When this proof was written, the <code>sv_comb</code> tactics refused this source because of the conditional generate inside an inner generate loop and the <code>$clog2</code> localparam. The source was not rewritten to suit them. (The pinned library's tactics have read this source since 2026-11-15; this record's proof was not rewritten to use them.) Instead the proof (1026 code lines) follows the by-hand route of <a href="710c4589935969941c2a42db2bf4dde42a2ef93446da043b8f1f682c6cadb512.html">the ripple reference</a>:</p>
 
 <ol>
 <li><code>ks_instantiate2</code> instantiates the design at symbolic <code>N</code>. The localparam <code>L</code> is bound to the 32-bit truncation of <code>$clog2(N + 1)</code>, which equals <code>clog2 (N + 1)</code> within the task's range (<code>ksLv_eq</code>). Each node's generate-if expands through <code>GenItem.expand2_genIf_of_ne</code> and <code>_of_eq</code>.</li>

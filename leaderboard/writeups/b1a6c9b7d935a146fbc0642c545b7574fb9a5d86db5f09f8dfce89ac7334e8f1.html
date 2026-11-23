@@ -4,9 +4,9 @@
 
 <h2>The idea</h2>
 
-<p>When the operand bits differ, the incoming carry propagates. When they agree, both equal the carry out, so the cell can pick <code>a[i]</code> without looking at <code>b[i]</code>. That is a multiplexer on the propagate bit, written as an <code>if</code>/<code>else</code>. It computes the same majority as par's gate-level cell, and shows that procedural code inside a generate loop can be proved with the same tactics.</p>
+<p>When the operand bits differ, the incoming carry propagates. When they agree, both equal the carry out, so the cell can pick <code>a[i]</code> without looking at <code>b[i]</code>. That is a multiplexer on the propagate bit, written as an <code>if</code>/<code>else</code>. It computes the same majority as <a href="../reference/add_n.html">par</a>'s gate-level cell, and shows that procedural code inside a generate loop can be proved with the same tactics.</p>
 
-<p>The carry chain is par's, one cell per bit in series (Figure 1).</p>
+<p>The carry chain is <a href="../reference/add_n.html">par</a>'s, one cell per bit in series (Figure 1).</p>
 
 <figure data-figure="add-ripple" data-alt="The carry chain drawn as a prefix graph at N = 8: one carry cell per bit, eight in series.">
 <figcaption>The carry chain: each node is bit l's carry cell, <code>c[l+1]</code> = <code>p[l] ? c[l] : a[l]</code>, written as an <code>if</code>/<code>else</code> in an <code>always_comb</code> block.</figcaption>
@@ -14,11 +14,11 @@
 
 <h2>Why it scores as it does</h2>
 
-<p>The pinned flow produces par's netlist shape: 48 NAND2 and 32 XOR2 cells, 460.4 µm², and 2.61 ns over a 32-cell critical path to <code>s[15]</code>. That is 1202.2 µm²·ns on sky130, a tie with par. On the routed ASAP7 course it is 7.00 µm² and 558 ps, or 3.91 µm²·ns, which is 2 ps faster than par's design there and just ahead of it.</p>
+<p>The pinned flow produces <a href="../reference/add_n.html">par</a>'s netlist shape: 48 NAND2 and 32 XOR2 cells, 460.4 µm², and 2.61 ns over a 32-cell critical path to <code>s[15]</code>. That is 1202.2 µm²·ns on sky130, a tie with par. On the routed ASAP7 course it is 7.00 µm² and 558 ps, or 3.91 µm²·ns, which is 2 ps faster than par's design there and just ahead of it.</p>
 
 <h2>The proof</h2>
 
-<p>The proof (115 code lines) uses the <code>sv_comb</code> tactics like par's <code>add_n.lean</code>, with one twist. <code>design.sem N</code> is not a <code>CombDesign</code>, because that profile requires every process to be a continuous assign. The settle theory instead reaches the design through its <em>lowering</em> <code>Design2.lowerComb</code>, which replaces each <code>always_comb</code> body with the one assign it computes.</p>
+<p>The proof (115 code lines) uses the <code>sv_comb</code> tactics like par's <a href="../reference/add_n.html"><code>add_n.lean</code></a>, with one twist. <code>design.sem N</code> is not a <code>CombDesign</code>, because that profile requires every process to be a continuous assign. The settle theory instead reaches the design through its <em>lowering</em> <code>Design2.lowerComb</code>, which replaces each <code>always_comb</code> body with the one assign it computes.</p>
 
 <ul>
 <li><code>add_struct</code> proves <code>CombDesign</code> and <code>Acyclic</code> for the lowering <code>d'</code>. <code>sv_structure</code> takes a <code>rippleRank</code> with <code>p[i]</code> at rank 0, bit <code>i</code>'s carry and sum cells at <code>i + 1</code>, and the carry-out at <code>N + 1</code>. It returns arithmetic obligations, including a <code>noSelfRead</code> goal for the procedural body, and <code>intros; omega</code> closes all of them.</li>

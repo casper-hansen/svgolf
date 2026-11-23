@@ -16,11 +16,11 @@
 
 <h2>Why it scores as it does</h2>
 
-<p>On sky130 the design is 222,363 µm² with 1,942 flip-flops, 2.55 times the reference's area. Each cell still does a multiply and an accumulate in one cycle, so the period, 10,883 ps, is close to the reference's 10,696 ps. The H steps halve the accumulation, but the pre-sum and post-sum stages add two cycles back: four cycles, 43,532 ps. The score is about 9.68 million µm²·ns: 2.595 × par on sky130 and 2.537 × par on ASAP7. Strassen saves against eight block products, which would be 32 cells here. The reference uses 16 cells over four steps, so at this size the saving does not show.</p>
+<p>On sky130 the design is 222,363 µm² with 1,942 flip-flops, 2.55 times <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a>'s area. Each cell still does a multiply and an accumulate in one cycle, so the period, 10,883 ps, is close to the reference's 10,696 ps. The H steps halve the accumulation, but the pre-sum and post-sum stages add two cycles back: four cycles, 43,532 ps. The score is about 9.68 million µm²·ns: 2.595 × par on sky130 and 2.537 × par on ASAP7. Strassen saves against eight block products, which would be 32 cells here. The reference uses 16 cells over four steps, so at this size the saving does not show.</p>
 
 <h2>The proof</h2>
 
-<p>The proof has 2,073 code lines and uses only <code>simp</code>, <code>omega</code> and <code>decide</code>. Agreement (<code>st_sem_eq</code>) and the clock step (<code>st_profile</code>, <code>st_cycle</code>) follow the reference.</p>
+<p>The proof has 2,073 code lines and uses only <code>simp</code>, <code>omega</code> and <code>decide</code>. Agreement (<code>st_sem_eq</code>) and the clock step (<code>st_profile</code>, <code>st_cycle</code>) follow <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a>.</p>
 
 <p>The arithmetic section is the interesting part. <code>id11</code>, <code>id12</code>, <code>id21</code> and <code>id22</code> are Strassen's identities for one contraction index over the integers, proved by distributing the products and calling <code>omega</code>. <code>post11</code> to <code>post22</code> lift them, by recursion on the step count, to the engines' running sums <code>msum</code>. <code>post_dot</code> shows that the post-sum for entry (i, j) is <code>Tasks.Matmul.dot</code>. It splits the 2H-term sum into halves (<code>sumTo_split</code>), and for odd N it drops the padded index because B's row N reads zero (<code>extractLsb'_past</code>). <code>pre_range</code> and <code>preI_toInt</code> keep the pre-sums exact. <code>next_busy</code>, <code>next_last</code> and <code>model</code> finish the proof.</p>
 

@@ -8,7 +8,7 @@
 
 <h2>Why it scores as it does</h2>
 
-<p>On sky130 it is about 892 µm² at 4.30 ns, 3833.4 µm²·ns, about 0.49 x par. Synthesis rebalances it to 123 cells and a unit depth of 21 (from 27), with a critical path of 18 cells to <code>y[6]</code>. The depth-16 variant of the same circuit family wins the sky130 product. On the routed ASAP7 course this record had the smallest area on the board, 13.36 µm² at 724 ps (9.67 µm²·ns), and sits on that course's area-time frontier.</p>
+<p>On sky130 it is about 892 µm² at 4.30 ns, 3833.4 µm²·ns, about 0.49 x par. Synthesis rebalances it to 123 cells and a unit depth of 21 (from 27), with a critical path of 18 cells to <code>y[6]</code>. <a href="e98b307e09605023e195db34289edb82442d1125a213b021f11e4b8282f182db.html">The depth-16 variant</a> of the same circuit family wins the sky130 product. On the routed ASAP7 course this record had the smallest area on the board, 13.36 µm² at 724 ps (9.67 µm²·ns), and sits on that course's area-time frontier.</p>
 
 <p>Statement order matters for a flat netlist like this one: the task notes found that reordering the 113 assigns moves both its area and its sky130 delay, in either direction, because the checker scores the statements in the order given. Searching orders is legitimate golf here.</p>
 

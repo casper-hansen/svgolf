@@ -236,6 +236,133 @@ def element_end(h, at, tag):
     raise AssertionError(f"<{tag}> at {at} is not closed")
 
 
+class _Blocks(html.parser.HTMLParser):
+    """The paragraphs of a piece of a page (p, li, dd, td, th, figcaption, blockquote: the innermost one holds the
+    text), each {"text", "links"}: its links in order, each {"href" (None for span.unlinked), "title", "cls", "after"
+    (the text right after it)}."""
+    BLOCKS = {"p", "li", "dd", "td", "th", "figcaption", "blockquote"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out, self.stack, self.a, self.last = [], [], None, None
+
+    @classmethod
+    def of(cls, part):
+        b = cls()
+        b.feed(part)
+        b.close()
+        return b.out
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag in self.BLOCKS:
+            self.stack.append({"text": "", "links": []})
+            self.last = None
+        elif self.stack and (tag == "a" or (tag == "span" and "unlinked" in (a.get("class") or "").split())):
+            link = {"href": a.get("href") if tag == "a" else None, "title": a.get("title"),
+                    "cls": a.get("class") or "", "text": "", "after": "", "tag": tag}
+            self.stack[-1]["links"].append(link)
+            self.a = link
+
+    def handle_endtag(self, tag):
+        if self.a is not None and tag == self.a["tag"]:
+            self.last, self.a = self.a, None
+        elif tag in self.BLOCKS and self.stack:
+            self.out.append(self.stack.pop())
+            self.last = None
+
+    def handle_data(self, d):
+        if self.stack:
+            self.stack[-1]["text"] += d
+            if self.a is not None:
+                self.a["text"] += d
+            elif self.last is not None:
+                self.last["after"] += d
+
+
+def player_words(dd_html):
+    """The words of a record page's notes or assisted-by row as the player wrote them: the row's HTML without the
+    links the site puts on the names (decided 2026-11-23) and without the "(on the board since <date>)" it writes after
+    a link to a later record."""
+    text = re.sub(r'(<a class="board-since"[^>]*>.*?</a>) \(on the board since \d{4}-\d{2}-\d{2}\)', r"\1", dd_html)
+    return html.unescape(re.sub(r"<[^>]+>", "", text))
+
+
+def _link_target(here, a, repo_url):
+    """("site", the site path) | ("repo", the repository path as shown) | ("url", the address) of a link of `here`."""
+    if a["href"] is None:
+        return ("repo", a["title"])
+    href = a["href"]
+    if re.match(r"[a-z][a-z0-9+.-]*:", href):
+        if repo_url:
+            for shown in re.findall(r"tasks/[^/#?]+/reference/[^/#?]+", href):
+                if href.split("#")[0] == build.repo_link(repo_url, "svgolf/" + shown):
+                    return ("repo", shown)
+        return ("url", href)
+    path = href.split("#")[0]
+    return ("site", posixpath.normpath(posixpath.join(posixpath.dirname(here), path)) if path else here)
+
+
+def _names_in(text, rec, recs, refs, players, ref_player):
+    """What a paragraph of `rec`'s page names that is not `rec` itself: ("design", stem), ("record-file", stem),
+    ("hash", record_hash), ("player", handle), ("par", task)."""
+    own_sha, own_stem = rec["files"]["sv"]["sha256"], rec["files"]["sv"]["name"][:-3]
+    out = []
+    for stem, (_, sha) in refs.items():
+        if sha == own_sha or stem == own_stem:
+            continue
+        pat = (rf"(?<![\w.-]){re.escape(stem)}(?:\.sv|\.lean)?(?![\w-])" if "_" in stem
+               else rf"(?<![\w.-]){re.escape(stem)}\.(?:sv|lean)(?![\w-])")
+        if re.search(pat, text):
+            out.append(("design", stem))
+    for h, r in recs.items():
+        stem = r["files"]["sv"]["name"][:-3]
+        if (h != rec["record_hash"] and r["task"] == rec["task"] and stem not in ("solution", "solution2", "sol1")
+                and stem != own_stem and stem not in refs
+                and re.search(rf"(?<![\w.-]){re.escape(stem)}\.sv(?![\w-])", text)):
+            out.append(("record-file", stem))
+    for m in re.finditer(r"(?<![0-9a-f])[0-9a-f]{8,64}(?![0-9a-f])", text):
+        hit = [h for h in recs if h.startswith(m.group(0))]
+        if len(hit) == 1 and hit[0] != rec["record_hash"]:
+            out.append(("hash", hit[0]))
+    for p in players:
+        if p != rec["player"] and re.search(rf"(?<![\w-]){re.escape(p)}(?![\w-])", text):
+            out.append(("player", p))
+    if rec["player"] != ref_player and re.search(
+            r"(?:\bthe (?:[\w-]+ ){0,3}|^)reference\b(?! variant)|\bpar's\b|\bthe par design\b", text, re.I):
+        out.append(("par", rec["task"]))
+    return out
+
+
+def _named_linked(name, rec, recs, refs, par, targets):
+    """Whether one of the paragraph's link targets goes to what `name` names."""
+    kind, v = name
+    t = rec["task"]
+    for k, path in targets:
+        m = re.fullmatch(r"tasks/[^/]+/records/([0-9a-f]{64})\.html", path or "") if k == "site" else None
+        other = recs.get(m.group(1)) if m else None
+        ref = re.fullmatch(r"tasks/([^/]+)/reference/([\w-]+)\.(?:sv|lean|html)", path or "") \
+            if k in ("site", "repo") else None
+        if kind == "hash" and other and other["record_hash"] == v:
+            return True
+        if kind == "player" and other and other["player"] == v:
+            return True
+        if kind == "record-file" and other and other["files"]["sv"]["name"] == v + ".sv":
+            return True
+        if kind == "design":
+            if other and other["files"]["sv"]["sha256"] == refs[v][1]:
+                return True
+            if ref and ref.group(1) == refs[v][0] and ref.group(2) == v:
+                return True
+        if kind == "par":                            # par's design, or (the Wallace reference) another reference
+            shas = {sha for stem, (task, sha) in refs.items() if task == t}
+            if other and other["task"] == t and other["files"]["sv"]["sha256"] in shas:
+                return True
+            if ref and ref.group(1) == t and ref.group(2) in refs:
+                return True
+    return False
+
+
 class SiteTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1970,6 +2097,57 @@ class SiteTest(unittest.TestCase):
         self.assertFalse(hasattr(build, "diff_html"))
         self.assertFalse(hasattr(build, "previous_frontier_record"))
 
+    def test_writeups_and_notes_link_the_designs_they_name(self):
+        """Decided 2026-11-23 (the owner's feedback on the best mul record's writeup, which named the two-row-leaf
+        tree `mul_tree_h` without a link, a design whose only board record is later than the writeup's own): (1) in a
+        record page's writeup, and in its notes and assisted-by rows, every paragraph that names another design or
+        record links it in that paragraph: a reference design of tasks/*/reference/ (its stem, with .sv or .lean, or
+        alone when the stem holds an underscore), another record's design file (`core_mesh_late.sv`), a record hash,
+        a player, or par's design ("the reference", "the ... reference", "par's"; on par's own records these mean the
+        record itself; "the ... reference variant" is a variant of it, a record named by its own link). A link counts when it goes to that record's page, to the file or page of that design on the
+        site or in the repository (the repository address `repo_link` gives, or, in a tree with no public address,
+        the span.unlinked the site writes in its place), or to a record whose design file is that design byte for
+        byte. (2) Every link to a record submitted after the page's own carries the class writeup.BOARD_SINCE and is
+        followed by "(on the board since <its date>)", so a later record is never presented as a predecessor."""
+        recs = {r["record_hash"]: r for r in records()}
+        refs = {}                                     # stem -> (task, sha256 of its .sv)
+        for f in sorted(glob.glob(os.path.join(SVGOLF, "tasks", "*", "reference", "*.sv"))):
+            with open(f, "rb") as fh:
+                refs[os.path.basename(f)[:-3]] = (f.split(os.sep)[-3], hashlib.sha256(fh.read()).hexdigest())
+        with open(os.path.join(SVGOLF, "leaderboard", "par.json"), encoding="utf-8") as fh:
+            par = {t: v["design"] for t, v in json.load(fh)["par"].items()}
+        players = sorted({r["player"] for r in recs.values()}, key=len, reverse=True)
+        repo_url = self.config.get("repo_url")
+        problems = []
+        for h, rec in sorted(recs.items()):
+            here = f"tasks/{rec['task']}/records/{h}.html"
+            page_html = self.files[here].decode("utf-8")
+            parts = []
+            if 'class="writeup-body"' in page_html:
+                parts.append(("writeup", page_html[page_html.index('class="writeup-body"'):
+                                                   page_html.index("</section>", page_html.index('class="writeup-body"'))]))
+            for row in ("notes", "assisted by"):
+                m = re.search(rf"<dt>{row}</dt><dd>(.*?)</dd>", page_html, re.S)
+                parts.append((row, f"<dd>{m.group(1)}</dd>"))
+            for where, part in parts:
+                for blk in _Blocks.of(part):
+                    targets = [_link_target(here, a, repo_url) for a in blk["links"]]
+                    for name in _names_in(blk["text"], rec, recs, refs, players, self.config["reference_player"]):
+                        if not _named_linked(name, rec, recs, refs, par, targets):
+                            problems.append(f"{rec['task']} {h[:12]} {where}: {name} unlinked in: "
+                                            f"{norm(blk['text'])[:120]}")
+                    for a, (kind, path) in zip(blk["links"], targets):
+                        m = re.fullmatch(r"tasks/[^/]+/records/([0-9a-f]{64})\.html", path or "")
+                        if kind != "site" or not m:
+                            continue
+                        date = recs[m.group(1)]["submitted_at"][:10]
+                        if date > rec["submitted_at"][:10] and not (
+                                build.writeup.BOARD_SINCE in a["cls"].split()
+                                and a["after"].startswith(build.writeup.board_since_text(date))):
+                            problems.append(f"{rec['task']} {h[:12]} {where}: links the later record "
+                                            f"{m.group(1)[:12]} ({date}) without \"on the board since\"")
+        self.assertEqual(problems, [], "\n".join(problems))
+
     def test_home_defines_under_par_and_the_clocked_time(self):
         html_ = self.files["index.html"].decode("utf-8")
         # the note on par, record and under par is the rules page's since 2026-11-13 (the front page's block over the
@@ -2640,8 +2818,9 @@ class SiteTest(unittest.TestCase):
                 self.assertIsInstance(r["assisted_by"], list)
                 self.assertTrue(all(isinstance(a, str) and a for a in r["assisted_by"]))
                 page_ = self.files[f"tasks/{r['task']}/records/{r['record_hash']}.html"].decode("utf-8")
-                said = build.esc("; ".join(r["assisted_by"])) or "none (an unassisted claim)"
-                self.assertIn(f"<dt>assisted by</dt><dd>{said}</dd>", page_)
+                # (since 2026-11-23 the record hashes it names are links: test_writeups_and_notes_link_...)
+                said = re.search(r"<dt>assisted by</dt><dd>(.*?)</dd>", page_, re.S).group(1)
+                self.assertEqual(player_words(said), "; ".join(r["assisted_by"]) or "none (an unassisted claim)")
 
     def test_roadmap_is_off_the_nav_and_linked_from_about(self):
         """The nav has no Roadmap (decided 2026-11-06); roadmap.html is still built and About links it."""
@@ -3143,6 +3322,9 @@ class SiteTest(unittest.TestCase):
             text = data.decode("utf-8")
             if path.endswith(".html"):
                 text = re.sub(r'<pre[^>]* data-src="[^"]*"[^>]*>.*?</pre>', "", text, flags=re.S)
+                # a record's notes and assisted-by rows: what the player wrote, its names linked (2026-11-23)
+                text = re.sub(r"(<dt>(?:notes|assisted by)</dt><dd>)(.*?)(</dd>)",
+                              lambda m: m.group(1) + build.esc(player_words(m.group(2))) + m.group(3), text, flags=re.S)
                 text = html.unescape(text)
             for p in sorted(players, key=len, reverse=True):
                 if p:

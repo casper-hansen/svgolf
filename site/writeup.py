@@ -16,7 +16,16 @@ checked tree, never from the author's text:
 * headings: <h2>, <h3>, <h4> are shown one level down, under the card's title (an h2), each with the id
   `writeup-<its text as a slug>` and an anchor link, so no heading can take an id of the page's own;
 * links: an http(s) address carries rel="nofollow ugc noopener"; `#id` must name a heading or a figure of this
-  writeup (`#the-idea`, `#figure-1`) and points at its `writeup-` id; a relative path or a mailto address is kept;
+  writeup (`#the-idea`, `#figure-1`) and points at its `writeup-` id; a mailto address is kept; a relative path goes
+  through the caller's `resolve_link` (the site build's: below), else it is kept;
+* names of other designs are links (decided 2026-11-23, the owner's feedback on the best mul record's writeup): a
+  writeup that names another record, a player or a reference design links it in the same paragraph (the site's
+  tests check every writeup), and the site build's `resolve_link` checks and shapes each relative link: another record's page (`<record_hash>.html`) is kept,
+  and when that record was submitted after this one it is written `<a class="board-since" ...>...</a> (on the board
+  since YYYY-MM-DD)`, so a later record is never shown as a predecessor (BOARD_SINCE); a file of a task's directory
+  the site does not publish (`../reference/mul_tree_h.sv`, a reference design) links the file in the repository, the
+  site's way (`repo_link`), or, while the site has no public repository address, is shown as the site shows such
+  paths elsewhere: `<span class="unlinked" title="tasks/mul/reference/mul_tree_h.sv">` (md.py's form);
 * code: <pre><code class="language-X"> is highlighted by the site (`highlight`, the build's), plain without a class;
 * a table sits in the site's scroll box (div.table-wrap).
 
@@ -71,6 +80,22 @@ class HtmlError(safehtml.HtmlError):
     pass
 
 
+# what the site build's `resolve_link(href)` returns for a relative link: `href` where the link goes (None: a
+# repository path the site cannot link yet, shown as text with `title`), `later` the submitted date of a record
+# submitted after this writeup's own (the link then carries BOARD_SINCE), else None
+BOARD_SINCE = "board-since"                            # the class of a link to a later record (decided 2026-11-23)
+
+
+def board_since_text(date):
+    """The words after a link to a record submitted later than the writeup's own."""
+    return f" (on the board since {date})"
+
+
+class Link:
+    def __init__(self, href, *, later=None, title=None):
+        self.href, self.later, self.title = href, later, title
+
+
 def safe_target(target):
     """`target` when it is an absolute http or https address with a plain host name and no quote, angle bracket,
     backslash, backtick, space or control character; else None."""
@@ -117,9 +142,10 @@ def _plain(el):
 
 
 class _Writer:
-    def __init__(self, source, highlight, design_sha256, rules_href):
+    def __init__(self, source, highlight, design_sha256, rules_href, resolve_link=None):
         self.source, self.highlight = source, highlight or (lambda code, lang: _text(code))
         self.design, self.rules_href = design_sha256, rules_href
+        self.resolve_link = resolve_link
         self.slugger = _Slugger()
         self.ids, self.numbers = {}, {}
 
@@ -165,6 +191,19 @@ class _Writer:
             return (f'<h{level} id="{esc(hid)}">{self.children(el)}'
                     f' <a class="anchor" href="#{esc(hid)}" aria-label="link to this section">#</a></h{level}>')
         if tag == "a":
+            href = el.attrs["href"]
+            if (self.resolve_link is not None and not _SAFE_URL.fullmatch(href)
+                    and not safehtml.MAILTO.fullmatch(href) and not safehtml.FRAGMENT.fullmatch(href)):
+                try:
+                    to = self.resolve_link(href)
+                except ValueError as e:
+                    self.fail(el.line, f"<a>: href={href!r}: {e}")
+                if to.href is None:
+                    return f'<span class="unlinked" title="{esc(to.title)}">{self.children(el)}</span>'
+                if to.later:
+                    return (f'<a class="{BOARD_SINCE}" href="{esc(to.href)}">{self.children(el)}</a>'
+                            + _text(board_since_text(to.later)))
+                return f'<a href="{esc(to.href)}">{self.children(el)}</a>'
             return f"<a{self.link(el)}>{self.children(el)}</a>"
         if tag == "pre":
             code = el.elements()[0]
@@ -265,15 +304,16 @@ class _Writer:
         return f"<{name}{a}>{inner}</{name}>" if inner else f"<{name}{a}/>"
 
 
-def render(text, *, source, highlight=None, design_sha256=None, rules_href=None):
+def render(text, *, source, highlight=None, design_sha256=None, rules_href=None, resolve_link=None):
     """(title, the body as HTML) of a writeup's text (`source`: its path, for the errors). The title is plain text (the
     caller escapes it); the body is written by the rules above. `design_sha256`: the sha256 of the record's design
     file, which every generated figure must be drawn from; `rules_href`: where "how" in a generated figure's caption
-    links (both from the site build). Raises HtmlError (a ValueError) for HTML outside the allowlists, ValueError for
+    links (both from the site build); `resolve_link`: the site build's resolver of relative links (a `Link`, or
+    ValueError for a link it refuses). Raises HtmlError (a ValueError) for HTML outside the allowlists, ValueError for
     a text with no title line."""
     title, body, first = split(text)
     tree = safehtml.parse(body, source=source, first_line=first)
-    w = _Writer(source, highlight, design_sha256, rules_href)
+    w = _Writer(source, highlight, design_sha256, rules_href, resolve_link)
     w.plan(tree)
     out = w.children(tree)
     audit(out, source=source)
@@ -284,9 +324,10 @@ def render(text, *, source, highlight=None, design_sha256=None, rules_href=None)
 
 _OUT_TAGS = (safehtml.HTML_ELEMENTS | {"h5"} | safehtml.SVG_ELEMENTS) - {"h2"}
 _OUT_ATTRS = frozenset({"id", "class", "href", "rel", "aria-label", "aria-labelledby", "role", "style", "width",
-                        "height", "viewbox", "xmlns", "data-lang", "start", "colspan", "rowspan"}
+                        "height", "viewbox", "xmlns", "data-lang", "start", "colspan", "rowspan", "title"}
                        | set().union(*(a for t, a in safehtml.ATTRS.items() if t in safehtml.SVG_ELEMENTS)))
 _OUT_CLASSES = frozenset({"anchor", "code", "table-wrap", "wfig", "wfig-box", "wfig-svg", "wfig-n", "wfig-credit",
+                          BOARD_SINCE, "unlinked",
                           *safehtml.SVG_CLASSES, *safehtml.PROSE_CLASSES, *safehtml.ALIGN_CLASSES})
 _OUT_STYLE = re.compile(r"max-width:[0-9.]+px;min-width:[0-9.]+px")
 
@@ -313,6 +354,10 @@ class _Audit(html.parser.HTMLParser):
             v = v or ""
             if k not in _OUT_ATTRS or k.startswith("on"):
                 bad(f"attribute {k} on <{tag}>")
+            elif k == "title" and not (tag == "span" and dict(attrs).get("class") == "unlinked"):
+                bad(f"title on <{tag}>")
+            elif k == "class" and (BOARD_SINCE in v.split() and tag != "a" or "unlinked" in v.split() and tag != "span"):
+                bad(f"class {v!r} on <{tag}>")
             elif k == "style" and not (tag == "svg" and _OUT_STYLE.fullmatch(v)):
                 bad(f"style {v!r} on <{tag}>")
             elif k == "href" and not (tag == "a" and (_SAFE_URL.fullmatch(v) or safehtml.MAILTO.fullmatch(v)

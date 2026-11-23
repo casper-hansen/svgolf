@@ -12,7 +12,7 @@
 
 <h2>The proof</h2>
 
-<p>The proof (2,463 code lines) follows the reference's steps. Its core is <code>Inv</code>, a structure with one field per register family, each pinning its windows to the steps at which they hold a definite value. For example, the <code>m_a</code> register of tile (r, c) holds A[u][r] at t = N + u + 2 + r + c, and row u of <code>C</code> is final from t = 3N + 2 + u. <code>inv_step</code> advances the invariant one busy step. <code>inv_start</code> establishes it from <code>in_prop</code> = 0; at t = 0 every claim about the array is vacuous, which is why the data registers can stay unreset. <code>fin_of_inv</code> and <code>C_product</code> read off the product at t = 4N + 1, and triangle-number lemmas (<code>tri_succ</code>, <code>tri_mono</code>) place the packed lanes.</p>
+<p>The proof (2,463 code lines) follows <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a>'s steps. Its core is <code>Inv</code>, a structure with one field per register family, each pinning its windows to the steps at which they hold a definite value. For example, the <code>m_a</code> register of tile (r, c) holds A[u][r] at t = N + u + 2 + r + c, and row u of <code>C</code> is final from t = 3N + 2 + u. <code>inv_step</code> advances the invariant one busy step. <code>inv_start</code> establishes it from <code>in_prop</code> = 0; at t = 0 every claim about the array is vacuous, which is why the data registers can stay unreset. <code>fin_of_inv</code> and <code>C_product</code> read off the product at t = 4N + 1, and triangle-number lemmas (<code>tri_succ</code>, <code>tri_mono</code>) place the packed lanes.</p>
 
 <h2>What did not work</h2>
 

@@ -136,7 +136,7 @@
 <li>A <code>bfVal</code> toolkit for rows built from windows and single bits: an OR of disjoint supports is a sum (<code>bfVal_or</code>), a complement is <code>2^n - 1 - x</code> (<code>bfVal_not</code>), a single bit is a power of two (<code>bfVal_pt</code>).</li>
 <li>Each row's integer value by a case split on its three recoded bits (<code>rowK_int</code>, <code>row0_int</code>).</li>
 <li>The Booth identity by induction on the rows (<code>booth_sum</code>): after <code>n</code> rows the sum is <code>a</code> times the recoded prefix of <code>b</code>, less the pending <code>+1</code>, plus the telescoped sign-extension constants.</li>
-<li>A generic tape theorem (<code>tape_sum</code>), generalized from the Wallace reference: for any number of leaf rows, the last two rows sum to the leaves modulo <code>2^W</code>.</li>
+<li>A generic tape theorem (<code>tape_sum</code>), generalized from <a href="../reference/mul_wallace.lean">the Wallace reference</a>: for any number of leaf rows, the last two rows sum to the leaves modulo <code>2^W</code>.</li>
 </ol>
 
 <p><code>booth_mul</code> puts them together.</p>

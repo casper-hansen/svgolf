@@ -1120,6 +1120,7 @@ def load_writeups(site, records):
     site.writeups = {}
     hashes = {r["record_hash"] for r in records}
     by_hash = {r["record_hash"]: r for r in records}
+    site.records_by_hash = by_hash
     d = repo_file(WRITEUPS)
     if not os.path.isdir(d):
         return
@@ -1139,10 +1140,136 @@ def load_writeups(site, records):
         try:
             title, body = writeup.render(data.decode("utf-8"), source=f"{WRITEUPS}/{name}", highlight=_md_highlight,
                                          design_sha256=rec["files"]["sv"]["sha256"],
-                                         rules_href=rel_link(here, f"rules.html#{FIGURES_ANCHOR}"))
+                                         rules_href=rel_link(here, f"rules.html#{FIGURES_ANCHOR}"),
+                                         resolve_link=writeup_links(site, rec, here, by_hash))
         except ValueError as e:                   # safehtml.HtmlError: the file, the line and what was refused
             raise BuildError(str(e)) from None
         site.writeups[m.group(1)] = (title, body)
+
+
+RECORD_PAGE_RE = re.compile(r"tasks/([^/]+)/records/([0-9a-f]{64})\.html")
+TASK_REFERENCE_RE = re.compile(r"tasks/[^/]+/reference/[^/]+\.(?:sv|lean)")
+
+
+def repo_html(site, repo, label_html):
+    """`label_html` linked to the repository file `repo` the site's way (`repo_link`), or, while the site has no
+    public repository address, shown as md.py shows such a link: `<span class="unlinked">` naming the file."""
+    href = repo_link(site.config.get("repo_url"), repo)
+    if href is None:
+        site.unlinked.add(repo)
+        return f'<span class="unlinked" title="{esc(shown_path(repo))}">{label_html}</span>'
+    return page.link(href, label_html)
+
+
+def record_link_html(here, rec, other, label_html):
+    """A link from the page of `rec` to the page of record `other`; when `other` was submitted after `rec`, the link
+    carries writeup.BOARD_SINCE and "(on the board since <date>)" follows it (decided 2026-11-23: a page names a later
+    record only so, never as a predecessor)."""
+    href = rel_link(here, f"tasks/{other['task']}/records/{other['record_hash']}.html")
+    later = other["submitted_at"][:10] > rec["submitted_at"][:10]
+    if not later:
+        return page.link(href, label_html)
+    return (page.link(href, label_html, cls=writeup.BOARD_SINCE)
+            + esc(writeup.board_since_text(other["submitted_at"][:10])))
+
+
+def writeup_links(site, rec, here, by_hash):
+    """The resolver of a writeup's relative links (writeup.render's `resolve_link`; decided 2026-11-23, the owner's
+    feedback on the best mul record's writeup: a writeup links the designs and records it names, and shows a record
+    submitted after its own only as "on the board since <date>"). Another record's page (`<record_hash>.html`, the
+    full hash) is kept, with writeup.BOARD_SINCE when that record is later; a reference design's file
+    (`../reference/<stem>.sv` or `.lean`, as the task's directory has it) links the file in the repository
+    (`repo_html`'s rule: a `writeup.Link` without `href` while there is no public address); any other relative path
+    is kept, and check_links checks that it names an output file. A record page or a repository file that does not
+    exist is refused (ValueError)."""
+    def resolve(href):
+        path, _, frag = href.partition("#")
+        target = posixpath.normpath(posixpath.join(posixpath.dirname(here), path)) if path else here
+        m = RECORD_PAGE_RE.fullmatch(target)
+        if m:
+            other = by_hash.get(m.group(2))
+            if other is None or other["task"] != m.group(1):
+                raise ValueError("names no record's page (a record's page is <record_hash>.html, its full hash)")
+            mine, theirs = rec["submitted_at"][:10], other["submitted_at"][:10]
+            return writeup.Link(href, later=theirs if theirs > mine else None)
+        if TASK_REFERENCE_RE.fullmatch(target):
+            repo = f"svgolf/{target}"
+            if not os.path.isfile(repo_file(repo)):
+                raise ValueError(f"names no file of the repository ({shown_path(repo)})")
+            url = repo_link(site.config.get("repo_url"), repo)
+            if url is None:
+                site.unlinked.add(repo)
+                return writeup.Link(None, title=shown_path(repo))
+            return writeup.Link(url + ("#" + frag if frag else ""))
+        return writeup.Link(href)
+    return resolve
+
+
+# player-written text on a record page (its notes, its assisted-by entries): what it names is linked as the page is
+# written (decided 2026-11-23), since the record's fields are never edited (that would change its hash)
+_HASH_RE = re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{12,64}(?![0-9A-Za-z])")
+_PAR_PHRASE_RE = re.compile(r"(?:\b[Tt]he (?:[\w-]+ ){0,3}|^)[Rr]eference\b(?! variant)|\bpar's design\b")
+
+
+def linked_text(site, t, rec, text, here, *, names=True):
+    """`text` escaped, with what it names linked: a record hash (12 to 64 hex digits, a prefix of one record's hash
+    but this one's) links that record's page (`record_link_html`: marked when it is later); with `names`, a reference
+    design of the task (its stem, alone or with .sv or .lean) links par's page when it is par's design, else the file
+    in the repository (`repo_html`), and, in a text that names no reference design, its first "the ... reference"
+    (or a leading "reference", as in "reference architecture with ...") or "par's design" links par's page."""
+    by_hash = getattr(site, "records_by_hash", {})
+    pats = [("hash", _HASH_RE.pattern)]
+    stems = {}
+    if names:
+        ref_dir = repo_file(f"{t.dir}/reference")
+        if os.path.isdir(ref_dir):
+            for f in sorted(os.listdir(ref_dir)):
+                if f.endswith(".sv"):
+                    stems[f[:-3]] = sha256(read_bytes(f"{t.dir}/reference/{f}"))
+        if stems:
+            alts = "|".join(re.escape(x) for x in sorted(stems, key=len, reverse=True))
+            pats.append(("stem", rf"(?<![\w.-])(?:{alts})(?:\.sv|\.lean)?(?![\w-])"))
+    rx = re.compile("|".join(f"(?P<{k}>{p})" for k, p in pats))
+    par_page = reference_page(t, t.par) if t.par else None
+    par_rec = by_hash.get((t.par or {}).get("record_hash") or "")
+
+    def par_html(label_html):
+        if par_rec is not None:
+            return record_link_html(here, rec, par_rec, label_html)
+        return page.link(rel_link(here, par_page), label_html) if par_page else label_html
+    out, at, named = [], 0, False
+    for m in rx.finditer(text):
+        tok = m.group(0)
+        if m.lastgroup == "hash":
+            hit = [h for h in by_hash if h.startswith(tok) and h != rec["record_hash"]]
+            if len(hit) != 1:
+                continue
+            html_ = record_link_html(here, rec, by_hash[hit[0]], esc(tok))
+        else:
+            stem, ext = (tok[:-5], ".lean") if tok.endswith(".lean") else ((tok[:-3], ".sv") if tok.endswith(".sv")
+                                                                           else (tok, ".sv"))
+            if stem == rec["files"]["sv"]["name"][:-3] or stems[stem] == rec["files"]["sv"]["sha256"]:
+                continue                                     # the record's own design
+            named = True
+            if t.par and stems[stem] == t.par["sha256"] and ext == ".sv":
+                html_ = par_html(esc(tok))
+            else:
+                html_ = repo_html(site, f"{t.dir}/reference/{stem}{ext}", esc(tok))
+        out += [esc(text[at:m.start()]), html_]
+        at = m.end()
+    out.append(esc(text[at:]))
+    html_ = "".join(out)
+    if names and not named and t.par and rec["player"] != site.config["reference_player"]:
+        m = _PAR_PHRASE_RE.search(html_)
+        # (the phrase holds no markup and no character `esc` changes but the apostrophe, written &#x27;)
+        m = m or re.search(r"\bpar&#x27;s design\b", html_)
+        if m and "<" not in html_[:m.start()].rsplit(">", 1)[-1]:
+            html_ = html_[:m.start()] + par_html(m.group(0)) + html_[m.end():]
+    if html_ != esc(text):
+        # what the player wrote stays exempt from the internal markers as a whole (check_denylist's `player_text`,
+        # which removes each such text in its forms), here in its linked form
+        site.player_text.add(html_)
+    return html_
 
 
 def remade_rows(rec):
@@ -6072,9 +6199,10 @@ def record_page(site, t, rec, ge_tables):
     record = card("record", "The record", page.dl([
         ("task", page.link(rel_link(here, t.page), task_ref_html(t))),
         ("player", esc(rec["player"])),
-        ("assisted by", esc("; ".join(rec["assisted_by"])) or "none (an unassisted claim)"),
+        ("assisted by", linked_text(site, t, rec, "; ".join(rec["assisted_by"]), here, names=False)
+         or "none (an unassisted claim)"),
         ("submitted", esc(rec["submitted_at"])),
-        ("notes", esc(rec.get("notes") or "") or '<span class="muted">none</span>'),
+        ("notes", linked_text(site, t, rec, rec.get("notes") or "", here) or '<span class="muted">none</span>'),
         *remade_rows(rec),
         ("scoring point", esc(point_text(sc["scoring_point"]))),
         ("downloads", " ".join(page.link(rel_link(here, base + ext), code(h[:12] + ext)) for ext in (".sv", ".lean", ".json"))),

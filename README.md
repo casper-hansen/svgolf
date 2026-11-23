@@ -2376,7 +2376,13 @@ record page's Writeup tab. A good writeup has:
 * **the proof strategy**: the structure of the proof, its invariants and key lemmas, the tactics that did the work;
 * **the dead ends**: variants that scored worse, proofs that did not go through, and why;
 * **its parent**, for a record derived from one already on the board: that record's hash and a diff of the two design
-  files in a code block (CONTRIBUTING.md, "The leaderboard and the record file").
+  files in a code block (CONTRIBUTING.md, "The leaderboard and the record file");
+* **links for what it names** (decided 2026-11-23): another record, a player, par's design ("the reference",
+  "par's") or a reference design of `tasks/<task>/reference/`, each linked in the paragraph that names it (a record by
+  its page, `<record_hash>.html`; a reference design by its file, `../reference/<stem>.sv`). A record submitted after
+  yours is shown with "(on the board since <its date>)" after its link, which the site adds: a writeup names as what
+  it starts from only what existed on its own date, a design file of the repository or an earlier record, and a later
+  record only as on the board since its date. The site's tests check both (`tests/site/test_site.py`).
 
 The file lies outside the record: no field of the record and none of its hashes name it, so adding a writeup or
 improving one later never changes a record, its hash or its rank, and a pull request may add a writeup to a record
@@ -2389,8 +2395,9 @@ made of these elements only:
   `systemverilog`, `verilog`, `bash`, `text`: the site highlights it), `table` with `thead`, `tbody`, `tr`, `th`
   and `td` (`class` `al-left`, `al-center` or `al-right`; `colspan`, `rowspan`), and `figure` with `figcaption`;
 * links: `a` with an `href` that is an `https://` or `http://` address, a `mailto:` address, a relative path to a
-  page of the site (`../index.html`) or `#id` of a heading or figure of the same writeup (`#the-idea`,
-  `#figure-1`); no other scheme;
+  page of the site (`../index.html`; another record's page, `<record_hash>.html` by its full hash) or to a file of the
+  task's reference designs (`../reference/mul_tree_h.sv`: the site links that file in the repository), or `#id` of a
+  heading or figure of the same writeup (`#the-idea`, `#figure-1`); no other scheme;
 * drawings, inside a `figure` only (below): `svg`, `g`, `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`,
   `polygon`, `text`, `tspan`, `title`, `desc`, `defs`, `marker`, `clipPath`, `linearGradient`, `stop`.
 

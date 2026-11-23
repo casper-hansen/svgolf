@@ -240,10 +240,12 @@ hash), and `verify --offline` checks it, refusing anything outside the lists wit
 "Writeups", has the lists and how to preview a writeup).
 
 **A record derived from another** (decided 2026-11-17): when your design starts from a record already on the board, a
-change to its design rather than a new one, say so in your writeup. Name that record by its hash, and show the change
-as a diff of the two design files (`diff -u THEIRS.sv YOURS.sv`) in a code block, `<pre><code
-class="language-text">...</code></pre>`, with `<`, `>` and `&` written `&lt;`, `&gt;` and `&amp;` as everywhere in
-a writeup. A reader then sees what changed at a glance; the site shows no diff of its own (decided 2026-11-13).
+change to its design rather than a new one, say so in your writeup. Name that record by its hash and link its page
+(`<a href="<record_hash>.html">`, the full hash; a design from the task's reference designs: its file,
+`../reference/<stem>.sv`), and show the change as a diff of the two design files (`diff -u THEIRS.sv YOURS.sv`) in a
+code block, `<pre><code class="language-text">...</code></pre>`, with `<`, `>` and `&` written `&lt;`, `&gt;` and
+`&amp;` as everywhere in a writeup. A reader then sees what changed at a glance; the site shows no diff of its own
+(decided 2026-11-13).
 
 A record is one JSON file, `data/<task>/<record_hash>.json`, with your `.sv` and `.lean` copied next to it
 (`leaderboard/README.md` has the full schema, `svgolf-leaderboard-record/1`):

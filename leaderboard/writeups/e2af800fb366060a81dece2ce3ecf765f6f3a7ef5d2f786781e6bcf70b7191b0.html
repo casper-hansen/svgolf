@@ -1,6 +1,6 @@
 <h1>Registered product, free-running datapath</h1>
 
-<p><code>g2.sv</code> keeps the reference's N² multiply-accumulate units but cuts each one in two with a product register. The clock period is then set by the slower of the multiplier and the adder, not by both in series. The design pays one extra cycle of latency for a clock almost twice as fast.</p>
+<p><code>g2.sv</code> keeps <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a>'s N² multiply-accumulate units but cuts each one in two with a product register. The clock period is then set by the slower of the multiplier and the adder, not by both in series. The design pays one extra cycle of latency for a clock almost twice as fast.</p>
 
 <h2>The idea</h2>
 
@@ -16,11 +16,11 @@
 
 <h2>Why it scores as it does</h2>
 
-<p>The period drops to 5,576 ps over a 32-cell critical path, against the reference's 60 cells and 10,696 ps. The product registers add flip-flops, 1,058 against 802. With the hold multiplexers gone, the area is still slightly below the reference's, at about 85,260 µm² on sky130. Five cycles take 27,880 ps, for about 2.38 million µm²·ns, 0.64 × par. That is second on the sky130 board. On the routed ASAP7 course it is also second, at about 7,434 µm²·ns with a 1,085 ps period.</p>
+<p>The period drops to 5,576 ps over a 32-cell critical path, against <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a>'s 60 cells and 10,696 ps. The product registers add flip-flops, 1,058 against 802. With the hold multiplexers gone, the area is still slightly below the reference's, at about 85,260 µm² on sky130. Five cycles take 27,880 ps, for about 2.38 million µm²·ns, 0.64 × par. That is second on the sky130 board. On the routed ASAP7 course it is also second, at about 7,434 µm²·ns with a 1,085 ps period.</p>
 
 <h2>The proof</h2>
 
-<p>The proof (786 code lines) takes the proof of the free-running reference variant and adds the product register to the state shape:</p>
+<p>The proof (786 code lines) takes the proof of <a href="5a32b965845e29785e9a2e8c03ce343e1779dd004b2f84e96611c04ffd869321.html">the free-running reference variant</a> and adds the product register to the state shape:</p>
 
 <ul>
 <li><code>Ep</code> and <code>patV</code> say what <code>P</code> holds t cycles after a start: the products of step t − 1, or zero at t = 0. <code>psum_Ep</code> splits the partial sum into the part already in <code>C</code> and the part still waiting in <code>P</code>.</li>

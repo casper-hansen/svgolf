@@ -4,9 +4,9 @@
 
 <h2>The idea</h2>
 
-<p>If the operand bits are equal, the carry out is their common value, whatever the carry in is. If they differ, the carry in passes through. So the carry cell is a two-way multiplexer selected by an XNOR, and the sum reuses the same XNOR, inverted once more. It is the same majority function as par's cell, written as a selection rather than as gates.</p>
+<p>If the operand bits are equal, the carry out is their common value, whatever the carry in is. If they differ, the carry in passes through. So the carry cell is a two-way multiplexer selected by an XNOR, and the sum reuses the same XNOR, inverted once more. It is the same majority function as <a href="../reference/add_n.html">par</a>'s cell, written as a selection rather than as gates.</p>
 
-<p>The carry chain is par's, one cell per bit in series (Figure 1).</p>
+<p>The carry chain is <a href="../reference/add_n.html">par</a>'s, one cell per bit in series (Figure 1).</p>
 
 <figure data-figure="add-ripple" data-alt="The carry chain drawn as a prefix graph at N = 8: one carry cell per bit, eight in series.">
 <figcaption>The carry chain: each node is bit l's carry cell, the multiplexer <code>c[l+1]</code> = <code>e[l] ? a[l] : c[l]</code>.</figcaption>
@@ -14,7 +14,7 @@
 
 <h2>Why it scores as it does</h2>
 
-<p>The pinned flow maps the <code>?:</code> carry to the same netlist as par's gates: 48 NAND2 and 32 XOR2 cells, 460.4 µm², and a 32-cell critical path to <code>s[15]</code> at 2.61 ns. That is 1202.2 µm²·ns on sky130, a tie with par. It also matches par on the routed ASAP7 course, at 7.00 µm², 560 ps and 3.92 µm²·ns. The task README notes this effect in general: the flow restructures what is written, and a multiplexer carry comes out as the same three NAND gates per bit as the reference.</p>
+<p>The pinned flow maps the <code>?:</code> carry to the same netlist as <a href="../reference/add_n.html">par</a>'s gates: 48 NAND2 and 32 XOR2 cells, 460.4 µm², and a 32-cell critical path to <code>s[15]</code> at 2.61 ns. That is 1202.2 µm²·ns on sky130, a tie with par. It also matches par on the routed ASAP7 course, at 7.00 µm², 560 ps and 3.92 µm²·ns. The task README notes this effect in general: the flow restructures what is written, and a multiplexer carry comes out as the same three NAND gates per bit as the reference.</p>
 
 <h2>The proof</h2>
 

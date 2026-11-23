@@ -18,7 +18,7 @@
 
 <h2>The proof</h2>
 
-<p>The tactic proof of this design, <code>add_n.lean</code>, is 84 code lines. This one is 509, and it spells out every step the tactics hide. It is the baseline the tactics are measured against, and the route for designs they refuse: both prefix adders on this board follow it.</p>
+<p>The tactic proof of this design, <a href="../reference/add_n.html"><code>add_n.lean</code></a>, is 84 code lines. This one is 509, and it spells out every step the tactics hide. It is the baseline the tactics are measured against, and the route for designs they refuse: both prefix adders on this board follow it.</p>
 
 <ol>
 <li><strong>Instantiation at symbolic <code>N</code>.</strong> The envelope's generate loop and static assigns are pinned by <code>rfl</code> (<code>ripple_generates</code>, <code>ripple_static_source</code>). <code>GenItem.expand2_genFor_ascending_processes</code> expands the loop into <code>rippleProcs N</code>: carry-in, carry-out, then one sum cell and one carry cell per bit.</li>

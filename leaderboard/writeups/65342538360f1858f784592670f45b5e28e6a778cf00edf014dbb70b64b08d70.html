@@ -1,6 +1,6 @@
 <h1>Four multiply-accumulate steps per cycle</h1>
 
-<p><code>solution.sv</code> keeps the reference's layout, with one accumulator per entry of <code>C</code> and shift registers for the operands. Each unit, however, does four steps of the dot product per clock instead of one. At N = 4 that is the whole product in one cycle, and this record leads the matmul board.</p>
+<p><code>solution.sv</code> keeps <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a>'s layout, with one accumulator per entry of <code>C</code> and shift registers for the operands. Each unit, however, does four steps of the dot product per clock instead of one. At N = 4 that is the whole product in one cycle, and this record leads the matmul board.</p>
 
 <h2>The idea</h2>
 
@@ -14,11 +14,11 @@
 
 <h2>Why it scores as it does</h2>
 
-<p>Four times as many multipliers cost area: about 241,920 µm² on sky130, with about 38,700 cells and 800 flip-flops. That is 2.8 times the reference. The cycle count falls from 4 to 1, though, and the period does not grow. It is 9,410 ps over a 66-cell critical path, against the reference's 10,696 ps. Area × time comes to about 2.28 million µm²·ns, 0.61 × par, first on the sky130 board. On the routed ASAP7 course it is also first, at about 6,990 µm²·ns, 0.79 × the reference's 8,886.</p>
+<p>Four times as many multipliers cost area: about 241,920 µm² on sky130, with about 38,700 cells and 800 flip-flops. That is 2.8 times <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a>. The cycle count falls from 4 to 1, though, and the period does not grow. It is 9,410 ps over a 66-cell critical path, against the reference's 10,696 ps. Area × time comes to about 2.28 million µm²·ns, 0.61 × par, first on the sky130 board. On the routed ASAP7 course it is also first, at about 6,990 µm²·ns, 0.79 × the reference's 8,886.</p>
 
 <h2>The proof</h2>
 
-<p>The proof (855 code lines) has the reference's structure: agreement with a hand-built design, the clock step, an invariant, the phase model and the three rules. The datapath facts are widened:</p>
+<p>The proof (855 code lines) has <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a>'s structure: agreement with a hand-built design, the clock step, an invariant, the phase model and the three rules. The datapath facts are widened:</p>
 
 <ul>
 <li><code>setWidth_add4_mul_signExtend</code>: four sign-extended multiply-accumulates at the wide width, truncated to AccW bits, equal the wrapped integer sum. <code>psum_add4</code> unrolls the partial sum by four steps.</li>

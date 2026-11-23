@@ -1,10 +1,10 @@
 <h1>Broadcast weight-stationary array, enabled PEs</h1>
 
-<p><code>ws_broadcast_en.sv</code> is the same broadcast weight-stationary array as its sibling record. B is held in the processing elements (PEs) and A is fed through per-row delay lines, whose heads are broadcast across each array row. Partial sums move down the columns, and from cycle N on the finished output rows are shifted into <code>C</code>. The latency is 2N, eight cycles at N = 4. Two details differ.</p>
+<p><code>ws_broadcast_en.sv</code> is the same broadcast weight-stationary array as <a href="b84fa7288ffd7672738d9869b36674905f358a59619d823e61042907c2e0d4e8.html">its sibling record</a>. B is held in the processing elements (PEs) and A is fed through per-row delay lines, whose heads are broadcast across each array row. Partial sums move down the columns, and from cycle N on the finished output rows are shifted into <code>C</code>. The latency is 2N, eight cycles at N = 4. Two details differ.</p>
 
 <h2>The idea</h2>
 
-<p>First, every PE register is written only while <code>busy</code> is 1, so the array stands still between transactions. Second, the operands are sign-extended by a full AccW bits, the form the reference uses, instead of through a localparam that computes max(AccW, W + 1). The control, the delay lines and the collection rows are the same source text.</p>
+<p>First, every PE register is written only while <code>busy</code> is 1, so the array stands still between transactions. Second, the operands are sign-extended by a full AccW bits, the form <a href="a248c56b42a9d8852c256cea3587a7d2bd1e2a88e4e029e7dd7c0433222af565.html">the reference</a> uses, instead of through a localparam that computes max(AccW, W + 1). The control, the delay lines and the collection rows are the same source text.</p>
 
 <h2>Why it scores as it does</h2>
 

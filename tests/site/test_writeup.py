@@ -54,6 +54,37 @@ class RendererTest(unittest.TestCase):
         self.assertEqual(h, "<p>&lt;script&gt;alert(1)&lt;/script&gt; &amp; a &lt; b &gt; c \"q\" 'a'</p>")
         self.assertLessEqual(set(tags(h)), ALLOWED_TAGS)
 
+    def test_relative_links_go_through_the_site_resolver(self):
+        """Decided 2026-11-23 (a writeup links the designs it names, and shows a record submitted after its own only as
+        "on the board since <date>"): with the site build's `resolve_link`, a link to a later record carries
+        writeup.BOARD_SINCE and the words follow it; a repository file the site cannot link yet is a span.unlinked
+        naming it (md.py's form); a link the resolver refuses fails the writeup at its line; mailto, #id and http(s)
+        links never reach the resolver; without one (leaderboard.py verify) a relative path is kept."""
+        seen = []
+
+        def resolve(href):
+            seen.append(href)
+            if href == "gone.html":
+                raise ValueError("names no record's page")
+            if href == "../reference/x.sv":
+                return writeup.Link(None, title="tasks/t/reference/x.sv")
+            return writeup.Link(href, later="2026-11-13" if href == "later.html" else None)
+
+        def r(body):
+            return writeup.render(f"<h1>T</h1>\n\n<h2>H</h2>\n{body}\n", source="w.html", resolve_link=resolve)[1]
+        h = r('<p>As <a href="later.html">its record</a>, after <a href="earlier.html">that one</a>.</p>')
+        self.assertIn('<p>As <a class="board-since" href="later.html">its record</a> (on the board since 2026-11-13), '
+                      'after <a href="earlier.html">that one</a>.</p>', h)
+        self.assertIn('<p><span class="unlinked" title="tasks/t/reference/x.sv"><code>x</code></span></p>',
+                      r('<p><a href="../reference/x.sv"><code>x</code></a></p>'))
+        with self.assertRaises(safehtml.HtmlError) as e:
+            r('<p>a</p>\n<p><a href="gone.html">g</a></p>')
+        self.assertIn("names no record's page", str(e.exception))
+        seen.clear()
+        r('<p><a href="https://example.org/">a</a> <a href="mailto:a&#64;example.org">b</a> <a href="#h">c</a></p>')
+        self.assertEqual(seen, [])
+        self.assertIn('<a href="later.html">x</a>', render('<p><a href="later.html">x</a></p>'))
+
     def test_only_safe_links_are_links(self):
         h = render('<p><a href="https://example.org/x?y=1&amp;z=2#z">a</a> <a href="http://example.org">b</a></p>')
         self.assertIn('<a rel="nofollow ugc noopener" href="https://example.org/x?y=1&amp;z=2#z">a</a>', h)

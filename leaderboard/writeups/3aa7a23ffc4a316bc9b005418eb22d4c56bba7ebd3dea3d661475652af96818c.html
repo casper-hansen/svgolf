@@ -1,6 +1,6 @@
 <h1>Schoolbook with a balanced XOR tree per column</h1>
 
-<p>The top-ranked <code>clmul</code> record keeps par's <code>N^2</code> partial products but sums each output column with an explicit balanced XOR tree instead of chaining it through the rows. It is one design for every <code>N</code> (<code>clmul_tree.sv</code>), proved with the <code>sv_comb</code> tactics.</p>
+<p>The top-ranked <code>clmul</code> record keeps <a href="0d28d278b0cb2d0144de36ffc909c1641021a271c25e8663d206828412ee82cc.html">par</a>'s <code>N^2</code> partial products but sums each output column with an explicit balanced XOR tree instead of chaining it through the rows. It is one design for every <code>N</code> (<code>clmul_tree.sv</code>), proved with the <code>sv_comb</code> tactics.</p>
 
 <h2>The idea</h2>
 
@@ -26,7 +26,7 @@
 
 <h2>The proof</h2>
 
-<p>The proof (231 code lines) keeps the shape of par's and replaces the row invariant with a window invariant:</p>
+<p>The proof (231 code lines) keeps the shape of <a href="0d28d278b0cb2d0144de36ffc909c1641021a271c25e8663d206828412ee82cc.html">par</a>'s and replaces the row invariant with a window invariant:</p>
 
 <ul>
 <li><code>wx f s n</code> is the XOR of the window <code>f s .. f (s + n - 1)</code> of a tape.</li>
