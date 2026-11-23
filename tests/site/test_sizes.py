@@ -72,6 +72,18 @@ def design_shas(t):
     return out
 
 
+def label_of(d, designs):
+    """How the page names a design in a size's not-measured list: its title, then its name; a design whose line
+    another of the page's designs shares (two untitled records of one player) with its record's short id in the name's
+    place (build.design_label, as charts.js names such a line)."""
+    def plain(e):
+        return (f"{e['title']} · " if e.get("title") and e["title"] != e["name"] else "") + e["name"]
+    if sum(1 for e in designs if plain(e) == plain(d)) > 1:
+        head = f"{d['title']} · " if d.get("title") and d["title"] != d["name"] else f"{d['name']} · "
+        return head + (d["id"][:12] if d["kind"] == "record" else d["id"])
+    return plain(d)
+
+
 def page_data(files, t, pdk=""):
     m = re.search(r'<script type="application/json" id="task-data' + (f"-{pdk}" if pdk else "") + r'">(.*?)</script>',
                   files[f"tasks/{t}/index.html"], re.S)
@@ -144,7 +156,7 @@ class SizesSite(unittest.TestCase):
                     with self.subTest(task=t, size=p["key"], design=d["id"]):
                         x = (by_sha.get(shas.get(d["id"])) or {}).get("at", {}).get(p["key"])
                         e = by_id.get(d["id"])
-                        label = (f"{d['title']} · " if d.get("title") and d["title"] != d["name"] else "") + d["name"]
+                        label = label_of(d, data["designs"])
                         if x and x["status"] == "measured":
                             got = at[d["id"]]["m"]
                             self.assertEqual(got["area_um2"], x["area_e4um2"] / 10000)

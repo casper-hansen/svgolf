@@ -917,6 +917,10 @@
       lines.forEach(function (l, k) { label[l.ln.id] = ls[k]; });
     }
     var left = F.left, right = W - (named ? F.right : FRAMES.compact.right), top = F.top, bottom = H - F.bottom;
+    // more names than the frame's height holds at their gap (25 matmul lines since 2026-11-23): the drawing grows by
+    // what they lack, so every name stays inside it and no two come closer than the gap
+    var lack = named ? (lines.length - 1) * F.gap - ((bottom - 4) - (top + 6)) : 0;
+    if (lack > 0) { H += lack; bottom += lack; }
     var xv = [], yv = relative ? [1] : [];
     lines.forEach(function (l) { l.pts.forEach(function (p) { xv.push(p.x); yv.push(p.y); }); });
     var xs = new Scale(Math.min.apply(null, xv), Math.max.apply(null, xv), left + 14, right - 14, { log: xlog, integer: !xlog });

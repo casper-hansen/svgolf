@@ -233,6 +233,27 @@
    "time_ps": 11336
   },
   {
+   "area_e5um2": 192855492,
+   "area_mge": 30399683,
+   "buffers": 8,
+   "canonical_sha256": "0a5444255a25fca78272c3c8ec3ce7c9431681920540d5993b70860f5074ed79",
+   "cells": 20449,
+   "cycles": 4,
+   "delay_ps": 1471,
+   "depth": 61,
+   "flops": 1570,
+   "netlist_sha256": "8a8729da3e84063a73a5419084a7d65099b604e80c9a08e603ceb0be21e7dfca",
+   "of": [
+    "record:5bff489cc2eff2ab5e9ab418e59b7e347fc62c667daf1befc3be4e776996f240"
+   ],
+   "repaired_sha256": "abc9279b7ee217d2a0d44234629cda54f4c1812c6d935e2dd5e9f4235351a214",
+   "rtlil_sha256": "6f52943f0c02e7c0bd866a8ecefbf7c82f2306c2c0b7bbe8500903160c1ef77d",
+   "sv_sha256": "7fe42febfa33717d44947dc1eb9b0409959a89f74fc7e4a9e9486f093519105e",
+   "table_reads_floored": 49908,
+   "tie_cells": 0,
+   "time_ps": 5884
+  },
+  {
    "area_e5um2": 170876142,
    "area_mge": 26411681,
    "buffers": 12,
@@ -295,6 +316,27 @@
    "table_reads_floored": 50596,
    "tie_cells": 0,
    "time_ps": 6156
+  },
+  {
+   "area_e5um2": 134426142,
+   "area_mge": 21191518,
+   "buffers": 4,
+   "canonical_sha256": "014d92adf452a04236d88dac8d7c802fd3a317e2395526af17e94f66c67cceea",
+   "cells": 14765,
+   "cycles": 4,
+   "delay_ps": 1529,
+   "depth": 61,
+   "flops": 802,
+   "netlist_sha256": "7ef9cff4685b579394191f7e71f8e44f3d670089b4d96d955c4a21df0be62e39",
+   "of": [
+    "record:4d9952fba7eaac2e88bec72558f77bbc02ebc04b989d2aa3b55c7ce4ad33a84e"
+   ],
+   "repaired_sha256": "f6764deefb620389ad80731b6b81467f9a70d549851731b4e7883423cf36c7ef",
+   "rtlil_sha256": "971ca8682394243d94d0434b13948c05a28e3a409e6d2e4db818fdf7bc0bd354",
+   "sv_sha256": "acfe63284607ee633996ba3232c6ccb774fd9a22923b1b4ff3324a54cf3cc9c9",
+   "table_reads_floored": 24952,
+   "tie_cells": 0,
+   "time_ps": 6116
   },
   {
    "area_e5um2": 134302212,
@@ -442,6 +484,27 @@
    "table_reads_floored": 99312,
    "tie_cells": 0,
    "time_ps": 22480
+  },
+  {
+   "area_e5um2": 621635796,
+   "area_mge": 96832585,
+   "buffers": 15,
+   "canonical_sha256": "bc339d08816835e18fa9f338d2cf72348ee6bd46521a0df1782928767eb86aa7",
+   "cells": 68153,
+   "cycles": 4,
+   "delay_ps": 1557,
+   "depth": 62,
+   "flops": 2402,
+   "netlist_sha256": "411f17a6e6c31fea2c2b8388aa7477c20f62f77bbf065802d3e09f397329d75b",
+   "of": [
+    "record:1136031894d5a773554b28a400ea42b555eda15f9daba44947f369f71713dd95"
+   ],
+   "repaired_sha256": "3df5fce0e5f01be00dd0563ef3431f0bdce4e50cd95e462c012bdc40a2d3194b",
+   "rtlil_sha256": "3db3fac20898767b146cf5fce0731716445e1c1fbf7e332ca67af532de0ffda1",
+   "sv_sha256": "f7f14f7ae346d92ecbb647095111aab0c5bc13b74023f90c52682f4010d2c90c",
+   "table_reads_floored": 207724,
+   "tie_cells": 0,
+   "time_ps": 6228
   },
   {
    "area_e5um2": 387443088,

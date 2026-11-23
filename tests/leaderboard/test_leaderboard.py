@@ -4143,8 +4143,9 @@ class CommittedAsap7PnrTest(unittest.TestCase):
         # 2026-11-13, campaign 3: every design the tasks show is routed (52 since the 13 matmul architecture records);
         # 2026-11-19: clockwork-otter's matmul record 7f5da0d09f15 waits for its run (its request is stored, pending);
         # 2026-11-20: so does clockwork-otter's matmul record ddc2d1b271db
-        # 2026-11-23: and clockwork-otter's matmul records f14f8e008cc0 and 2b625ce36431
-        self.assertEqual(totals, {"bound": 52, "pending": 4})
+        # 2026-11-23: and clockwork-otter's matmul records f14f8e008cc0, 2b625ce36431, 5bff489cc2ef, 1136031894d5 and
+        # 4d9952fba7ea
+        self.assertEqual(totals, {"bound": 52, "pending": 7})
 
 
 def git(cwd, *args):

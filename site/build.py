@@ -2420,9 +2420,15 @@ def mark_attrs(d):
     return a
 
 
-def design_label(d):
-    """A design as one line of text: its title, then its name ('Wallace tree as a queue of rows · wickthresher')."""
-    return (f"{d['title']} · " if d.get("title") and d["title"] != d["name"] else "") + d["name"]
+def design_label(d, among=()):
+    """A design as one line of text: its title, then its name ('Wallace tree as a queue of rows · wickthresher').
+    With `among` (the task's designs), a design whose line another of them shares (two records of one player without
+    writeups, both titled by their file's stem) has its record's short id in the name's place, as charts.js names its
+    line in the Size view (2026-11-20; here since 2026-11-23, when a not-measured list first held such a twin)."""
+    title = f"{d['title']} · " if d.get("title") and d["title"] != d["name"] else ""
+    if sum(1 for e in among if design_label(e) == title + d["name"]) > 1:
+        return (title or f"{d['name']} · ") + (d["id"][:12] if d["kind"] == "record" else d["id"])
+    return title + d["name"]
 
 
 def page_data(t):
@@ -2442,7 +2448,8 @@ def page_data(t):
         # the Size selector's sizes; at each other size every design measured there, and the ones that are not, with
         # the reason (charts.js counts them in the legend line, the reasons on hover)
         out["points"] = [{"key": v["key"], "short": v["short"], "full": v["full"], "scored": v["scored"],
-                          "missing": [[design_label(d), why] for d, why in v.get("missing", [])]} for v in t.views]
+                          "missing": [[design_label(d, t.designs), why] for d, why in v.get("missing", [])]}
+                         for v in t.views]
         if t.preview:
             out["preview"] = True                 # nothing of it is ranked: charts.js's tag says "not scored"
         out["at"] = {v["key"]: [one(d) for d in v["designs"]] for v in t.views if not v["scored"]}
@@ -5197,7 +5204,7 @@ def area_time_html(s, par):
             gone = [(d, "it has no area and time there") for d in v["designs"] if d not in ds]
             info[v["key"]] = {"short": v["short"], "scored": False,
                               "par": par_score_words(par_at, pdk) if par_at else None, "fitted": fitted_words(out),
-                              "missing": [[("this design" if d["id"] == s.d["id"] else design_label(d)), why]
+                              "missing": [[("this design" if d["id"] == s.d["id"] else design_label(d, t.designs)), why]
                                           for d, why in v.get("missing", []) + gone
                                           if d["id"] in {x["id"] for x in designs}]}
     tools = ""
