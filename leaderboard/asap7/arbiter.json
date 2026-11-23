@@ -5,6 +5,27 @@
    "area_e5um2": 1215972,
    "area_mge": 188979,
    "buffers": 0,
+   "canonical_sha256": "71c3e8be333f318132f3808af83f59bb8af2c647e8f7dc34feab8efbc3d55c77",
+   "cells": 138,
+   "cycles": 1,
+   "delay_ps": 464,
+   "depth": 17,
+   "flops": 16,
+   "netlist_sha256": "e072fb19e91c79f0adcdfa0ef3709731d0c642bc4c38b853cbedd53cc6f85d0e",
+   "of": [
+    "record:728250a87028361db8e1209d2ace03d512c78cc2999a149562f27553675901ad"
+   ],
+   "repaired_sha256": "35b5e4557491b5cd59938c64b6398742f05c14168f684945f444942c7ddd2992",
+   "rtlil_sha256": "960f7b4a5a72e6a27262c1a96475c62b4ff10aa96d0c820912917e2602444b2a",
+   "sv_sha256": "0075575da0198859ffcca258d96260334c7b4bb30bb58f106adafcc438c4cb9e",
+   "table_reads_floored": 384,
+   "tie_cells": 0,
+   "time_ps": 464
+  },
+  {
+   "area_e5um2": 1215972,
+   "area_mge": 188979,
+   "buffers": 0,
    "canonical_sha256": "b0bbcf311076bbbb383739ead07fde6ae639ee5deb284c643b1e943ab7d0af67",
    "cells": 138,
    "cycles": 1,

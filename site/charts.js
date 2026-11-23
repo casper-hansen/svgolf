@@ -827,23 +827,28 @@
   // (" · <player>"); a line standing for several designs keeps its " +N". Lines that would still get the same name
   // (the same title and the same player: two records of one player without writeups, both titled by their file's
   // stem) get their record's short id (its first 12 hex digits, as the site shows a record elsewhere) appended in
-  // the player's place, " · <id>"; every other name stays as it was. A label longer than `n` characters is cut
-  // with an ellipsis, the appended parts kept whole; when two cut labels would read the same, both are cut in the
-  // middle instead, so that their ends tell them apart. `lines`: the lines drawn (sizeLines' objects). Pure.
+  // the player's place, " · <id>"; a line's " +N" does not tell it apart (it counts the designs a line stands for,
+  // it does not say which line it is: 2026-11-23, when a record whose numbers equal another's at every size made
+  // one such line "solution · clockwork-otter +1" beside the player's other "solution" lines, and the cut to the
+  // margin then took the " +1" and the player's last letter); every other name stays as it was. A label longer than
+  // `n` characters is cut with an ellipsis, the appended parts kept whole; when two cut labels would read the same,
+  // both are cut in the middle instead, so that their ends tell them apart. `lines`: the lines drawn (sizeLines'
+  // objects). Pure.
   function sizeLabels(lines, n) {
     var count = {};
     function who(ln) { return ln.lead || ln.names[0]; }
     function base(ln) { return ln.title || who(ln); }
     function shortId(ln) { return ln.kind === "record" ? String(ln.id).slice(0, 12) : String(ln.id); }
     lines.forEach(function (ln) { count[base(ln)] = (count[base(ln)] || 0) + 1; });
+    function tag(ln) { return count[base(ln)] > 1 && ln.title ? " · " + who(ln) : ""; }
     function parts(ln, alike) {
       return { pre: ln.par ? "par · " : "", core: base(ln),
-               post: (alike ? " · " + shortId(ln) : count[base(ln)] > 1 && ln.title ? " · " + who(ln) : "") +
-                     (ln.names.length > 1 ? " +" + (ln.names.length - 1) : "") };
+               post: (alike ? " · " + shortId(ln) : tag(ln)) + (ln.names.length > 1 ? " +" + (ln.names.length - 1) : "") };
     }
     function whole(p) { return p.pre + p.core + p.post; }
+    function named(ln) { return (ln.par ? "par · " : "") + base(ln) + tag(ln); }   // the name but for its " +N"
     var plain = lines.map(function (ln) { return parts(ln, false); }), times = {};
-    plain.forEach(function (p) { times[whole(p)] = (times[whole(p)] || 0) + 1; });
+    lines.forEach(function (ln) { times[named(ln)] = (times[named(ln)] || 0) + 1; });
     function cut(p, middle) {
       var room = n - p.pre.length - p.post.length;
       if (p.pre.length + p.core.length + p.post.length <= n) { return p.pre + p.core + p.post; }
@@ -852,7 +857,7 @@
       var head = Math.ceil((room - 1) / 2), tail = room - 1 - head;
       return p.pre + p.core.slice(0, head) + "…" + p.core.slice(p.core.length - tail) + p.post;
     }
-    var ps = lines.map(function (ln, k) { return times[whole(plain[k])] > 1 ? parts(ln, true) : plain[k]; });
+    var ps = lines.map(function (ln, k) { return times[named(ln)] > 1 ? parts(ln, true) : plain[k]; });
     var out = ps.map(function (p) { return cut(p, false); }), seen = {};
     out.forEach(function (l, k) { (seen[l] = seen[l] || []).push(k); });
     Object.keys(seen).forEach(function (l) {

@@ -62,6 +62,34 @@
  "designs": [
   {
    "a0_asap7": {
+    "area_e5um2": 203984406,
+    "delay_ps": 1581,
+    "time_ps": 6324
+   },
+   "cycles": 4,
+   "layout": null,
+   "netlist_sha256": "adededcb3ea3c7126834ef07d5a2c10f027bd45bd2ad199b9f0905b8f69822fa",
+   "of": [
+    "record:cbfca35ec4df498bb0ec2883766cb8deabc4f7a256034dfa6b6c983f4bdc9880"
+   ],
+   "record": "cbfca35ec4df498bb0ec2883766cb8deabc4f7a256034dfa6b6c983f4bdc9880",
+   "request": {
+    "seed": 1369630180,
+    "settings": {},
+    "settings_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "source": "drawn"
+   },
+   "runs": [],
+   "scored_netlist_sha256": "d61a9763bec17f43d25e7691cedcec6c88846564e3f57cbaa8a1ec2fbe22eb95",
+   "scores": {
+    "v_median": null,
+    "v_owner": null
+   },
+   "status": "pending",
+   "sv_sha256": "1d45f22b01d61271759c5d4c20d700dc6e18eaf719a7e5d9595a36ecba77538f"
+  },
+  {
+   "a0_asap7": {
     "area_e5um2": 140529330,
     "delay_ps": 1465,
     "time_ps": 11720
@@ -1506,6 +1534,34 @@
   },
   {
    "a0_asap7": {
+    "area_e5um2": 142407234,
+    "delay_ps": 1521,
+    "time_ps": 6084
+   },
+   "cycles": 4,
+   "layout": null,
+   "netlist_sha256": "d4c30789c57be64fdbc35fa356ff24409571a631fb0d782211c47b32d731e196",
+   "of": [
+    "record:5611b8c6e722f29f3a6b9a2160e34ed5484285695d0a45319008a1a5596e2110"
+   ],
+   "record": "5611b8c6e722f29f3a6b9a2160e34ed5484285695d0a45319008a1a5596e2110",
+   "request": {
+    "seed": 84131320,
+    "settings": {},
+    "settings_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "source": "drawn"
+   },
+   "runs": [],
+   "scored_netlist_sha256": "7b3cb1410bddcf766760bfdf6ab2fc20afa1019baa3d71c5abb9f3732cc1e9e3",
+   "scores": {
+    "v_median": null,
+    "v_owner": null
+   },
+   "status": "pending",
+   "sv_sha256": "742cecedfd7ba1671daee2ffc44ef262c96908aaa1c9f9f1c632ce01e3b571f9"
+  },
+  {
+   "a0_asap7": {
     "area_e5um2": 134259930,
     "delay_ps": 1417,
     "time_ps": 11336
@@ -1631,6 +1687,34 @@
    },
    "status": "measured",
    "sv_sha256": "7e248385de85b83508c1f9ccbf644b3d997d79d1d405136acd4d6c9caa37db95"
+  },
+  {
+   "a0_asap7": {
+    "area_e5um2": 621635796,
+    "delay_ps": 1557,
+    "time_ps": 6228
+   },
+   "cycles": 4,
+   "layout": null,
+   "netlist_sha256": "3df5fce0e5f01be00dd0563ef3431f0bdce4e50cd95e462c012bdc40a2d3194b",
+   "of": [
+    "record:11dcd56ed5923a09ecaa6c2e39c7ac2d28c4fc2ec64480dd6984da6eb6103195"
+   ],
+   "record": "11dcd56ed5923a09ecaa6c2e39c7ac2d28c4fc2ec64480dd6984da6eb6103195",
+   "request": {
+    "seed": 1955280495,
+    "settings": {},
+    "settings_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "source": "drawn"
+   },
+   "runs": [],
+   "scored_netlist_sha256": "411f17a6e6c31fea2c2b8388aa7477c20f62f77bbf065802d3e09f397329d75b",
+   "scores": {
+    "v_median": null,
+    "v_owner": null
+   },
+   "status": "pending",
+   "sv_sha256": "7e7440ebb31bc8ce83a8c2d2ced087315eb20d421a63d2f1c9eb4dbe59364284"
   },
   {
    "a0_asap7": {
@@ -2583,6 +2667,34 @@
   },
   {
    "a0_asap7": {
+    "area_e5um2": 208343826,
+    "delay_ps": 1563,
+    "time_ps": 3126
+   },
+   "cycles": 2,
+   "layout": null,
+   "netlist_sha256": "3456db57f0ec21dbdf9329331fe541e913f221f22339a0afcc4d9a1fbd8aeb73",
+   "of": [
+    "record:c2bd6423d5baeab1da69c17a0871f1e5af9d59fd4dd9662cd9fa09749de39206"
+   ],
+   "record": "c2bd6423d5baeab1da69c17a0871f1e5af9d59fd4dd9662cd9fa09749de39206",
+   "request": {
+    "seed": 1766350253,
+    "settings": {},
+    "settings_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "source": "drawn"
+   },
+   "runs": [],
+   "scored_netlist_sha256": "81e5283dfcb9ab9bbd5b8aeb10fe2e0d5a9112c4ac51480261a0f72a395ef83a",
+   "scores": {
+    "v_median": null,
+    "v_owner": null
+   },
+   "status": "pending",
+   "sv_sha256": "c6f560d364ea31e9b2e32ac563f9f9bd7d32c4d10bccf8afb58e6b94669564d1"
+  },
+  {
+   "a0_asap7": {
     "area_e5um2": 192509946,
     "delay_ps": 1459,
     "time_ps": 5836
@@ -2996,6 +3108,34 @@
    },
    "status": "measured",
    "sv_sha256": "dcc9612256623d5588699cbd0c93c9331f02927e1c960ddabe3a9774b1683fa8"
+  },
+  {
+   "a0_asap7": {
+    "area_e5um2": 133253910,
+    "delay_ps": 1513,
+    "time_ps": 6052
+   },
+   "cycles": 4,
+   "layout": null,
+   "netlist_sha256": "b7177e61cf24ec2a09487bc3124c61b9fb66fbac79f4785aa90de7fdb03f7974",
+   "of": [
+    "record:80aea08acec2a3a6f239fb5a526eb0c992f30a8afed258b7b734f2ed7365aa54"
+   ],
+   "record": "80aea08acec2a3a6f239fb5a526eb0c992f30a8afed258b7b734f2ed7365aa54",
+   "request": {
+    "seed": 780351922,
+    "settings": {},
+    "settings_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "source": "drawn"
+   },
+   "runs": [],
+   "scored_netlist_sha256": "60de2dfaef4bcc7a94a843439183d9f99972268442e039880c6ae0e42a3bb620",
+   "scores": {
+    "v_median": null,
+    "v_owner": null
+   },
+   "status": "pending",
+   "sv_sha256": "ed7202e82a5d51d8b99a09ced978c1c82f2d94db4068fd919dd4617256ce5287"
   },
   {
    "a0_asap7": {

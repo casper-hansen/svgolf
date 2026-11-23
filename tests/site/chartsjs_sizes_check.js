@@ -1,7 +1,8 @@
 // site/charts.js's Size view of the explorer, outside a browser (no DOM, no libraries): the line names at the right
 // edge (decided 2026-11-13: the submission's short title, its writeup's first line, in place of the player's name;
 // par's line "par · <title>"; two lines with the same title get the player's name appended; two lines with the same
-// title and the same player get their record's short id in the player's place (2026-11-20); a name longer than the
+// title and the same player get their record's short id in the player's place (2026-11-20; also when one of them
+// stands for several designs, its " +N" kept, 2026-11-23); a name longer than the
 // margin cut with an ellipsis, in the middle when two cut names would read the same; the player's name in the
 // tooltip), their spacing in the wide drawing (no two names closer than the frame's gap, every name inside the
 // drawing, also when a crowd at the bottom pushes the run up), and the phone drawing (compact: no names, the tooltips
@@ -62,6 +63,12 @@ got = C.sizeLabels([line(h1, "Weight-FIFO systolic array, cleared on start", "he
 ok(got[0].endsWith(" · ddc2d1b271db") && got[1].endsWith(" · 7f5da0d09f15") &&
    got.every(function (l) { return l.length <= n; }), "a long shared title and player: the title cut, the id whole: " +
    got);
+// one of them a line that stands for two designs (their numbers equal at every size; 2026-11-23): its " +1" does not
+// tell it apart, so it too gets its short id, the " +1" kept (before: "solution · clockwork-otte…", cut to the margin)
+got = C.sizeLabels([line(h1, "solution", "clockwork-otter", { names: ["clockwork-otter", "clockwork-otter"] }),
+                    line(h2, "solution", "clockwork-otter"), line(h3, "solution", "dicecrane")], n);
+ok(got[0] === "solution · ddc2d1b271db +1" && got[1] === "solution · 7f5da0d09f15" && got[2] === "solution · dicecrane",
+   "the same title and the same player, one line standing for two designs: the short id, the +1 kept: " + got);
 // the names' spacing (svgplot._spread's rule): a crowd at the bottom pushes the run up, and names far above it come
 // back inside the frame; a run that cannot fit still ends at the bottom
 let sp = C.spread([0, 10, 100, 100, 100, 100], 0, 110, 10);
@@ -109,9 +116,9 @@ for (const path of process.argv.slice(3)) {
         if (ln.title) {
           ok(lab.indexOf(ln.title.slice(0, 6)) >= 0, where + ": " + player + "'s line named by its title: " + lab);
           const dup = drawn.filter(function (o) { return o.title === ln.title; }).length > 1;
+          // (whatever the " +N" of a line that stands for several designs: it does not tell two lines apart)
           const twin = drawn.filter(function (o) {
-            return o.title === ln.title && (o.lead || o.names[0]) === (ln.lead || ln.names[0]) && !!o.par === !!ln.par &&
-              o.names.length === ln.names.length;
+            return o.title === ln.title && (o.lead || o.names[0]) === (ln.lead || ln.names[0]) && !!o.par === !!ln.par;
           }).length > 1;
           if (twin) {
             const id = ln.kind === "record" ? ln.id.slice(0, 12) : ln.id;

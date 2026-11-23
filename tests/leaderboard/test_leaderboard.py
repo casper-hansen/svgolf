@@ -3582,8 +3582,8 @@ class Asap7PnrTest(Tmp):
         probs, _, _, _ = planted("sorter", caption)
         self.assertTrue(any("caption" in p for p in probs), probs)
 
-        def missing(d):              # (6)
-            d["designs"][0]["layout"]["image"] = "site/layouts/arbiter/missing.webp"
+        def missing(d):              # (6) on the first design with a layout (since 2026-11-23 a pending one sorts first)
+            next(x for x in d["designs"] if x.get("layout"))["layout"]["image"] = "site/layouts/arbiter/missing.webp"
         probs, fails, _, _ = planted("arbiter", missing)
         self.assertTrue(any("layout.image is 'site/layouts/arbiter/missing.webp'" in p for p in probs), probs)
         self.assertTrue(any("missing.webp: missing" in f for f in fails), fails)
@@ -4143,9 +4143,10 @@ class CommittedAsap7PnrTest(unittest.TestCase):
         # 2026-11-13, campaign 3: every design the tasks show is routed (52 since the 13 matmul architecture records);
         # 2026-11-19: clockwork-otter's matmul record 7f5da0d09f15 waits for its run (its request is stored, pending);
         # 2026-11-20: so does clockwork-otter's matmul record ddc2d1b271db
-        # 2026-11-23: and clockwork-otter's matmul records f14f8e008cc0, 2b625ce36431, 5bff489cc2ef, 1136031894d5 and
-        # 4d9952fba7ea
-        self.assertEqual(totals, {"bound": 52, "pending": 7})
+        # 2026-11-23: and clockwork-otter's matmul records f14f8e008cc0, 2b625ce36431, 5bff489cc2ef, 1136031894d5,
+        # 4d9952fba7ea, c2bd6423d5ba, 5611b8c6e722, 11dcd56ed592, 80aea08acec2 and cbfca35ec4df, and its arbiter
+        # record 728250a87028
+        self.assertEqual(totals, {"bound": 52, "pending": 13})
 
 
 def git(cwd, *args):

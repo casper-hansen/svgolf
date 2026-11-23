@@ -67,6 +67,34 @@
     "time_ps": 464
    },
    "cycles": 1,
+   "layout": null,
+   "netlist_sha256": "35b5e4557491b5cd59938c64b6398742f05c14168f684945f444942c7ddd2992",
+   "of": [
+    "record:728250a87028361db8e1209d2ace03d512c78cc2999a149562f27553675901ad"
+   ],
+   "record": "728250a87028361db8e1209d2ace03d512c78cc2999a149562f27553675901ad",
+   "request": {
+    "seed": 1161061878,
+    "settings": {},
+    "settings_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "source": "drawn"
+   },
+   "runs": [],
+   "scored_netlist_sha256": "e072fb19e91c79f0adcdfa0ef3709731d0c642bc4c38b853cbedd53cc6f85d0e",
+   "scores": {
+    "v_median": null,
+    "v_owner": null
+   },
+   "status": "pending",
+   "sv_sha256": "0075575da0198859ffcca258d96260334c7b4bb30bb58f106adafcc438c4cb9e"
+  },
+  {
+   "a0_asap7": {
+    "area_e5um2": 1215972,
+    "delay_ps": 464,
+    "time_ps": 464
+   },
+   "cycles": 1,
    "layout": {
     "caption": "The scored layout: placed and routed by OpenROAD-flow-scripts on ASAP7, placement seed 1; die 7.5 \u00d7 7.5 \u00b5m (power and ground wires not drawn).",
     "core_um": [
