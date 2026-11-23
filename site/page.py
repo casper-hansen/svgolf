@@ -19,7 +19,8 @@ from highlight import highlight, language_of
 
 _TAG = re.compile(r"<[^>]*>")
 
-NAV = (("index.html", "Tasks"), ("rules.html", "Rules"), ("proving.html", "Proving"),
+# "Latest" (decided 2026-11-23): every record on every task, newest first (build.py LATEST_PAGE)
+NAV = (("index.html", "Tasks"), ("latest.html", "Latest"), ("rules.html", "Rules"), ("proving.html", "Proving"),
        ("refusals.html", "Refusals"), ("about.html", "About"))
 
 # Every page's Content-Security-Policy (decided 2026-11-16, with the HTML writeups: defence in depth behind the

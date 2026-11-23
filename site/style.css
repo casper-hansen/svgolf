@@ -842,6 +842,31 @@ ol.board > li.par { background: var(--surface-2); }
 .legend-row span::before { content: ""; display: inline-block; width: 0.55rem; height: 0.55rem; margin-right: 0.4rem; border-radius: 0; background: var(--accent); vertical-align: 0.02em; }
 .legend-row .lg-par::before { background: var(--text-3); }
 
+/* the latest records (latest.html under a heading per day, and the front page's strip; decided 2026-11-23): a board
+   row with its task in front of the player; under the score how far it is under par, in the accent as Under par */
+ol.latest { list-style: none; margin: 0; padding: 0; }
+ol.latest > li { display: grid; grid-template-columns: 8rem minmax(0, 1fr) auto; grid-template-areas: "task who score"; align-items: center; gap: var(--sp-1) var(--sp-4); padding: var(--sp-3) var(--sp-5); border-bottom: 1px solid var(--border); margin: 0; }
+ol.latest > li:last-child { border-bottom: 0; }
+ol.latest > li.par { background: var(--surface-2); }
+ol.latest .board-who { grid-area: who; }
+ol.latest .board-score { grid-area: score; }
+.latest-where { grid-area: task; align-self: start; padding-top: 0.2rem; display: flex; flex-direction: column; gap: 2px; min-width: 0; font: var(--fs-xs)/1.4 var(--mono); }
+.latest-task { font-weight: 600; color: var(--text-2); text-decoration: none; overflow-wrap: anywhere; }
+.latest-task .no { color: var(--accent-ink); font-weight: 700; margin-right: 0.5em; }
+.latest-task:hover { color: var(--accent-ink); text-decoration: underline; }
+.latest-date { color: var(--text-3); }
+.board-score .under { color: var(--accent-ink); font-weight: 700; }
+.latest-day + .latest-day { border-top: 1px solid var(--border); }
+.card .latest-day > h2 { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); margin: 0; padding: var(--sp-2) var(--sp-5); background: var(--surface-2); border-bottom: 1px solid var(--border); font: 700 var(--fs-sm)/1.4 var(--mono); letter-spacing: 0; }
+.latest-day > h2 .n { font-weight: 500; font-size: var(--fs-xs); color: var(--text-3); }
+.latest-strip { margin: 0 var(--px) var(--sp-6); }
+.latest-card .card-foot .legend-row, .latest-strip .card-foot .legend-row { align-items: baseline; }
+@media (max-width: 40rem) {
+  ol.latest > li { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "task score" "who score"; padding: var(--sp-3) var(--sp-4); gap: 2px var(--sp-3); }
+  .latest-where { padding-top: 0; flex-direction: row; flex-wrap: wrap; gap: 0 var(--sp-3); }
+  .card .latest-day > h2 { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+}
+
 /* --------------------------------------------------------- property cards */
 
 /* The panel (props.py): a head with the tabs and the counters, a pane per tab, a foot with the

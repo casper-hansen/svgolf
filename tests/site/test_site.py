@@ -2759,6 +2759,140 @@ class SiteTest(unittest.TestCase):
         self.assertIn('href="#try-it-without-lean"', home[home.index('<section class="how"'):])
         self.assertEqual(norm(text_of(home)).count("score/ppa.py --fetch-liberty"), 1)
 
+    def latest_rows(self, h):
+        """The rows of a latest list (latest.html's, or the front page's strip) in `h`, in order: (task, record hash,
+        the score cell's number, the line under it, the row's HTML)."""
+        out = []
+        lists = "".join(re.findall(r'<ol class="latest">(.*?)</ol>', h, re.S))
+        for li in re.findall(r"<li\b[^>]*>.*?</li>", lists, re.S):
+            m = re.search(r'href="(?:\.\./)*tasks/([^/]+)/records/([0-9a-f]{64})\.html"', li)
+            cell = re.search(r'<div class="board-score">(.*)</div></li>', li, re.S).group(1)
+            num, _, under = cell.partition("<small>")
+            out.append((m.group(1), m.group(2), norm(text_of(num)), norm(text_of(under)), li))
+        return out
+
+    def test_latest_order_on_ties(self):
+        """`latest_records` on made-up tasks: newest date first; a record that gives a time comes before one of the
+        same day that does not, and later times first; then the tutorial, the tasks by number, the player, the hash;
+        the same order whatever order the tasks and records come in."""
+        def rec(h, date, player="p"):
+            return {"record_hash": h, "submitted_at": date, "player": player}
+        tut = types.SimpleNamespace(name="_example", listing="tutorial", number=None,
+                                    records=[rec("t1", "2026-11-13")])
+        a = types.SimpleNamespace(name="add", listing="listed", number="01",
+                                  records=[rec("a2", "2026-11-13", "b"), rec("a1", "2026-11-13", "b"),
+                                           rec("a0", "2026-11-13", "a"), rec("a3", "2026-11-14")])
+        m = types.SimpleNamespace(name="mul", listing="listed", number="02",
+                                  records=[rec("m1", "2026-11-13T08:00:00Z"), rec("m2", "2026-11-13T09:30:00Z"),
+                                           rec("m0", "2026-11-12")])
+        want = ["a3", "m2", "m1", "t1", "a0", "a1", "a2", "m0"]
+        for tasks in ([tut, a, m], [m, a, tut]):
+            for t in tasks:
+                t.records.reverse()
+            self.assertEqual([r["record_hash"] for _, r in build.latest_records(tasks)], want)
+
+    def test_latest_lists_every_record_newest_first(self):
+        """Decided 2026-11-23 (the owner's request: a way to see the latest submissions to all tasks, sorted by date):
+        latest.html lists every record of every task the site shows exactly once, newest first by its date
+        (`submitted_at`), one day's records in the front page's task order, then by player and record hash; under a
+        heading per day, newest first, written YYYY-MM-DD as the records and their pages write it; every row links
+        its record's page and its task's page. A row's score (sky130) is the number the task's leaderboard shows for
+        that record (par's records: the front card's Par), marked under par exactly when the record's exact score,
+        from its own sky130 columns, is below par's, from the goldens and tests/expected.json; on the routed course
+        a row has a number exactly where the task's routed leaderboard ranks the record, else a dash and why. The nav
+        links the page from every page and marks it there, llms.txt lists it, and the front page's strip, after "Try
+        it without Lean" and before the steps, shows the five newest rows, each with its date, and links to it."""
+        h = self.html("latest.html")
+        home = self.files["index.html"].decode("utf-8")
+        ref_player = self.config["reference_player"]
+        # the front page's task order: its cards
+        order = re.findall(r'<li class="task-card">.*?href="tasks/([^/]+)/index.html"', home, re.S)
+        shown = sorted((r for r in records() if r["task"] in self.listed),
+                       key=lambda r: (order.index(r["task"]), r["player"], r["record_hash"]))
+        shown.sort(key=lambda r: r["submitted_at"], reverse=True)
+        rows = self.latest_rows(h)
+        self.assertEqual([(t, x) for t, x, *_ in rows], [(r["task"], r["record_hash"]) for r in shown])
+        self.assertEqual(len({x for _, x, *_ in rows}), len(rows))
+        self.assertGreaterEqual(len(rows), 50)
+        by_hash = {r["record_hash"]: r for r in shown}
+        # the day headings: newest first, ISO dates, each over exactly that day's records
+        days = re.findall(r'<section class="latest-day" aria-labelledby="day-([^"]+)"><h2 id="day-\1">([^<]*?) '
+                          r'<span class="n">(\d+) records?</span></h2>(.*?)</section>', h, re.S)
+        self.assertEqual([d for d, *_ in days], sorted({r["submitted_at"][:10] for r in shown}, reverse=True))
+        for day, text, n, body in days:
+            with self.subTest(day=day):
+                self.assertRegex(day, r"^\d{4}-\d{2}-\d{2}$")
+                self.assertEqual(text, day)
+                mine = self.latest_rows(body)
+                self.assertEqual(int(n), len(mine))
+                self.assertTrue(all(by_hash[x]["submitted_at"][:10] == day for _, x, *_ in mine))
+        self.assertIn(build.LATEST_DATE_NOTE, text_of(h))
+        # par's score and each task's board, read off the pages
+        cards = {re.search(r'href="tasks/([^/]+)/index.html"', c).group(1):
+                 {k: norm(v) for k, v in re.findall(r"<dt>([^<]+)</dt><dd>([^<]+)<", c)}
+                 for c in re.findall(r'<li class="task-card">.*?</li>', self.html("index.html"), re.S)}
+
+        def board(task, pdk):
+            lb_html = section(self.html(f"tasks/{task}/index.html", pdk), "leaderboard")
+            out = {}
+            ol = lb_html.split('<ol class="board">', 1)[1].split("</ol>", 1)[0]
+            for li in re.findall(r"<li\b[^>]*>.*?</li>", ol, re.S):
+                m = re.search(r'records/([0-9a-f]{64})\.html', li)
+                if m:
+                    out[m.group(1)] = norm(text_of(re.search(r'<div class="board-score">([^<]*)<', li).group(1)))
+            return out
+        boards = {(t, pdk): board(t, pdk) for t in {r["task"] for r in shown} for pdk in ("sky130", "asap7pnr")}
+        for task, x, num, under, li in rows:
+            r = by_hash[x]
+            with self.subTest(record=x[:12], task=task):
+                for tag, attr, ref in parse(li.encode("utf-8")).links:
+                    self.assertIn(posixpath.normpath(ref), self.files)
+                self.assertIn(f'href="tasks/{task}/index.html"', li)
+                self.assertIn(f"<dt>submitted</dt><dd>{r['submitted_at']}</dd>",
+                              self.files[f"tasks/{task}/records/{x}.html"].decode("utf-8"))
+                if r["player"] == ref_player:
+                    self.assertEqual(num, cards[task]["Par"])
+                    self.assertIn("badge-par", li)
+                    self.assertEqual(under, "")
+                    continue
+                self.assertEqual(num, boards[(task, "sky130")][x])
+                par = par_score(task)
+                p = r["ppa"]
+                exact = p["area_e4um2_sky130"] * r["score"].get("time_ps", p["delay_ps_sky130"])
+                want = ("under par" if exact < par else "equal to par" if exact == par else "over par")
+                self.assertTrue(under.endswith(want), (under, exact, par))
+                self.assertEqual('class="under"' in li, exact < par)
+        for task, x, num, under, li in self.latest_rows(self.html("latest.html", "asap7pnr")):
+            with self.subTest(routed=x[:12]):
+                if by_hash[x]["player"] == ref_player:
+                    continue
+                ranked = x in boards[(task, "asap7pnr")]
+                self.assertEqual(num != "–", ranked)
+                if ranked:
+                    self.assertEqual(num, boards[(task, "asap7pnr")][x])
+                else:
+                    self.assertTrue(under)          # why there is no number ("not placed and routed yet")
+        # every page's nav links it, marked on its own page; llms.txt lists it
+        for path, data in self.files.items():
+            if path.endswith(".html") and path != "404.html":
+                with self.subTest(nav=path):
+                    nav = re.search(r'<nav class="site-nav"[^>]*>(.*?)</nav>', data.decode("utf-8"), re.S).group(1)
+                    self.assertIn(f'href="{build.root_of(path)}latest.html"', nav)
+        nav = re.search(r'<nav class="site-nav"[^>]*>(.*?)</nav>', h, re.S).group(1)
+        self.assertIn('<a href="latest.html" aria-current="page">Latest</a>', nav)
+        self.assertIn("](latest.html)", self.files["llms.txt"].decode("utf-8"))
+        # the front page's strip: after "Try it without Lean", before the steps; the five newest, dated; a link to all
+        at = [home.index(s) for s in ('id="try-it-without-lean"', f'id="{build.LATEST_ID}"', '<section class="how"')]
+        self.assertEqual(at, sorted(at))
+        strip = section(self.html("index.html"), build.LATEST_ID)
+        top = self.latest_rows(strip)
+        self.assertEqual(len(top), 5)
+        self.assertEqual([row[:4] for row in top], [row[:4] for row in rows[:5]])
+        for task, x, num, under, li in top:
+            self.assertIn(f'<span class="latest-date">{by_hash[x]["submitted_at"][:10]}</span>', li)
+        self.assertIn('href="latest.html"', strip)
+        self.assertIn(f"See all {len(rows)} records", text_of(strip))
+
     def test_a_card_with_no_record_under_par_says_open(self):
         """Decided 2026-11-17: a front page card of a task where no record is under par (the record is par itself)
         says OPEN in its Under par place, with its meaning on hover, in each course; any other card shows its share.

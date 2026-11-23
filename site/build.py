@@ -7,7 +7,8 @@ Run from svgolf/ (any directory works; paths are taken from this file). Any
 Python 3.9 or later, standard library only. It writes the whole site to
 `site/_out/` (git-ignored) or to `--out`:
 
-  index.html                      what svGolf is, a card per task (par, record), the loop
+  index.html                      what svGolf is, a card per task (par, record), the five newest records, the loop
+  latest.html                     every record on every task, newest first, under a heading per day
   tasks/<t>/index.html            a listed task: par, record and how far under par on the score
                                   (area x time on sky130: leaderboard/combined.py); the score card
                                   (the score of each entry over time; its caption the one definition of
@@ -6443,6 +6444,139 @@ def routed_how_note(tasks, here):
                                                       "how the routed course is scored") + ").</p>")
 
 
+# ---------------------------------------------------------------------------
+# the latest records (decided 2026-11-23, the owner's request for a way to see the latest submissions to all tasks,
+# sorted by date): latest.html lists every record of every task the site shows, newest first, under a heading per day,
+# and the front page shows the newest LATEST_FRONT of them under "Try it without Lean", with a link to the page. Each
+# row is the board's row of the record (the player, the submission's title, its score) with its task in front, and
+# under the score how far it is under par (the boards' word and accent) or over it
+# ---------------------------------------------------------------------------
+
+LATEST_PAGE = "latest.html"             # page.NAV's "Latest"
+LATEST_ID = "latest"                    # the front page's strip
+LATEST_FRONT = 5                        # how many records the front page's strip shows
+LATEST_TITLE = "Latest submissions"
+# what a record's date is (leaderboard/README.md: `submitted_at`, set by `add --date`, default today in UTC; a record
+# `remake` makes keeps the player's date, and its page says when it was re-made)
+LATEST_DATE_NOTE = ("A record is dated by the day it was submitted (UTC), the date on its own page; a record re-made "
+                    "later for a new checker keeps that date.")
+
+
+def latest_records(tasks):
+    """Every record of every task the site shows, as (task, record) pairs, newest first: by the record's date
+    (`submitted_at`, compared as text, so that a record that gives a time sorts by it within its day), then by the
+    task's place on the front page (the tutorial, then the tasks by number), the player and the record hash, so that
+    one day's records come in the same order on every build. A cap is a slice of this list."""
+    def place(t):
+        return (t.listing != "tutorial", t.number or "", t.name)
+    rows = sorted(((t, r) for t in tasks for r in t.records),
+                  key=lambda tr: (place(tr[0]), tr[1]["player"], tr[1]["record_hash"]))
+    return sorted(rows, key=lambda tr: tr[1]["submitted_at"], reverse=True)      # stable: ties keep the order above
+
+
+def latest_score(site, t, rec):
+    """A record's score on the latest list, in the view task `t` is in (`Task.view`): the board's number and, under it,
+    how far it is under par (the accent, as the boards' Under par) or over it; nothing under par's own records. A record
+    with no score on the course: a dash, and why (on the routed course, "not placed and routed yet")."""
+    h = rec["record_hash"]
+    if rec["player"] == site.config["reference_player"]:
+        ref = t.ref_of_record.get(h)
+        d = design_of(t, "reference", ref["stem"]) if ref else None
+    else:
+        d = next((x for x in t.designs if x["kind"] == "record" and x["id"] == h), None)
+    if d is None or d["exact"] is None or "adp" not in d["m"]:
+        why = (d or {}).get("why") or next((r["reason"] for r in t.board["unranked"] if r["record_hash"] == h), None)
+        short = "not placed and routed yet" if why == lb.PNR_PENDING else why.split(":")[0] if why else "not ranked"
+        return f'<span class="muted">–</span><small>{esc(short)}</small>'
+    p = par_design(t)
+    if d["kind"] == "reference" or p is None or p["exact"] is None:
+        share = ""                                  # par's own record: its badge says so (`latest_item`)
+    elif d["exact"] == p["exact"]:
+        share = "equal to par"
+    else:
+        under = (p["exact"] - d["exact"]) / p["exact"]
+        share = (f'<span class="under">{esc(under_text(under))} under par</span>' if under > 0
+                 else esc(under_text(under)))
+    return esc(combined.fmt(d["m"]["adp"])) + (f"<small>{share}</small>" if share else "")
+
+
+def latest_item(site, t, rec, here, *, dated=False):
+    """One record on the latest list: its task (number and name, a link to the task page), the player (par's records:
+    par's design, as the board names it) as a link to the record's page, the submission's title under it and the
+    board's tags (par, a reference design's copy, a light check), and the score in both views (`latest_score`).
+    `dated`: the date under the task (the front page's strip, which has no day headings)."""
+    h = rec["record_hash"]
+    is_ref = rec["player"] == site.config["reference_player"]
+    ref = t.ref_of_record.get(h) if is_ref else None
+    who = code(ref["stem"]) if ref else esc(rec["player"])
+    title = record_title(site, rec)
+    shown = ref["stem"] if ref else rec["player"]
+    title_html = f'<span class="board-title">{esc(title)}</span>' if title and title != shown else ""
+    tags = []
+    if is_ref:          # as its page's badge: par, another proof of par's design, or (none today) neither
+        tags.append(page.badge("par" if ref is not None and ref is t.par else "par's design" if ref else "not an entry",
+                               "par"))
+    elif rec["files"]["sv"]["sha256"] in site.reference_designs:
+        tags.append(reference_mark(site.reference_designs[rec["files"]["sv"]["sha256"]]))
+    if not is_ref and (rec.get("postsynth") or {}).get("mode") == "light":
+        tags.append(page.badge("light check", "light"))
+    meta = f'<div class="board-meta">{" · ".join(tags)}</div>' if tags else ""
+    number = f'<span class="no">{esc(t.number)}</span>' if t.number else ""
+    date = f'<span class="latest-date">{esc(rec["submitted_at"][:10])}</span>' if dated else ""
+    task = (f'<div class="latest-where"><a class="latest-task" href="{esc(rel_link(here, t.page))}" '
+            f'title="{esc(page_title(t))}">{number}{esc(task_word(t))}</a>{date}</div>')
+    cls = ' class="par"' if is_ref else ""
+    return (f'<li{cls}>{task}<div class="board-who"><div class="board-name">'
+            + record_link(t, here, h, who) + f"{title_html}</div>{meta}</div>"
+            + f'<div class="board-score">{both(t, lambda: latest_score(site, t, rec), inline=True)}</div></li>')
+
+
+def latest_foot(here):
+    """The foot of the latest list (the page's and the front page's strip): what the score is, and where par and under
+    par are defined (the rules page)."""
+    return (f'<div class="legend-row"><span>score: area × time, {esc(combined.UNIT)}, lower is better</span>'
+            + page.link(rel_link(here, "rules.html#par-record-under-par"), "what par and under par mean") + "</div>")
+
+
+def latest_strip_html(site, tasks, here):
+    """The front page's "Latest submissions": the LATEST_FRONT newest records (`latest_records`), each with its date,
+    and a link to latest.html; "" with no record."""
+    rows = latest_records(tasks)
+    if not rows:
+        return ""
+    items = "".join(latest_item(site, t, rec, here, dated=True) for t, rec in rows[:LATEST_FRONT])
+    see = page.button(rel_link(here, LATEST_PAGE), f"See all {len(rows)} records", "quiet sm", arrow=True)
+    return page.card(f'<ol class="latest">{items}</ol>', tag="section", id_=LATEST_ID, cls="latest-strip", flush=True,
+                     title_html=esc(LATEST_TITLE), actions_html=see, foot_html=latest_foot(here))
+
+
+def latest_page(site, tasks):
+    """latest.html: every record of every task the site shows, newest first (`latest_records`), under a heading per day
+    (the date as the records give it, YYYY-MM-DD), and one line under the title on what the date is."""
+    here = LATEST_PAGE
+    rows = latest_records(tasks)
+    days = {}
+    for t, rec in rows:
+        days.setdefault(rec["submitted_at"][:10], []).append((t, rec))
+    parts = []
+    for day, recs in days.items():                  # newest first: the rows' order
+        did = f"day-{day}"
+        parts.append(f'<section class="latest-day" aria-labelledby="{esc(did)}"><h2 id="{esc(did)}">{esc(day)} '
+                     f'<span class="n">{esc(counted(len(recs), "record"))}</span></h2><ol class="latest">'
+                     + "".join(latest_item(site, t, rec, here) for t, rec in recs) + "</ol></section>")
+    n_tasks = len({t.name for t, _ in rows})
+    label = f"newest first · scores on {pdk_text('sky130', 'ASAP7 placed and routed')}"
+    body = (page.page_head(title_html=esc(LATEST_TITLE),
+                           sub_html=(f"Every record on every task, newest first: {esc(counted(len(rows), 'record'))} "
+                                     f"on {esc(counted(n_tasks, 'task'))}. {esc(LATEST_DATE_NOTE)}"))
+            + (page.card("".join(parts), tag="section", id_="records", cls="latest-card", flush=True,
+                         label_html=label, foot_html=latest_foot(here)) if parts else
+               page.card("<p>No records yet.</p>")))
+    site.page(here, LATEST_TITLE, body, active=here, scores=True,
+              description=("Every record on every svGolf task, newest first: the player, the design, its score and how "
+                           "far it is under par."))
+
+
 def home_page(site, tasks):
     """index.html. A compact hero (the headline and its sub-line, config.json `headline`; home.md's lead, the
     buttons, the drawing), the heading "Tasks" and the task cards (decided 2026-11-13: the course chooser is the top
@@ -6509,11 +6643,12 @@ def home_page(site, tasks):
     # are the rules page's ("The courses", "Par, record and under par"), linked from every footer ("How it is scored")
     head = "<h2>Tasks</h2>"
     # under the cards, who made the board's records so far (decided 2026-11-17), one sentence
-    # the tasks come first, right under the hero; "Try it without Lean" follows them (decided 2026-11-20)
+    # the tasks come first, right under the hero; "Try it without Lean" follows them (decided 2026-11-20), then the
+    # newest records with a link to all of them (decided 2026-11-23: `latest_strip_html`)
     parts = [hero,
              f'<section class="course"><div class="section-head" id="tasks">{head}</div>'
              + f'<ul class="task-cards">{cards}</ul>{provenance_front_html(site.provenance, here)}</section>',
-             try_html(site, tasks, here), steps_html]
+             try_html(site, tasks, here), latest_strip_html(site, tasks, here), steps_html]
     # the rest of home.md: a section that is a numbered list as cards, any other as a card
     for level, sec_title, s0, s1 in secs:
         if level != 2 or (level, sec_title, s0, s1) == how:
@@ -7053,6 +7188,7 @@ def llms_txt(site, tasks):
              "reference pair under tasks/<name>/reference/.", "",
              "## Pages", "",
              "- [Tasks and scorecard](index.html)",
+             f"- [The latest submissions: every record on every task, newest first]({LATEST_PAGE})",
              "- [The tutorial: your first submission, step by step](tasks/_example/index.html#first-submission)",
              "- [Rules, checker stages, scoring, leaderboard](rules.html)",
              "- [Reproduce a score: the pinned tools, files and commands](reproduce.html)",
@@ -7262,6 +7398,7 @@ def build_site(*, offline=False, strict=False, revision=None, config=None, denyl
     site.add("favicon-32.png", pixelart.favicon_png())
     site.add(PREVIEW_IMAGE, pixelart.preview_png())
     home_page(site, tasks)
+    latest_page(site, tasks)
     for t in tasks:
         task_page(site, t)
         for rec in t.records:
