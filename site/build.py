@@ -2914,7 +2914,7 @@ def score_html(site, t, here):
     undated = [d for d in es if not d["date"]]
     variants = "".join(
         f'<div class="chart-variant" data-scale="{"log" if log else "linear"}" '
-        f'data-size="{"compact" if compact else "wide"}"{" hidden" if log else ""}>{svgs[(log, compact)]}</div>'
+        f'data-size="{"compact" if compact else "wide"}"{"" if log else " hidden"}>{svgs[(log, compact)]}</div>'
         for log in (False, True) for compact in (False, True))
     named = ""
     if lv:
@@ -2948,11 +2948,12 @@ def as_of():
 
 
 def score_actions(t):
-    """The score card's head: the unit, and the linear/log switch (shown by charts.js)."""
+    """The score card's head: the unit, and the linear/log switch (shown by charts.js); the chart opens on the log
+    axis (decided 2026-11-24)."""
     tog = ""
     if entries(t):
         tog = (f'<div class="chart-tools" data-scale-toggle hidden>'
-               f'{page.seg(["Linear", "Log"], 0, label_text="scale of the score axis")}</div>')
+               f'{page.seg(["Linear", "Log"], 1, label_text="scale of the score axis")}</div>')
     return (f'<span class="label">{pdk_text("", "ASAP7 routed · ")}area × time · {nocase(esc(combined.UNIT))} · lower is '
             f'better</span>{tog}')
 

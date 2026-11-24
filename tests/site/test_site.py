@@ -885,7 +885,8 @@ class SiteTest(unittest.TestCase):
                     continue
                 self.assertEqual(score.count('data-scale="linear"'), 2)          # wide and compact
                 self.assertEqual(score.count('data-scale="log"'), 2)
-                self.assertEqual(len(re.findall(r'data-scale="log"[^>]*\bhidden\b', score)), 2)
+                self.assertEqual(len(re.findall(r'data-scale="linear"[^>]*\bhidden\b', score)), 2)   # opens on log (2026-11-24)
+                self.assertEqual(len(re.findall(r'data-scale="log"[^>]*\bhidden\b', score)), 0)
                 wide = score.split('data-size="wide"', 1)[1].split("</svg>", 1)[0]
                 self.assertIn('class="par-line"', wide)
                 kinds = set(re.findall(r'<g class="mark[^"]*" data-kind="([a-z]+)"', wide))
@@ -1017,7 +1018,7 @@ class SiteTest(unittest.TestCase):
                 html_ = self.files[f"tasks/{t}/index.html"].decode("utf-8")
                 self.assertRegex(html_, r'<div class="explorer-controls" data-explorer-controls hidden>')
                 self.assertIn("<svg", section(html_, "explore"))
-                self.assertNotRegex(html_, r'data-scale="linear"[^>]*\bhidden\b')
+                self.assertNotRegex(html_, r'data-scale="log"[^>]*\bhidden\b')
                 if "data-scale-toggle" in html_:
                     self.assertRegex(html_, r'data-scale-toggle hidden')
 
