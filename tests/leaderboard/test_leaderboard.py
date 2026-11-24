@@ -4145,8 +4145,8 @@ class CommittedAsap7PnrTest(unittest.TestCase):
         # 2026-11-20: so does clockwork-otter's matmul record ddc2d1b271db
         # 2026-11-23: and clockwork-otter's matmul records f14f8e008cc0, 2b625ce36431, 5bff489cc2ef, 1136031894d5,
         # 4d9952fba7ea, c2bd6423d5ba, 5611b8c6e722, 11dcd56ed592, 80aea08acec2 and cbfca35ec4df, and its arbiter
-        # record 728250a87028
-        self.assertEqual(totals, {"bound": 52, "pending": 13})
+        # record 728250a87028; and ember-stoat's arbiter record 142a9737465b
+        self.assertEqual(totals, {"bound": 52, "pending": 14})
 
 
 def git(cwd, *args):
