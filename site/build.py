@@ -1927,7 +1927,7 @@ def big_numbers(t, *, notes=True):
     # is par itself), its meaning on hover
     open_ = not notes and h["under"] is not None and h["under"] <= 0
     under = (page.Stat(lab["Under par"], OPEN_WORD, kind="open", title=OPEN_TITLE) if open_ else
-             page.Stat(lab["Under par"], under_text(h["under"]), kind="accent" if h["under"] and h["under"] > 0 else None,
+             page.Stat(lab["Under par"], under_text(h["under"]), kind="good" if h["under"] and h["under"] > 0 else None,
                        label_href=href))
     return page.stats([
         page.Stat(lab["Par"], combined.fmt(h["par"]), unit=h["unit"],
