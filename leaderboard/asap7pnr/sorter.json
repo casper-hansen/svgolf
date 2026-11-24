@@ -640,6 +640,34 @@
    },
    "status": "measured",
    "sv_sha256": "bb75dc83f25a2cbe8a99720416520ee7e7ae2980fb9078dbce0d36db6a71c928"
+  },
+  {
+   "a0_asap7": {
+    "area_e5um2": 6727212,
+    "delay_ps": 394,
+    "time_ps": 5910
+   },
+   "cycles": 15,
+   "layout": null,
+   "netlist_sha256": "f86ffcdd698687f8de6ce9a1ec789c36ee65ff98d36fe20f1c45f95e52c2b4bf",
+   "of": [
+    "record:1c5eed8aec2abe1382fb379915c1e655ea94e6e29f99906c6474610eefb1920b"
+   ],
+   "record": "1c5eed8aec2abe1382fb379915c1e655ea94e6e29f99906c6474610eefb1920b",
+   "request": {
+    "seed": 2081000771,
+    "settings": {},
+    "settings_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "source": "drawn"
+   },
+   "runs": [],
+   "scored_netlist_sha256": "e28c793ca5b1e8e1b90cab2259511cf79be1eb3a76c70413c2ad7fc040b363ab",
+   "scores": {
+    "v_median": null,
+    "v_owner": null
+   },
+   "status": "pending",
+   "sv_sha256": "e79c076ee73dd8f1d31bffe26d56813fd5a2f1a020db467a97343ac133494148"
   }
  ],
  "schema": "svgolf-asap7pnr/3",

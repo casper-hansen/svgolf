@@ -1,0 +1,258 @@
+{
+ "cell_area_e4um2": {
+  "and2_1": 62560,
+  "dfxtp_1": 200192,
+  "mux2_1": 112608,
+  "nand2_1": 37536,
+  "nand2b_1": 62560,
+  "nor2b_1": 62560,
+  "or2_1": 62560,
+  "xnor2_1": 87584
+ },
+ "display": {
+  "area_e4um2_sky130": 10960512,
+  "cell_hist_sky130": {
+   "and2_1": 33,
+   "dfxtp_1": 20,
+   "mux2_1": 3,
+   "nand2_1": 63,
+   "nand2b_1": 27,
+   "nor2b_1": 7,
+   "or2_1": 1
+  },
+  "cells_sky130": 154,
+  "critical": {
+   "cells": 6,
+   "edge": "f",
+   "output": "D:_053_"
+  },
+  "delay_ps_sky130": 1446,
+  "drawn": null,
+  "params": {
+   "N": 4,
+   "W": 4
+  },
+  "path": [
+   {
+    "arrival_ps": 305.8,
+    "cell": null,
+    "edge": "f",
+    "inst": null,
+    "net": "\\_0_[15]",
+    "slew_ps": 40.3
+   },
+   {
+    "arrival_ps": 429.4,
+    "cell": "nand2b_1",
+    "edge": "f",
+    "inst": "_202_",
+    "net": "_153_",
+    "slew_ps": 33.9
+   },
+   {
+    "arrival_ps": 566.4,
+    "cell": "and2_1",
+    "edge": "f",
+    "inst": "_203_",
+    "net": "_154_",
+    "slew_ps": 29.9
+   },
+   {
+    "arrival_ps": 706.4,
+    "cell": "and2_1",
+    "edge": "f",
+    "inst": "_204_",
+    "net": "_155_",
+    "slew_ps": 33.4
+   },
+   {
+    "arrival_ps": 754.6,
+    "cell": "nand2_1",
+    "edge": "r",
+    "inst": "_205_",
+    "net": "_156_",
+    "slew_ps": 33.8
+   },
+   {
+    "arrival_ps": 999.1,
+    "cell": "and2_1",
+    "edge": "r",
+    "inst": "_206_",
+    "net": "_157_",
+    "slew_ps": 230.7
+   },
+   {
+    "arrival_ps": 1333.9,
+    "cell": "mux2_1",
+    "edge": "f",
+    "inst": "_301_",
+    "net": "_053_",
+    "slew_ps": 50.3
+   }
+  ],
+  "reason": "the drawing (100,101 bytes) would pass the total size budget of the committed schematics",
+  "repaired_sha256": "f65d98a15bdf77d516f01718b00689bae0d8efaadf8ff40f9a14661381631f85"
+ },
+ "schema": "svgolf-schematic/1",
+ "scored": {
+  "area_e4um2_sky130": 42615872,
+  "cell_hist_sky130": {
+   "and2_1": 133,
+   "dfxtp_1": 72,
+   "mux2_1": 7,
+   "nand2_1": 289,
+   "nand2b_1": 116,
+   "nor2b_1": 12,
+   "or2_1": 1,
+   "xnor2_1": 2
+  },
+  "cells_sky130": 632,
+  "critical": {
+   "cells": 11,
+   "edge": "r",
+   "output": "D:\\_42_[2]"
+  },
+  "delay_ps_sky130": 1661,
+  "flops": 72,
+  "legality": {
+   "cells_outside_tables": 0,
+   "over_max_capacitance": 0,
+   "over_max_transition": 0,
+   "table_reads_outside": 0,
+   "worst_load_ratio": 0.279,
+   "worst_transition_ratio": 0.284
+  },
+  "liberty_sha256": "ef34f999d582044cad9c1f4d5422504ae99702ad42baa432d75215476e5d23d5",
+  "netlist_sha256": "e28c793ca5b1e8e1b90cab2259511cf79be1eb3a76c70413c2ad7fc040b363ab",
+  "params": {
+   "N": 8,
+   "W": 8
+  },
+  "path": [
+   {
+    "arrival_ps": 342.6,
+    "cell": null,
+    "edge": "f",
+    "inst": null,
+    "net": "out_data[4]",
+    "slew_ps": 81.9
+   },
+   {
+    "arrival_ps": 484.8,
+    "cell": "nand2b_1",
+    "edge": "f",
+    "inst": "_0625_",
+    "net": "_0137_",
+    "slew_ps": 34.0
+   },
+   {
+    "arrival_ps": 621.9,
+    "cell": "and2_1",
+    "edge": "f",
+    "inst": "_0626_",
+    "net": "_0138_",
+    "slew_ps": 29.9
+   },
+   {
+    "arrival_ps": 761.9,
+    "cell": "and2_1",
+    "edge": "f",
+    "inst": "_0627_",
+    "net": "_0139_",
+    "slew_ps": 33.4
+   },
+   {
+    "arrival_ps": 815.2,
+    "cell": "nand2_1",
+    "edge": "r",
+    "inst": "_0628_",
+    "net": "_0140_",
+    "slew_ps": 40.7
+   },
+   {
+    "arrival_ps": 854.9,
+    "cell": "nand2_1",
+    "edge": "f",
+    "inst": "_0632_",
+    "net": "_0144_",
+    "slew_ps": 28.2
+   },
+   {
+    "arrival_ps": 898.6,
+    "cell": "nand2_1",
+    "edge": "r",
+    "inst": "_0636_",
+    "net": "_0148_",
+    "slew_ps": 40.7
+   },
+   {
+    "arrival_ps": 933.8,
+    "cell": "nand2_1",
+    "edge": "f",
+    "inst": "_0640_",
+    "net": "_0152_",
+    "slew_ps": 23.2
+   },
+   {
+    "arrival_ps": 1125.5,
+    "cell": "and2_1",
+    "edge": "f",
+    "inst": "_0644_",
+    "net": "_0156_",
+    "slew_ps": 107.7
+   },
+   {
+    "arrival_ps": 1465.5,
+    "cell": "nor2b_1",
+    "edge": "r",
+    "inst": "_0677_",
+    "net": "_0189_",
+    "slew_ps": 377.2
+   },
+   {
+    "arrival_ps": 1554.6,
+    "cell": "nand2_1",
+    "edge": "f",
+    "inst": "_0688_",
+    "net": "_0198_",
+    "slew_ps": 68.7
+   },
+   {
+    "arrival_ps": 1610.3,
+    "cell": "nand2_1",
+    "edge": "r",
+    "inst": "_0692_",
+    "net": "\\_42_[2]",
+    "slew_ps": 34.7
+   }
+  ],
+  "ppa_pins_sha256": "d66a6086a37a97f5985266057051979fb6a8a3c557d3ef9c42acc1b5e41502d8",
+  "ppa_version": "sky130_a0_v3",
+  "repair": {
+   "buffers": 0,
+   "cells_before": 632,
+   "method": "buffer_trees_v1",
+   "netlist_sha256": "57e3fcad7ef59834b82ba550ef99fee97e0a37e1afb58ae76413a11f72f0f4dd",
+   "nets_buffered": 0,
+   "rounds": 1,
+   "tie_cells": 0
+  },
+  "sequential": true,
+  "setup": {
+   "input_drive": "sky130_fd_sc_hd__buf_8",
+   "pi_slew_ps": 50,
+   "po_load_ff": 10,
+   "tables": "no extrapolation",
+   "wires": "none"
+  },
+  "unit_depth": 12
+ },
+ "sv_sha256": "e79c076ee73dd8f1d31bffe26d56813fd5a2f1a020db467a97343ac133494148",
+ "task": "sorter",
+ "tools": {
+  "elkjs": "0.3.0",
+  "netlistsvg": "1.0.2",
+  "skin_sha256": "de50376718060bd4c77b5c0006949db9e633966e0ff18c5d5866276f5379fb99",
+  "yosys": "Yosys 0.53 (git sha1 53c22ab7c0ced80861c7536c5dae682c30fb5834, clang++ 17.0.0 -fPIC -O3)"
+ }
+}

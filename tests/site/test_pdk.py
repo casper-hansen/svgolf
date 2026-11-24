@@ -874,15 +874,17 @@ class PdkTest(unittest.TestCase):
             e = lb.asap7pnr_entry(real("sorter"), rec["files"]["sv"]["sha256"])
             vo = e["scores"]["v_owner"]
             with self.subTest(record=rec["record_hash"][:12]):
-                self.assertNotIn(flat(combined.fmt(combined.um2ns(vo["exact"], R))), shown)
-                self.assertNotIn(lb.fmt_um2_e5(vo["area_e5um2"]), shown)
+                if vo is not None:          # a pending entry (1c5eed8aec2a, 2026-11-24) has no routed number to hide
+                    self.assertNotIn(flat(combined.fmt(combined.um2ns(vo["exact"], R))), shown)
+                    self.assertNotIn(lb.fmt_um2_e5(vo["area_e5um2"]), shown)
                 h = site.files[f"tasks/sorter/records/{rec['record_hash']}.html"].decode("utf-8")
                 # (a writeup is its author's prose, dated by its author, and may quote the numbers of its day: the
                 # site's own numbers are checked here, the page without its writeup card)
                 h = re.sub(r'<section class="card writeup">.*?</section>', "", h, flags=re.S)
                 self.assertNotIn("The writeup</h2>", h)                       # (the card was found and removed)
                 self.assertIn(why, text_of(view_of(h, R)))
-                self.assertNotIn(flat(combined.fmt(combined.um2ns(vo["exact"], R))), text_of(view_of(h, R)))
+                if vo is not None:
+                    self.assertNotIn(flat(combined.fmt(combined.um2ns(vo["exact"], R))), text_of(view_of(h, R)))
                 if rec in mine:
                     (tr,) = [x for x in re.findall(r"<tr>(.*?)</tr>", rest, re.S)
                              if f"records/{rec['record_hash']}.html" in x]

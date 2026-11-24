@@ -2096,8 +2096,8 @@ point and to the current pins, the routed course lists it under "Not ranked" wit
 and route pending" while it has no run) and shows a dash: never a cells-only number or an older one in its place.
 Since 2026-11-13 every design the tasks show (52 design files: records, references and baselines, the 13 matmul
 architecture records included) has a routed score, except a record added after that day until its run is made (twelve
-matmul records, recorded 2026-11-19, 2026-11-20 and ten on 2026-11-23, and two arbiter records, both of 2026-11-23,
-wait for their runs).
+matmul records, recorded 2026-11-19, 2026-11-20 and ten on 2026-11-23, two arbiter records, both of 2026-11-23, and
+one sorter record, of 2026-11-24, wait for their runs).
 
 **The layout picture.** Each routed design's record page, and par's, shows the layout of its scored run in the
 netlist card's Layout tab (in the page's Schematics tab), beside the schematic, on the routed course only (decided

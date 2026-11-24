@@ -3749,6 +3749,8 @@ class Asap7PnrTest(Tmp):
             self.assertIn("(validity_rule)", reason)
         old["course"]["validity_rule"] = self.pins["validity_rule"]           # even under the new rule's words
         for e in old["designs"]:
+            if e["status"] == "pending":        # a request without runs has no check to miss (since 2026-11-24)
+                continue
             status, reason, _ = lb.asap7pnr_status(old, a7, e["sv_sha256"], task=task, pins=self.pins)
             self.assertEqual((status, "not made" in reason), ("failed", True))
 
@@ -3824,6 +3826,8 @@ class Asap7PnrTest(Tmp):
         os.makedirs(os.path.join(self.tmp, "sitedata"))
         os.makedirs(os.path.join(self.tmp, "images", name))
         for e in src["designs"]:
+            if not e["layout"]:                 # a pending entry (since 2026-11-24): no pictures
+                continue
             for key in ("image", "thumb"):
                 shutil.copy(os.path.join(lb.SVGOLF, *e["layout"][key].split("/")),
                             os.path.join(self.tmp, "images", name, f"{e['sv_sha256'][:8]}-{key}.webp"))
@@ -3876,7 +3880,7 @@ class Asap7PnrTest(Tmp):
             fh.write(json.dumps(short, indent=1, sort_keys=True) + "\n")
         rc, out, err = quiet(lb.main, ["asap7pnr", "--asap7pnr-dir", tdir])
         self.assertEqual(rc, 0, out + err)
-        self.assertIn("[ok] sorter: 2 designs: 1 bound, 1 pending", out)
+        self.assertIn("[ok] sorter: 3 designs: 1 bound, 2 pending", out)    # 2026-11-24: 1c5eed8aec2a pending too
         self.assertIn(f"{', '.join(gone['of'])}: {lb.PNR_PENDING}", out)
         self.assertRegex(out, rf"(?m)^total: {bound - 1} bound, {waiting + 1} pending$")
         rc, out, err = quiet(lb.main, ["board", "--task", "sorter", "--pdk", "asap7pnr", "--format", "json"])
@@ -3955,7 +3959,7 @@ class Asap7PnrRequestTest(Tmp):
             self.assertEqual(e[k], self.gone[k], k)
         rc, out, err = quiet(lb.main, ["asap7pnr", "--task", "sorter", "--asap7pnr-dir", self.dir])
         self.assertEqual(rc, 0, out + err)
-        self.assertIn("[ok] sorter: 2 designs: 1 bound, 1 pending", out)
+        self.assertIn("[ok] sorter: 3 designs: 1 bound, 2 pending", out)    # 2026-11-24: 1c5eed8aec2a pending too
         self.assertIn(lb.PNR_PENDING, out)
 
     def test_a_drawn_seed(self):
@@ -4056,7 +4060,7 @@ class VerifyRoutedTest(Tmp):
         self.assertEqual(rc, 0, out + err)
         n = len([f for f in os.listdir(lb.ASAP7PNR_DIR) if f.endswith(".json")])
         self.assertRegex(out, rf"(?m)^verify \(offline\): \d+ records, 0 failed, 0 stale; {n} routed tables, 0 failed$")
-        self.assertIn("[ok] asap7pnr/sorter: 2 entries well-formed, every picture its file", out)
+        self.assertIn("[ok] asap7pnr/sorter: 3 entries well-formed, every picture its file", out)   # 2026-11-24: 3
         rc, out, err = self.verify()
         self.assertEqual(rc, 0, out + err)
         self.assertIn("; 1 routed tables, 0 failed", out)
@@ -4146,7 +4150,8 @@ class CommittedAsap7PnrTest(unittest.TestCase):
         # 2026-11-23: and clockwork-otter's matmul records f14f8e008cc0, 2b625ce36431, 5bff489cc2ef, 1136031894d5,
         # 4d9952fba7ea, c2bd6423d5ba, 5611b8c6e722, 11dcd56ed592, 80aea08acec2 and cbfca35ec4df, and its arbiter
         # record 728250a87028; and ember-stoat's arbiter record 142a9737465b
-        self.assertEqual(totals, {"bound": 52, "pending": 14})
+        # 2026-11-24: and ember-stoat's sorter record 1c5eed8aec2a
+        self.assertEqual(totals, {"bound": 52, "pending": 15})
 
 
 def git(cwd, *args):
